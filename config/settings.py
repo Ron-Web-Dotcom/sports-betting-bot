@@ -8,7 +8,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent.parent
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
-ODDS_API_KEY        = os.getenv("ODDS_API_KEY", "")
+ODDS_API_KEY        = os.getenv("ODDS_API_KEY", "2abd34975bfe02e0ce58cd8410450f79")
 ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
 DISCORD_WEBHOOK_URL = os.getenv(
     "DISCORD_WEBHOOK_URL",
