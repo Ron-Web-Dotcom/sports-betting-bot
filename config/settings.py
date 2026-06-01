@@ -10,7 +10,10 @@ BASE_DIR = Path(__file__).parent.parent
 # ── API Keys ──────────────────────────────────────────────────────────────────
 ODDS_API_KEY        = os.getenv("ODDS_API_KEY", "")
 ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+DISCORD_WEBHOOK_URL = os.getenv(
+    "DISCORD_WEBHOOK_URL",
+    "https://discord.com/api/webhooks/1511150608185561118/CfcL7QAa7zwDuxIQ3U0xG-oamLypdx2yYkE_xhFQrFS9mWO_KySrItLb1nzVLpgVG-sx",
+)
 
 # Platform credentials (public endpoints used where auth not required)
 PRIZEPICKS_API_BASE  = "https://api.prizepicks.com"
@@ -27,13 +30,13 @@ DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "data" / "betting_bot.db"))
 # ── Trading ───────────────────────────────────────────────────────────────────
 PAPER_TRADING        = os.getenv("PAPER_TRADING", "true").lower() == "true"
 BANKROLL             = float(os.getenv("BANKROLL", "1000.0"))
-MAX_KELLY_FRACTION   = float(os.getenv("MAX_KELLY_FRACTION", "0.25"))   # cap at 25 % of Kelly
-MAX_BET_PCT          = float(os.getenv("MAX_BET_PCT", "0.05"))          # max 5 % of bankroll
-MIN_EDGE_THRESHOLD   = float(os.getenv("MIN_EDGE_THRESHOLD", "0.03"))   # 3 % minimum edge
-MIN_CONFIDENCE       = float(os.getenv("MIN_CONFIDENCE", "0.60"))       # 60 % AI confidence floor
+MAX_KELLY_FRACTION   = float(os.getenv("MAX_KELLY_FRACTION", "0.25"))
+MAX_BET_PCT          = float(os.getenv("MAX_BET_PCT", "0.05"))
+MIN_EDGE_THRESHOLD   = float(os.getenv("MIN_EDGE_THRESHOLD", "0.03"))
+MIN_CONFIDENCE       = float(os.getenv("MIN_CONFIDENCE", "0.60"))
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
-SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))  # every 5 min
+SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
 
 # ── Sports to track ───────────────────────────────────────────────────────────
 TRACKED_SPORTS = [
