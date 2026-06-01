@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).parent.parent
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
 ODDS_API_KEY        = os.getenv("ODDS_API_KEY", "2abd34975bfe02e0ce58cd8410450f79")
-ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "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")
 DISCORD_WEBHOOK_URL = os.getenv(
     "DISCORD_WEBHOOK_URL",
     "https://discord.com/api/webhooks/1511150608185561118/CfcL7QAa7zwDuxIQ3U0xG-oamLypdx2yYkE_xhFQrFS9mWO_KySrItLb1nzVLpgVG-sx",
