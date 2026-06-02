@@ -63,7 +63,10 @@ def normalise_event(event: dict, sport_key: str) -> dict:
             markets.setdefault(mk, {})
             for outcome in mkt.get("outcomes", []):
                 sel   = outcome["name"]
-                price = int(outcome.get("price", -110))
+                try:
+                    price = int(outcome.get("price", -110))
+                except (TypeError, ValueError):
+                    price = -110
                 line  = outcome.get("point")
                 markets[mk].setdefault(sel, [])
                 markets[mk][sel].append({

@@ -25,12 +25,12 @@ def generate_picks(self):
         import redis as _redis
         from datetime import datetime
         _r = _redis.from_url(REDIS_URL, socket_connect_timeout=2, decode_responses=True)
-        _lock_key = f"pick_gen_lock:{datetime.utcnow().strftime('%Y%m%d%H%M') [:-1]}"
+        _lock_key = f"pick_gen_lock:{datetime.utcnow().strftime('%Y%m%d%H')}"
         if not _r.set(_lock_key, "1", nx=True, ex=650):
             logger.info("generate_picks: another instance already running, skipping")
             return {"skipped": True}
-    except Exception:
-        pass  # Redis unavailable — allow execution without lock
+    except Exception as _lock_exc:
+        logger.warning("Redis lock unavailable (%s) — proceeding without idempotency guard", _lock_exc)
 
     try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
@@ -82,6 +82,7 @@ def generate_picks(self):
 
             ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
             if not ai:
+                logger.warning("AI analysis returned None for game_id=%s — skipping", game_id)
                 continue
 
             from src.engines.ev_engine import american_to_decimal, implied_prob, remove_vig, evaluate
@@ -163,7 +164,8 @@ def generate_picks(self):
 
             # pick_id is None when the gate blocked the pick — do not alert
             if pick.recommendation == "BET" and pick_id is not None:
-                pick_dict = pick.__dict__.copy()
+                import dataclasses
+                pick_dict = dataclasses.asdict(pick)
                 pick_dict["id"] = pick_id
                 bet_picks.append(pick_dict)
 
@@ -212,9 +214,9 @@ def generate_parlays():
                 selection      = selection or "",
                 book           = best_book or "",
                 american_odds  = american_odds or -110,
-                win_probability= confidence_pct or 0.5,
+                win_probability= (confidence_pct or 50) / 100.0,
                 ev_pct         = ev_pct or 0.0,
-                confidence     = confidence_pct or 0.5,
+                confidence     = (confidence_pct or 50) / 100.0,
             )
             for pid, game_id, selection, sport, market, best_book, american_odds, confidence_pct, ev_pct in rows
         ]
@@ -222,7 +224,8 @@ def generate_parlays():
 
         if parlays:
             from src.workers.alert_worker import send_parlay_alerts
-            send_parlay_alerts.delay([p.__dict__ for p in parlays])
+            import dataclasses
+            send_parlay_alerts.delay([dataclasses.asdict(p) for p in parlays])
 
         return {"parlays": len(parlays)}
 

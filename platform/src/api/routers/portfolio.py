@@ -11,7 +11,7 @@ def portfolio_summary(period: str = Query("daily", enum=["daily", "weekly", "mon
 
 
 @router.get("/bankroll-history")
-def bankroll_history(days: int = Query(30, le=365)):
+def bankroll_history(days: int = Query(30, ge=1, le=365)):
     from src.db.session import get_db
     from src.db.models import BankrollSnapshot
     from datetime import datetime, timedelta

@@ -114,10 +114,6 @@ services:
       postgres:
         condition: service_healthy
 
-  discord-bot:
-    <<: *app-base
-    command: python -m src.discord_bot.run
-
   # Nightly DB backup — dumps postgres to a local volume at 2 AM UTC
   db-backup:
     image: postgres:16-alpine

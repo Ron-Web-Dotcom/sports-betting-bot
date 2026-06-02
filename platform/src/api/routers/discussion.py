@@ -12,8 +12,8 @@ VALID_COMMANDS = {
 
 
 class DiscussionRequest(BaseModel):
-    command: str
-    args: str = Field(max_length=2000)
+    command: str = Field(max_length=50)
+    args: str = Field(default="", max_length=2000)
     context: dict | None = None
 
 

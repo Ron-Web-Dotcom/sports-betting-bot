@@ -72,6 +72,11 @@ async def rate_limit_discuss(request: Request, call_next):
                 status_code=429,
                 content={"detail": "Rate limit exceeded — max 10 /discuss requests per minute"},
             )
+        # Prune stale entries every 1000 requests to prevent unbounded memory growth
+        if len(_rate_cache) > 1000:
+            stale = [k for k, (ws, _) in _rate_cache.items() if now - ws > 120]
+            for k in stale:
+                _rate_cache.pop(k, None)
     return await call_next(request)
 
 
@@ -96,3 +101,8 @@ app.include_router(feedback.router,         prefix="/feedback", tags=["feedback"
 async def startup():
     from src.db.session import init_db
     init_db()
+    if not _API_KEY:
+        logger.warning(
+            "PLATFORM_API_KEY is not set — all endpoints are publicly accessible! "
+            "Set PLATFORM_API_KEY in your environment for production."
+        )

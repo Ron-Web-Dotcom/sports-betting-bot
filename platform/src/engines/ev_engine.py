@@ -49,6 +49,8 @@ def remove_vig(odds_a: int, odds_b: int) -> tuple[float, float]:
     p_a = implied_prob(odds_a)
     p_b = implied_prob(odds_b)
     total = p_a + p_b
+    if total <= 0:
+        return 0.5, 0.5
     return p_a / total, p_b / total
 
 
@@ -93,7 +95,7 @@ def evaluate(
             is_positive_ev=False,
         )
 
-    projected_prob = max(0.0, projected_prob)
+    projected_prob = max(0.0, min(1.0, projected_prob))
     dec     = american_to_decimal(american_odds)
     book_imp = implied_prob(american_odds)
 

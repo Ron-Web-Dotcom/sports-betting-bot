@@ -53,7 +53,7 @@ def _embed(title: str, description: str, color: int, fields: list[dict] | None =
 async def post_pick(pick: dict) -> None:
     rec = pick.get("recommendation", "PASS")
     color = 0x2E7D32 if rec == "BET" else 0x757575
-    units = pick.get("units", 0)
+    units = min(max(int(pick.get("units", 0)), 0), 5)
     unit_bar = "█" * units + "░" * (5 - units)
 
     fields = [
@@ -99,8 +99,8 @@ async def post_result(pick: dict, result: str) -> None:
         fields.append({"name": "CLV", "value": f"{clv:+.2%}"})
 
     embed = _embed(
-        title=f"[{labels.get(result, result.upper())}] {pick.get('bet', 'Unknown')}",
-        description=f"P&L: **{pnl:+.2f}u**",
+        title=f"[{labels.get(result, (result or 'UNKNOWN').upper())}] {pick.get('bet', 'Unknown')}",
+        description=f"P&L: **{(pnl or 0):+.2f}u**",
         color=colors.get(result, 0x757575),
         fields=fields,
     )

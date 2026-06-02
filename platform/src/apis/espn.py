@@ -121,9 +121,11 @@ def fetch_teams(sport_key: str) -> list[dict]:
             "sport":        sport_key,
             "source":       "espn",
         }
-        for t in data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
-        if t.get("team")
-        for t in [t["team"]]
+        for t in (
+            entry.get("team", entry)
+            for entry in data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            if entry.get("team")
+        )
     ]
 
 

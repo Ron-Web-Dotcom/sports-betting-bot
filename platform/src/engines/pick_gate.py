@@ -134,7 +134,7 @@ def _books_showing_edge(ev_pct: float, odds_by_book: dict) -> int:
             prob = implied_prob(int(american_odds))
             # Book shows edge if its implied prob is within 3% of the best book
             # (i.e., the line is roughly consistent, not a one-book anomaly)
-            if dec > 1.0 and prob < 0.60:   # crude sanity — refine once CLV data exists
+            if dec > 1.0:
                 count += 1
         except (TypeError, ValueError, ZeroDivisionError):
             continue

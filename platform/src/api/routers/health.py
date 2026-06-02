@@ -21,7 +21,7 @@ def system_health():
                 "name": s.name,
                 "status": s.status,
                 "latency_ms": s.latency_ms,
-                "last_check": s.last_check.isoformat(),
+                "last_check": s.last_check.isoformat() if s.last_check else None,
                 "error": s.error,
             }
             for s in health.services

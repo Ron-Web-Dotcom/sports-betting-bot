@@ -16,10 +16,14 @@ class BookComparison:
 
     @property
     def best(self) -> dict:
+        if not self.books:
+            return {"book": "—", "american_odds": -110, "decimal_odds": 1.909, "implied_prob": 0.524}
         return max(self.books, key=lambda x: x["decimal_odds"])
 
     @property
     def worst(self) -> dict:
+        if not self.books:
+            return {"book": "—", "american_odds": -110, "decimal_odds": 1.909, "implied_prob": 0.524}
         return min(self.books, key=lambda x: x["decimal_odds"])
 
     @property

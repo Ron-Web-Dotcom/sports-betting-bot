@@ -70,16 +70,28 @@ def check_database() -> ServiceStatus:
 
 
 def check_discord() -> ServiceStatus:
-    import os, urllib.request
+    import os
+    import urllib.request, urllib.error
     name = "discord"
     t0 = time.monotonic()
     try:
         webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
         if not webhook:
             raise ValueError("DISCORD_WEBHOOK_URL not set")
-        req = urllib.request.Request(webhook, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read(64)
+        # Discord webhooks only accept POST — GET returns 405. Send an empty POST
+        # with ?wait=false so Discord doesn't queue a message, just validates the URL.
+        data = b"{}"
+        req = urllib.request.Request(webhook + "?wait=false", data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp.read(64)
+        except urllib.error.HTTPError as http_err:
+            # 400 = bad JSON body but webhook exists and is reachable → treat as ok
+            if http_err.code in (400, 204):
+                pass
+            else:
+                raise
         latency = (time.monotonic() - t0) * 1000
         return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
     except Exception as e:

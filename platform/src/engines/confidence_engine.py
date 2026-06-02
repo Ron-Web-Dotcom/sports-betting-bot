@@ -117,9 +117,11 @@ def update_calibration(sport: str, market: str, bucket: str, won: bool) -> None:
                 sport=sport, market=market, confidence_bucket=bucket,
             ).first()
             if not rec:
+                low_str = bucket.split("-")[0] if "-" in bucket else "50"
+                predicted = float(low_str) / 100 if low_str.isdigit() else 0.5
                 rec = ConfidenceCalibration(
                     sport=sport, market=market, confidence_bucket=bucket,
-                    predicted_win_rate=float(bucket.split("-")[0]) / 100,
+                    predicted_win_rate=predicted,
                     actual_win_rate=0.0, sample_size=0,
                 )
                 db.add(rec)

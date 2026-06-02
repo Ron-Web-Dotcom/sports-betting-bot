@@ -373,7 +373,7 @@ class UserProfile(Base):
     user_id      = Column(String(100), unique=True, nullable=False)
     bankroll     = Column(Float, default=1000.0)
     risk_profile = Column(String(20), default="balanced")
-    sports       = Column(JSON, default=list)
+    sports       = Column(JSON, default=lambda: [])
     max_units    = Column(Integer, default=3)
     min_ev       = Column(Float, default=0.02)
     created_at   = Column(DateTime, default=datetime.utcnow)
