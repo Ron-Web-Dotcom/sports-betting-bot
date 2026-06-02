@@ -93,7 +93,7 @@ def generate_picks(self):
             # not a second book's price for the same selection.
             # The AI returns the opposing side's implied probability; convert back to american.
             opp_prob = ai.get("opponent_probability")
-            if opp_prob and 0 < opp_prob < 1:
+            if opp_prob is not None and 0 < opp_prob < 1:
                 from src.engines.ev_engine import decimal_to_american
                 opp_decimal = 1.0 / opp_prob
                 opponent_odds = decimal_to_american(opp_decimal)
