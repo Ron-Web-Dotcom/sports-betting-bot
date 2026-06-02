@@ -265,6 +265,7 @@ class TestDataHub:
             "away_form_statmuse": {"games": []},
             "sharp_action":       {"signals": []},
             "news_espn":          [{"headline": "Z"}],
+            "sofascore":          {"available": True, "form": {"home": "WWW"}},
         }
         score = _score_completeness(context)
         assert score == 1.0

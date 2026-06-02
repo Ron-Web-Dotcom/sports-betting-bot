@@ -2,7 +2,7 @@
 Data Hub — single interface for all real-world data sources.
 
 Aggregates ESPN, StatMuse, Ball Don't Lie, Sleeper, Weather, Action Network,
-and RotoWire into one normalized context payload per game.
+RotoWire, and SofaScore into one normalized context payload per game.
 
 This payload is what gets fed to the AI engine and pick gate.
 Richer context = better explanations = more trustworthy recommendations.
@@ -50,6 +50,7 @@ def build_game_context(
         "sharp_action":        (_fetch_sharp_action,     (sport_key, home_team, away_team)),
         "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
         "trending_players":    (_fetch_trending,          (sport_key,)),
+        "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -62,7 +63,7 @@ def build_game_context(
         tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
     # Run all fetches in parallel with a 30s wall-clock budget
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
         try:
             for future in as_completed(futures, timeout=30):
@@ -202,6 +203,11 @@ def _fetch_rotowire_injuries(sport_key: str) -> list:
     from src.apis.rotowire import fetch_injuries
     return fetch_injuries(sport_key)
 
+def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_time: str) -> dict:
+    from src.apis.sofascore import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team, game_time)
+    return result if result.get("available") else {}
+
 def _fetch_player_season(name: str, sport_key: str) -> dict:
     from src.apis.statmuse import player_season_stats
     return player_season_stats(name, sport_key)
@@ -234,5 +240,6 @@ def _score_completeness(context: dict) -> float:
         bool(context.get("away_form_statmuse")),
         bool(context.get("sharp_action")),
         bool(context.get("news_espn")),
+        bool(context.get("sofascore")),
     ]
     return sum(checks) / len(checks)
