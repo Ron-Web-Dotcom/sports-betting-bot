@@ -2,12 +2,10 @@
 Data Hub — single interface for all real-world data sources.
 
 Aggregates ESPN, StatMuse, Ball Don't Lie, Sleeper, Weather, Action Network,
-RotoWire, SofaScore, API-Sports, TheSportsDB, Stats Perform, and SportsData.io
-into one normalized context payload per game.
+RotoWire, SofaScore, and SportsData.io into one normalized context payload.
 
-Core sources (no key needed): ESPN, StatMuse, SofaScore, TheSportsDB (free tier),
-                               Action Network, Sleeper, RotoWire, Ball Don't Lie
-Premium sources (API key req'd): API-Sports, Stats Perform, SportsData.io
+Free sources: ESPN, StatMuse, SofaScore, Action Network, Sleeper, RotoWire, Ball Don't Lie
+Premium (key required): SportsData.io (per-sport subscription keys)
 
 This payload is what gets fed to the AI engine and pick gate.
 Richer context = better explanations = more trustworthy recommendations.
@@ -56,10 +54,7 @@ def build_game_context(
         "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
         "trending_players":    (_fetch_trending,          (sport_key,)),
         "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
-        # New premium sources — each checks for its own API key and returns {} if unconfigured
-        "api_sports":          (_fetch_api_sports,        (sport_key, home_team, away_team)),
-        "sportsdb":            (_fetch_sportsdb,          (sport_key, home_team, away_team)),
-        "statsperform":        (_fetch_statsperform,      (sport_key, home_team, away_team)),
+        # SportsData.io — checks for its own API key, returns {} if unconfigured
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
     }
 
@@ -73,7 +68,7 @@ def build_game_context(
         tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
     # Run all fetches in parallel with a 30s wall-clock budget
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    with ThreadPoolExecutor(max_workers=10) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
         try:
             for future in as_completed(futures, timeout=30):
@@ -218,21 +213,6 @@ def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_t
     result = enrich_game_context(sport_key, home_team, away_team, game_time)
     return result if result.get("available") else {}
 
-def _fetch_api_sports(sport_key: str, home_team: str, away_team: str) -> dict:
-    from src.apis.api_sports import enrich_game_context
-    result = enrich_game_context(sport_key, home_team, away_team)
-    return result if result.get("available") else {}
-
-def _fetch_sportsdb(sport_key: str, home_team: str, away_team: str) -> dict:
-    from src.apis.sportsdb import enrich_game_context
-    result = enrich_game_context(sport_key, home_team, away_team)
-    return result if result.get("available") else {}
-
-def _fetch_statsperform(sport_key: str, home_team: str, away_team: str) -> dict:
-    from src.apis.statsperform import enrich_game_context
-    result = enrich_game_context(sport_key, home_team, away_team)
-    return result if result.get("available") else {}
-
 def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.sportsdataio import enrich_game_context
     result = enrich_game_context(sport_key, home_team, away_team)
@@ -276,13 +256,7 @@ def _score_completeness(context: dict) -> float:
         bool(context.get("news_espn")),
         bool(context.get("sofascore")),
     ]
-    premium = [
-        bool(context.get("api_sports")),
-        bool(context.get("sportsdb")),
-        bool(context.get("statsperform")),
-        bool(context.get("sportsdataio")),
-    ]
-    # Core sources: max 1.0; each premium source adds up to 0.25 bonus, capped at 1.0
+    # SportsData.io bonus: +0.10 when available (standings + injuries + team stats)
+    premium_bonus = 0.10 if context.get("sportsdataio") else 0.0
     core_score = sum(core) / len(core)
-    premium_bonus = min(sum(premium) * 0.05, 0.20)
     return min(1.0, round(core_score + premium_bonus, 4))
