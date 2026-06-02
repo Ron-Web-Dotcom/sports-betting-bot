@@ -1,109 +1,99 @@
-"""Claude AI decision engine — analyses opportunities and returns structured signals."""
+"""Claude AI — analyses individual legs, scores parlays, writes plain-English summaries."""
 import json
 import logging
-from typing import Any
-
 import anthropic
 
 from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-SYSTEM_PROMPT = """You are an expert sports betting analyst and quantitative trader.
-Your job is to analyse betting opportunities and return a structured JSON decision.
+# ── System prompts ────────────────────────────────────────────────────────────
 
-You will receive:
-- Betting event details (teams, sport, market, odds)
-- Live injury reports from ESPN
-- Recent news and player trends
-- Lines from multiple platforms (PrizePicks, Underdog, DraftKings, FanDuel)
+_LEG_SYSTEM = """You are an elite sports betting analyst. Your job is to evaluate a single betting
+leg and return a structured JSON decision.
 
-You must return ONLY valid JSON in this exact schema — no markdown, no extra text:
+Input: event details, live odds from multiple books, ESPN injury report, recent news.
+
+Return ONLY valid JSON — no markdown, no commentary:
 {
   "should_bet": true | false,
-  "selection": "<team or player name to bet on>",
-  "market": "<h2h | spread | total | player_prop>",
+  "selection": "<exact team or player name>",
+  "market": "h2h" | "spreads" | "totals" | "player_prop",
   "win_probability": <float 0.0-1.0>,
   "confidence": <float 0.0-1.0>,
-  "reasoning": "<2-3 sentence plain-English explanation>",
+  "signal_type": "value" | "steam" | "fade" | "sharp" | "parlay_leg",
+  "reasoning": "<2-3 sentence plain English>",
   "key_factors": ["<factor1>", "<factor2>", "<factor3>"],
-  "risk_flags": ["<any concern or reason to avoid>"],
-  "recommended_platform": "<prizepicks | underdog | draftkings | fanduel | the_odds_api>"
+  "risk_flags": ["<concern if any>"],
+  "best_book": "<book offering best line>",
+  "parlay_friendly": true | false
 }
 
-Be conservative. Only recommend a bet when you see genuine edge. When uncertain, set should_bet to false."""
+Be conservative. Only set should_bet=true when you see genuine edge (3%+ EV).
+Set parlay_friendly=true when the leg has 60%+ confidence and fits a 2-4 leg parlay."""
+
+_PARLAY_SYSTEM = """You are an expert parlay analyst. Given a set of pre-screened legs
+with positive individual EV, decide whether they combine well into a parlay.
+
+Return ONLY valid JSON:
+{
+  "approve_parlay": true | false,
+  "parlay_type": "standard" | "sgp" | "round_robin",
+  "reasoning": "<2-3 sentences>",
+  "correlation_risk": "low" | "medium" | "high",
+  "recommended_legs": [<list of leg indices to include, 0-based>],
+  "risk_flags": ["<any concern>"]
+}"""
+
+_SUMMARY_SYSTEM = "You are a sports betting results analyst. Write a short, punchy session summary in plain English using bullet points. Max 6 bullets. Focus on wins, losses, best call, biggest miss."
 
 
-def analyse_opportunity(event: dict, injuries: list[dict], news: list[dict], lines: dict) -> dict | None:
-    """
-    Ask Claude to evaluate a betting opportunity.
-    Returns parsed JSON signal or None on failure.
-    """
+# ── Public functions ───────────────────────────────────────────────────────────
+
+def analyse_leg(event: dict, injuries: list, news: list, odds_by_book: dict) -> dict | None:
     payload = {
-        "event": event,
-        "injuries": injuries[:20],
-        "recent_news": news[:5],
-        "platform_lines": lines,
+        "event":      event,
+        "odds":       odds_by_book,
+        "injuries":   injuries[:15],
+        "news":       news[:5],
     }
+    prompt = f"Evaluate this betting leg:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
+    return _call(prompt, _LEG_SYSTEM)
 
-    prompt = (
-        f"Analyse this betting opportunity and return a JSON decision:\n\n"
-        f"```json\n{json.dumps(payload, indent=2, default=str)}\n```"
-    )
 
+def approve_parlay(legs: list[dict]) -> dict | None:
+    payload = {"legs": legs}
+    prompt = f"Should these legs be combined into a parlay?\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
+    return _call(prompt, _PARLAY_SYSTEM)
+
+
+def write_session_summary(bets: list[dict], parlays: list[dict], bankroll: float) -> str:
+    payload = {
+        "bankroll":     bankroll,
+        "straight_bets": bets,
+        "parlays":      parlays,
+    }
+    prompt = f"Write a session summary:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
+    result = _call(prompt, _SUMMARY_SYSTEM, raw_text=True)
+    return result or "Session summary unavailable."
+
+
+def _call(prompt: str, system: str, raw_text: bool = False) -> dict | str | None:
     try:
-        response = client.messages.create(
+        response = _client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=CLAUDE_MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=system,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text.strip()
-        signal = json.loads(raw)
-        signal["raw_response"] = raw
-        return signal
+        if raw_text:
+            return raw
+        return json.loads(raw)
     except json.JSONDecodeError as exc:
-        logger.error("Claude returned non-JSON: %s — %s", exc, raw[:200])
+        logger.error("Claude JSON parse error: %s | raw=%.100s", exc, raw if 'raw' in dir() else "")
         return None
     except anthropic.APIError as exc:
         logger.error("Claude API error: %s", exc)
         return None
-
-
-def batch_analyse(opportunities: list[dict]) -> list[dict]:
-    """Run analysis on a list of opportunities; skip failed analyses."""
-    signals = []
-    for opp in opportunities:
-        signal = analyse_opportunity(
-            event=opp.get("event", {}),
-            injuries=opp.get("injuries", []),
-            news=opp.get("news", []),
-            lines=opp.get("lines", {}),
-        )
-        if signal:
-            signal["_source"] = opp
-            signals.append(signal)
-    return signals
-
-
-def summarise_session(bets: list[dict], bankroll: float) -> str:
-    """Ask Claude to write a plain-English session summary for Discord."""
-    if not bets:
-        return "No bets placed this session."
-
-    prompt = (
-        f"Write a short, plain-English session summary (max 5 bullet points) for these bets. "
-        f"Current bankroll: ${bankroll:.2f}.\n\n"
-        f"```json\n{json.dumps(bets, indent=2, default=str)}\n```"
-    )
-    try:
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text.strip()
-    except anthropic.APIError as exc:
-        logger.error("Claude session summary error: %s", exc)
-        return "Session summary unavailable."

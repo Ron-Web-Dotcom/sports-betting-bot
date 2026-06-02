@@ -1,49 +1,70 @@
-"""Tests for paper trader."""
+"""Tests for the Executor (paper/live bet placement)."""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+from src.core.signal_engine import Signal
 
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    with patch("config.settings.DB_PATH", db_path), \
-         patch("src.core.database.DB_PATH", db_path):
+    db = str(tmp_path / "test.db")
+    with patch("config.settings.DB_PATH", db), patch("src.core.database.DB_PATH", db):
         from src.core.database import init_db
         init_db()
-        yield db_path
+        yield db
 
 
-def _make_trader():
-    with patch("config.settings.PAPER_TRADING", True):
-        from src.core.paper_trader import PaperTrader
-        return PaperTrader()
+def _make_signal(event_id: str = "e1") -> Signal:
+    return Signal(
+        sport="basketball_nba", event_id=event_id,
+        event_name="Lakers vs Celtics", market="h2h",
+        selection="Lakers", book="draftkings", american_odds=-110,
+        win_probability=0.65, ai_confidence=0.68,
+        composite_score=0.67, edge=0.05,
+    )
 
 
-def test_place_bet_returns_id():
-    trader = _make_trader()
-    with patch("src.core.paper_trader.insert_bet", return_value=42) as mock_insert:
-        bet_id = trader.place_bet(
-            platform="prizepicks",
-            sport="basketball_nba",
-            event_id="ev1",
-            event_name="Lakers vs Celtics",
-            market="h2h",
-            selection="Lakers",
-            american_odds=-110,
-            stake=10.0,
-            kelly_fraction=0.03,
-            ai_confidence=0.65,
-            edge=0.04,
-            raw_signal={},
-        )
-    assert bet_id == 42
+def test_place_straight_bet_returns_id():
+    from src.core.paper_trader import Executor
+    executor = Executor()
+    sizing = {"stake": 15.0, "kelly_fraction": 0.03, "edge": 0.05}
+    with patch("src.core.paper_trader.insert_position", return_value=99) as mock_insert:
+        pos_id = executor.place_straight_bet(_make_signal(), sizing)
+    assert pos_id == 99
     assert mock_insert.called
 
 
-def test_settle_updates_bankroll():
-    trader = _make_trader()
-    with patch("src.core.paper_trader.settle_bet") as mock_settle, \
-         patch("src.core.paper_trader.update_bankroll_after_bet") as mock_update:
-        trader.settle(1, "win", 1.91, 10.0)
-        mock_settle.assert_called_once_with(1, "win", pytest.approx(9.1, abs=0.1))
-        mock_update.assert_called_once()
+def test_place_parlay_returns_ids():
+    from src.core.paper_trader import Executor
+    from src.core.parlay_builder import ParlayCandidate
+    from unittest.mock import patch as _patch
+
+    executor = Executor()
+    legs = [_make_signal(f"e{i}") for i in range(2)]
+    candidate = ParlayCandidate(
+        legs=legs,
+        combined_decimal=4.0,
+        win_probability=0.42,
+        ev=0.05,
+        sizing={"stake": 10.0, "kelly_fraction": 0.02, "edge": 0.05},
+    )
+
+    call_count = {"n": 0}
+
+    def fake_insert_pos(pos):
+        call_count["n"] += 1
+        return call_count["n"]
+
+    def fake_insert_parlay(p):
+        return 1
+
+    with _patch("src.core.paper_trader.insert_position", side_effect=fake_insert_pos), \
+         _patch("src.core.paper_trader.insert_parlay", return_value=1), \
+         _patch("src.core.database.get_conn") as mock_conn:
+        mock_conn.return_value.__enter__ = lambda s: mock_conn.return_value
+        mock_conn.return_value.__exit__  = lambda s, *a: False
+        mock_conn.return_value.execute   = lambda *a, **kw: None
+
+        parlay_id, leg_ids = executor.place_parlay(candidate)
+
+    assert parlay_id == 1
+    assert len(leg_ids) == 2

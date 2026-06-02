@@ -1,88 +1,89 @@
-"""Paper trading engine — simulates bet placement and settlement."""
+"""Execution engine — places straight bets and parlays (paper or live)."""
 import logging
-from datetime import datetime
-
 from config.settings import PAPER_TRADING
-from src.core.database import insert_bet, settle_bet, get_open_bets
-from src.core.risk_manager import update_bankroll_after_bet
+from src.core.database import insert_position, insert_parlay
 from src.apis.odds_api import american_to_decimal
+from src.core.signal_engine import Signal
+from src.core.parlay_builder import ParlayCandidate
 
 logger = logging.getLogger(__name__)
+_MODE = "PAPER" if PAPER_TRADING else "LIVE"
 
 
-class PaperTrader:
+class Executor:
     def __init__(self) -> None:
-        self.paper = PAPER_TRADING
-        if self.paper:
+        if PAPER_TRADING:
             logger.info("🟡 Paper trading mode — no real money at risk")
         else:
-            logger.warning("🔴 LIVE trading mode — real money at risk!")
+            logger.warning("🔴 LIVE trading mode active")
 
-    def place_bet(
-        self,
-        *,
-        platform: str,
-        sport: str,
-        event_id: str,
-        event_name: str,
-        market: str,
-        selection: str,
-        american_odds: int,
-        stake: float,
-        kelly_fraction: float,
-        ai_confidence: float,
-        edge: float,
-        raw_signal: dict,
-    ) -> int:
-        """Record a (paper) bet. Returns the DB row id."""
-        decimal_odds = american_to_decimal(american_odds)
-        mode = "PAPER" if self.paper else "LIVE"
-        logger.info(
-            "[%s] Placing bet — %s | %s | %s @ %+d | $%.2f stake",
-            mode, platform, event_name, selection, american_odds, stake,
-        )
-        bet = {
-            "platform":       platform,
-            "sport":          sport,
-            "event_id":       event_id,
-            "event_name":     event_name,
-            "market":         market,
-            "selection":      selection,
-            "odds":           decimal_odds,
-            "stake":          stake,
-            "kelly_fraction": kelly_fraction,
-            "ai_confidence":  ai_confidence,
-            "edge":           edge,
-            "raw_signal":     raw_signal,
+    def place_straight_bet(self, signal: Signal, sizing: dict, parlay_id: int | None = None) -> int:
+        """Record a straight bet. Returns position DB id."""
+        dec = american_to_decimal(signal.american_odds)
+        pos = {
+            "sport":          signal.sport,
+            "event_id":       signal.event_id,
+            "event_name":     signal.event_name,
+            "market":         signal.market,
+            "selection":      signal.selection,
+            "book":           signal.book,
+            "american_odds":  signal.american_odds,
+            "decimal_odds":   dec,
+            "stake":          sizing["stake"],
+            "kelly_fraction": sizing["kelly_fraction"],
+            "edge":           sizing["edge"],
+            "ai_confidence":  signal.ai_confidence,
+            "parlay_id":      parlay_id,
+            "signal_data":    signal.raw_data,
         }
-        bet_id = insert_bet(bet)
-        logger.info("[%s] Bet #%d recorded in DB", mode, bet_id)
-        return bet_id
+        pos_id = insert_position(pos)
+        logger.info(
+            "[%s] Straight bet #%d | %s | %s @ %+d | $%.2f stake | edge=%.1f%%",
+            _MODE, pos_id, signal.event_name, signal.selection,
+            signal.american_odds, sizing["stake"], sizing["edge"] * 100,
+        )
+        return pos_id
 
-    def settle(self, bet_id: int, result: str, decimal_odds: float, stake: float) -> None:
-        """Mark bet as won/lost and update bankroll."""
-        pnl = stake * (decimal_odds - 1) if result == "win" else -stake
-        settle_bet(bet_id, result, round(pnl, 2))
-        update_bankroll_after_bet(stake, result, decimal_odds)
-        logger.info("Bet #%d settled: %s | P&L $%.2f", bet_id, result, pnl)
-
-    def auto_settle_completed(self, live_scores: dict[str, list[dict]]) -> None:
+    def place_parlay(self, candidate: ParlayCandidate) -> tuple[int, list[int]]:
         """
-        Attempt to auto-settle pending bets using live score data.
-        live_scores: {sport_key: [score_objects from OddsAPI]}
+        Place all legs of a parlay.
+        Returns (parlay_db_id, [leg_position_ids]).
         """
-        open_bets = get_open_bets()
-        for bet in open_bets:
-            sport_scores = live_scores.get(bet["sport"], [])
-            for score in sport_scores:
-                if score.get("id") != bet["event_id"]:
-                    continue
-                if not score.get("completed"):
-                    continue
+        # Insert parlay record first (without leg ids)
+        parlay_row = {
+            "legs":           [],  # filled after legs inserted
+            "combined_odds":  candidate.combined_decimal,
+            "stake":          candidate.sizing["stake"],
+            "potential_payout": round(candidate.sizing["stake"] * candidate.combined_decimal, 2),
+            "leg_count":      len(candidate.legs),
+            "parlay_type":    candidate.parlay_type,
+        }
+        parlay_id = insert_parlay(parlay_row)
 
-                home_score = int(score.get("scores", [{}])[0].get("score", 0))
-                away_score = int(score.get("scores", [{}])[1].get("score", 0))
-                winner = score.get("home_team") if home_score > away_score else score.get("away_team")
-                result = "win" if winner == bet["selection"] else "loss"
-                self.settle(bet["id"], result, bet["odds"], bet["stake"])
-                break
+        # Insert each leg linked to this parlay
+        leg_ids = []
+        for sig in candidate.legs:
+            leg_sizing = {
+                "stake":          candidate.sizing["stake"],  # parlay stake = single stake
+                "kelly_fraction": candidate.sizing["kelly_fraction"],
+                "edge":           sig.edge,
+            }
+            pos_id = self.place_straight_bet(sig, leg_sizing, parlay_id=parlay_id)
+            leg_ids.append(pos_id)
+
+        # Update parlay with actual leg ids
+        from src.core.database import get_conn
+        import json
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE parlays SET legs=? WHERE id=?",
+                (json.dumps(leg_ids), parlay_id),
+            )
+
+        logger.info(
+            "[%s] Parlay #%d | %d legs | combined %+d | $%.2f stake | payout=$%.2f",
+            _MODE, parlay_id, len(candidate.legs),
+            candidate.american_odds, candidate.sizing["stake"],
+            parlay_row["potential_payout"],
+        )
+        return parlay_id, leg_ids
