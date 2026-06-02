@@ -1,0 +1,26 @@
+[Unit]
+Description=Sports Betting Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=betting
+Group=betting
+WorkingDirectory=/opt/sports-betting-bot
+EnvironmentFile=/opt/sports-betting-bot/.env
+ExecStart=/opt/sports-betting-bot/venv/bin/python bot.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sports-betting-bot
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/sports-betting-bot/data /opt/sports-betting-bot/logs
+
+[Install]
+WantedBy=multi-user.target
