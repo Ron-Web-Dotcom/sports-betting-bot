@@ -365,6 +365,31 @@ class AuditTrail(Base):
     __table_args__ = (Index("ix_audit_occurred", "occurred_at"), Index("ix_audit_type", "event_type"))
 
 
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+    id           = Column(Integer, primary_key=True)
+    user_id      = Column(String(100), unique=True, nullable=False)
+    bankroll     = Column(Float, default=1000.0)
+    risk_profile = Column(String(20), default="balanced")
+    sports       = Column(JSON, default=list)
+    max_units    = Column(Integer, default=3)
+    min_ev       = Column(Float, default=0.02)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UserFeedback(Base):
+    __tablename__ = "user_feedback"
+    id                 = Column(Integer, primary_key=True)
+    pick_id            = Column(Integer, ForeignKey("picks.id"), nullable=False)
+    user_id            = Column(String(100), nullable=False)
+    rating             = Column(String(20), nullable=False)  # helpful|not_helpful
+    explanation_rating = Column(Integer, default=3)          # 1-5
+    comment            = Column(Text, default="")
+    submitted_at       = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (Index("ix_feedback_pick_id", "pick_id"),)
+
+
 class AlertRecord(Base):
     __tablename__ = "alert_records"
     id              = Column(Integer, primary_key=True)

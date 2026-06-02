@@ -90,4 +90,9 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.snapshot_portfolio",
         "schedule": crontab(hour=0, minute=5),
     },
+    # Monthly summary — 1st of month 12:01 AM UTC
+    "monthly-summary": {
+        "task": "src.workers.analytics_worker.send_monthly_summary",
+        "schedule": crontab(day_of_month=1, hour=0, minute=1),
+    },
 }

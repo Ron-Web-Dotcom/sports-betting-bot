@@ -151,6 +151,80 @@ async def cmd_bankroll(interaction: discord.Interaction, situation: str):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="setbankroll", description="Set your bankroll amount")
+async def cmd_setbankroll(interaction: discord.Interaction, amount: float):
+    await interaction.response.defer(ephemeral=True)
+    from src.engines.personalization_engine import get_profile, save_profile
+    profile = get_profile(str(interaction.user.id))
+    profile.bankroll = amount
+    save_profile(profile)
+    await interaction.followup.send(f"Bankroll set to **${amount:,.2f}**", ephemeral=True)
+
+
+@bot.tree.command(name="setsports", description="Set your sports (comma-separated)")
+async def cmd_setsports(interaction: discord.Interaction, sports: str):
+    await interaction.response.defer(ephemeral=True)
+    from src.engines.personalization_engine import get_profile, save_profile
+    profile = get_profile(str(interaction.user.id))
+    profile.sports = [s.strip() for s in sports.split(",") if s.strip()]
+    save_profile(profile)
+    await interaction.followup.send(f"Sports set to: **{', '.join(profile.sports)}**", ephemeral=True)
+
+
+@bot.tree.command(name="setrisk", description="Set risk profile: conservative, balanced, or aggressive")
+async def cmd_setrisk(interaction: discord.Interaction, profile: str):
+    await interaction.response.defer(ephemeral=True)
+    from src.engines.personalization_engine import get_profile, save_profile, RISK_PROFILES
+    if profile not in RISK_PROFILES:
+        await interaction.followup.send("Invalid profile. Choose: conservative, balanced, aggressive", ephemeral=True)
+        return
+    user_profile = get_profile(str(interaction.user.id))
+    user_profile.risk_profile = profile
+    user_profile.max_units = RISK_PROFILES[profile]["max_units"]
+    user_profile.min_ev = RISK_PROFILES[profile]["min_ev"]
+    save_profile(user_profile)
+    await interaction.followup.send(f"Risk profile set to **{profile}**", ephemeral=True)
+
+
+@bot.tree.command(name="profile", description="Show your current settings")
+async def cmd_profile(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    from src.engines.personalization_engine import get_profile
+    p = get_profile(str(interaction.user.id))
+    desc = (
+        f"**Bankroll:** ${p.bankroll:,.2f}\n"
+        f"**Risk Profile:** {p.risk_profile}\n"
+        f"**Max Units:** {p.max_units}\n"
+        f"**Min EV:** {p.min_ev:.1%}\n"
+        f"**Sports:** {', '.join(p.sports) if p.sports else 'All'}"
+    )
+    embed = discord.Embed(title="Your Profile", description=desc, color=0x00897B)
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="rate", description="Rate a pick: /rate <pick_id> <helpful|not_helpful>")
+async def cmd_rate(interaction: discord.Interaction, pick_id: int, rating: str):
+    await interaction.response.defer(ephemeral=True)
+    from src.engines.feedback_engine import submit_feedback, PickFeedback
+    if rating not in ("helpful", "not_helpful"):
+        await interaction.followup.send("Rating must be 'helpful' or 'not_helpful'", ephemeral=True)
+        return
+    fb = PickFeedback(pick_id=pick_id, user_id=str(interaction.user.id), rating=rating, explanation_rating=3)
+    submit_feedback(fb)
+    await interaction.followup.send(f"Feedback submitted for pick #{pick_id}: **{rating}**", ephemeral=True)
+
+
+@bot.tree.command(name="health", description="Show system health dashboard")
+async def cmd_health(interaction: discord.Interaction):
+    await interaction.response.defer()
+    from src.engines.health_engine import get_system_health, format_health_report
+    health = get_system_health()
+    report = format_health_report(health)
+    color = {"ok": 0x2E7D32, "degraded": 0xF57F17, "down": 0xC62828}.get(health.overall, 0x757575)
+    embed = discord.Embed(title="System Health", description=report, color=color)
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="top-picks", description="Best picks available right now")
 async def cmd_top_picks(interaction: discord.Interaction):
     await interaction.response.defer()
