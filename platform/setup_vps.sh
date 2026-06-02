@@ -20,6 +20,9 @@ grep -q "^POSTGRES_PASSWORD=" .env     || error "POSTGRES_PASSWORD not set in .e
 PGPASS=$(grep "^POSTGRES_PASSWORD=" .env | cut -d= -f2)
 [[ "$PGPASS" == "...choose-a-strong-password..." ]] && error "Change POSTGRES_PASSWORD from the placeholder value"
 [[ ${#PGPASS} -lt 16 ]] && warn "POSTGRES_PASSWORD is short — use at least 16 characters for production"
+APIKEY=$(grep "^PLATFORM_API_KEY=" .env | cut -d= -f2)
+[[ -z "$APIKEY" || "$APIKEY" == "...generate-a-random-64-char-hex-string..." ]] && \
+    error "PLATFORM_API_KEY not set. Generate one: python3 -c \"import secrets; print(secrets.token_hex(32))\""
 
 # ── 2. Install Docker if missing ──────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
