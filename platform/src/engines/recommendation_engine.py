@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from src.engines.ev_engine import EVResult, bankroll_examples
+from src.engines.ev_engine import EVResult, bankroll_examples, american_to_decimal
 from src.engines.confidence_engine import ConfidenceResult
 from src.engines.risk_engine import RiskAssessment
 from src.engines.comparison_engine import BookComparison
@@ -184,7 +184,7 @@ def persist_pick(
             selection            = pick.bet,
             best_book            = pick.sportsbook,
             american_odds_at_gen = pick.odds,
-            decimal_odds_at_gen  = 1.0 / (pick.ev_pct + 0.5) if pick.ev_pct > -0.5 else 2.0,
+            decimal_odds_at_gen  = american_to_decimal(pick.odds) if pick.odds else 2.0,
             recommendation       = pick.recommendation,
             units                = pick.units,
             ev_pct               = pick.ev_pct,

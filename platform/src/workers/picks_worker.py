@@ -73,8 +73,17 @@ def generate_picks(self):
             from src.engines.ev_engine import american_to_decimal, implied_prob, remove_vig, evaluate
             best_odds = best_snap.get("best_odds", -110)
 
-            # Use the full evaluate() pipeline for a complete EVResult
-            opponent_odds = list(odds_by_book.values())[1] if len(odds_by_book) > 1 else None
+            # Use the full evaluate() pipeline for a complete EVResult.
+            # opponent_odds must be the OTHER side of the market (for vig removal),
+            # not a second book's price for the same selection.
+            # The AI returns the opposing side's implied probability; convert back to american.
+            opp_prob = ai.get("opponent_probability")
+            if opp_prob and 0 < opp_prob < 1:
+                from src.engines.ev_engine import decimal_to_american
+                opp_decimal = 1.0 / opp_prob
+                opponent_odds = decimal_to_american(opp_decimal)
+            else:
+                opponent_odds = None
             ev_result = evaluate(
                 american_odds   = best_odds,
                 projected_prob  = ai.get("win_probability", 0.5),
@@ -159,15 +168,23 @@ def generate_parlays():
         if len(today_picks) < 2:
             return {"parlays": 0}
 
-        picks_dicts = [
-            {
-                "id": p.id, "bet": p.selection, "sport": p.sport,
-                "odds": p.american_odds_at_gen, "ev_pct": p.ev_pct,
-                "confidence_pct": p.confidence_pct,
-            }
+        from src.engines.parlay_engine import ParlayLeg
+        parlay_legs = [
+            ParlayLeg(
+                event_id       = str(p.game_id or p.id),
+                event_name     = p.selection or "",
+                sport          = p.sport or "",
+                market         = p.market or "h2h",
+                selection      = p.selection or "",
+                book           = p.best_book or "",
+                american_odds  = p.american_odds_at_gen or -110,
+                win_probability= (p.confidence_pct or 0.5),
+                ev_pct         = p.ev_pct or 0.0,
+                confidence     = p.confidence_pct or 0.5,
+            )
             for p in today_picks
         ]
-        parlays = find_best_parlays(picks_dicts, max_legs=4, top_n=3)
+        parlays = find_best_parlays(parlay_legs, max_legs=4, top_n=3)
 
         if parlays:
             from src.workers.alert_worker import send_parlay_alerts

@@ -82,12 +82,13 @@ def snapshot_portfolio():
     from datetime import datetime
 
     stats = get_performance_stats("lifetime")
+    daily_stats = get_performance_stats("daily")
     with get_db() as db:
         db.add(BankrollSnapshot(
-            snapshot_date=datetime.utcnow().date(),
-            bankroll=stats.get("net_units", 0),
-            daily_pnl=get_performance_stats("daily").get("net_units", 0),
-            notes="auto",
+            recorded_at  = datetime.utcnow(),
+            balance      = stats.get("net_units", 0),
+            units_total  = daily_stats.get("net_units", 0),
+            note         = "auto",
         ))
     logger.info("Portfolio snapshot saved")
     return stats

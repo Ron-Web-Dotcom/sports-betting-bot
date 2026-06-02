@@ -5,12 +5,12 @@ Celery application — Sports Intelligence Platform.
 """
 from celery import Celery
 from celery.schedules import crontab
-from src.core.config import REDIS_URL
+from src.core.config import CELERY_BROKER, CELERY_BACKEND
 
 app = Celery(
     "sports_intel",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=CELERY_BROKER,
+    backend=CELERY_BACKEND,
     include=[
         "src.workers.odds_worker",
         "src.workers.news_worker",

@@ -13,11 +13,27 @@ PLATFORM_VERSION = "1.0.0"
 ENVIRONMENT      = os.getenv("ENVIRONMENT", "development")  # development | staging | production
 
 # ── API Keys ───────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY", "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")
-ODDS_API_KEY         = os.getenv("ODDS_API_KEY",       "2abd34975bfe02e0ce58cd8410450f79")
-DISCORD_BOT_TOKEN    = os.getenv("DISCORD_BOT_TOKEN",  "")
-DISCORD_GUILD_ID     = int(os.getenv("DISCORD_GUILD_ID", "0"))
-DISCORD_WEBHOOK_URL  = os.getenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1511150608185561118/CfcL7QAa7zwDuxIQ3U0xG-oamLypdx2yYkE_xhFQrFS9mWO_KySrItLb1nzVLpgVG-sx")
+def _require(name: str) -> str:
+    """Fail loudly at startup if a required secret is missing — never use a hardcoded default."""
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"Required environment variable '{name}' is not set. "
+            "Add it to your .env file or deployment secrets manager."
+        )
+    return value
+
+def _optional(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+# Keys that are always required (no fallback — fail fast rather than silently use wrong key)
+ANTHROPIC_API_KEY   = _require("ANTHROPIC_API_KEY")
+ODDS_API_KEY        = _require("ODDS_API_KEY")
+
+# Discord credentials are optional so the platform can run without a bot configured
+DISCORD_BOT_TOKEN   = _optional("DISCORD_BOT_TOKEN")
+DISCORD_GUILD_ID    = int(os.getenv("DISCORD_GUILD_ID", "0"))
+DISCORD_WEBHOOK_URL = _optional("DISCORD_WEBHOOK_URL")
 
 # ── Database ───────────────────────────────────────────────────────────────────
 DATABASE_URL    = os.getenv("DATABASE_URL",    "postgresql://sip:sip_pass@localhost:5432/sip_db")
@@ -86,7 +102,7 @@ SPORTS = {
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
 
 # ── Claude ─────────────────────────────────────────────────────────────────────
-CLAUDE_MODEL      = "claude-opus-4-8"
+CLAUDE_MODEL      = "claude-sonnet-4-6"
 CLAUDE_MAX_TOKENS = 2048
 
 # ── Discord channel names ──────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ FastAPI application — Sports Intelligence Platform.
 
 REST API for the web dashboard and external integrations.
 """
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routers import picks, analytics, portfolio, discussion, health, personalization, feedback
@@ -13,12 +14,18 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# allow_origins=["*"] and allow_credentials=True is forbidden by the CORS spec
+# (browsers will reject such responses). Restrict origins to explicitly configured
+# hosts; fall back to localhost-only in development.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
 app.include_router(health.router,      prefix="/health",     tags=["health"])

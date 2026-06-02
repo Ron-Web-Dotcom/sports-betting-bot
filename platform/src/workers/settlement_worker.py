@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 from src.workers.celery_app import app
 from src.db.session import get_db
-from src.db.models import Pick, Game, Sport
+from src.db.models import Pick, Game, Sport, BetResult
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +38,9 @@ def settle_completed_picks(self):
         alerts_to_send = []
 
         with get_db() as db:
+            from sqlalchemy import or_
             open_picks = db.query(Pick).filter(
-                Pick.result.is_(None),
+                or_(Pick.result == BetResult.PENDING, Pick.result.is_(None)),
                 Pick.recommendation == "BET",
                 Pick.generated_at >= datetime.utcnow() - timedelta(days=3),
             ).all()
@@ -95,7 +96,7 @@ def settle_completed_picks(self):
 
                 # Re-fetch within same session to avoid stale state
                 db_pick = db.query(Pick).filter_by(id=pick.id).first()
-                if not db_pick or db_pick.result is not None:
+                if not db_pick or db_pick.result != BetResult.PENDING:
                     # Already settled — skip to prevent double-settlement
                     continue
 
@@ -189,8 +190,9 @@ def record_closing_lines():
     from src.engines.odds_engine import get_latest_snapshots_by_game
 
     with get_db() as db:
+        from sqlalchemy import or_
         open_picks = db.query(Pick).filter(
-            Pick.result.is_(None),
+            or_(Pick.result == BetResult.PENDING, Pick.result.is_(None)),
             Pick.recommendation == "BET",
         ).all()
 
