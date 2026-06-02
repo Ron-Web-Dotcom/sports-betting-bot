@@ -185,10 +185,10 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
     """Map game outcome to pick result."""
     status = score.get("status", "")
     if status in ("canceled", "postponed"):
-        return "void"
+        return BetResult.VOID
 
     if score.get("push"):
-        return "push"
+        return BetResult.PUSH
 
     selection = (pick.selection or "").strip()
     market    = (pick.market or "h2h").lower()
@@ -203,8 +203,8 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             return None
         is_over = selection.lower().startswith("over")
         if abs(total_scored - total_line) < 0.1:
-            return "push"
-        return "won" if (is_over and total_scored > total_line) or \
+            return BetResult.PUSH
+        return BetResult.WON if (is_over and total_scored > total_line) or \
                         (not is_over and total_scored < total_line) else "lost"
 
     # ── Spreads ───────────────────────────────────────────────────────────────
@@ -228,8 +228,8 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             margin = (home_score - away_score) if is_home else (away_score - home_score)
             covered = margin + spread
             if abs(covered) < 0.1:
-                return "push"
-            return "won" if covered > 0 else "lost"
+                return BetResult.PUSH
+            return BetResult.WON if covered > 0 else "lost"
 
     # ── Moneyline (h2h) ───────────────────────────────────────────────────────
     if not winner:
@@ -241,9 +241,9 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
     if winner_norm and selection_norm and (
         winner_norm in selection_norm or selection_norm in winner_norm
     ):
-        return "won"
+        return BetResult.WON
 
-    return "lost"
+    return BetResult.LOST
 
 
 def _calculate_pnl(pick: Pick, result: str) -> float:
