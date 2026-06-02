@@ -53,7 +53,7 @@ def detect_movements(
     for key, snaps in by_key.items():
         if len(snaps) < 2:
             continue
-        snaps_sorted = sorted(snaps, key=lambda x: x["captured_at"])
+        snaps_sorted = sorted(snaps, key=lambda x: x.get("captured_at") or "")
         oldest = snaps_sorted[0]
         newest = snaps_sorted[-1]
 

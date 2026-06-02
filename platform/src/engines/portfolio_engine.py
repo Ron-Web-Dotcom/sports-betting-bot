@@ -105,33 +105,33 @@ def get_performance_stats(period: str = "lifetime") -> dict:
     cutoff = cutoffs.get(period, cutoffs["lifetime"])
 
     with get_db() as db:
-        picks = db.query(Pick).filter(
+        rows = db.query(
+            Pick.result, Pick.actual_pnl_units, Pick.units,
+        ).filter(
             Pick.generated_at >= cutoff,
             Pick.result.in_(["won", "lost", "push"]),
         ).all()
 
-    if not picks:
+    if not rows:
         return {"period": period, "total": 0, "wins": 0, "losses": 0,
                 "units_won": 0.0, "roi": 0.0, "hit_rate": 0.0}
 
-    wins   = [p for p in picks if p.result == "won"]
-    losses = [p for p in picks if p.result == "lost"]
-    units_won    = sum(p.actual_pnl_units or 0 for p in wins)
-    units_lost   = sum(abs(p.actual_pnl_units or 0) for p in losses)
-    # Total wagered = units staked on every bet (wins + losses + pushes)
-    total_wagered = sum(p.units or 1 for p in picks)
+    wins   = [r for r in rows if r.result == "won"]
+    losses = [r for r in rows if r.result == "lost"]
+    units_won    = sum(r.actual_pnl_units or 0 for r in wins)
+    units_lost   = sum(abs(r.actual_pnl_units or 0) for r in losses)
+    total_wagered = sum(r.units or 1 for r in rows)
 
     return {
         "period":        period,
-        "total":         len(picks),
+        "total":         len(rows),
         "wins":          len(wins),
         "losses":        len(losses),
         "units_won":     round(units_won,  2),
         "units_lost":    round(units_lost, 2),
         "net_units":     round(units_won - units_lost, 2),
         "total_wagered": round(total_wagered, 2),
-        "hit_rate":      round(len(wins) / len(picks), 4) if picks else 0.0,
-        # ROI = net profit / total amount wagered (industry standard)
+        "hit_rate":      round(len(wins) / len(rows), 4),
         "roi":           round((units_won - units_lost) / max(total_wagered, 0.01), 4),
         "profit_factor": round(units_won / max(units_lost, 0.01), 2),
     }

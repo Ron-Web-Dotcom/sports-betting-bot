@@ -46,7 +46,10 @@ def _geocode(city: str) -> tuple[float, float] | None:
     if not data or not data.get("results"):
         return None
     r = data["results"][0]
-    return r.get("latitude"), r.get("longitude")
+    lat, lon = r.get("latitude"), r.get("longitude")
+    if lat is None or lon is None:
+        return None
+    return lat, lon
 
 
 def get_game_weather(venue_or_city: str, game_time_iso: str) -> dict:
@@ -84,7 +87,9 @@ def get_game_weather(venue_or_city: str, game_time_iso: str) -> dict:
     codes  = hours.get("weathercode", [])
 
     game_hour = game_time_iso[:13]   # "2024-01-15T18"
-    idx = next((i for i, t in enumerate(times) if t.startswith(game_hour)), 0)
+    idx = next((i for i, t in enumerate(times) if t.startswith(game_hour)), None)
+    if idx is None:
+        return {"available": False, "venue": venue_or_city, "reason": "game time not in forecast window"}
 
     temp  = temps[idx]  if idx < len(temps)  else None
     wind  = winds[idx]  if idx < len(winds)  else None

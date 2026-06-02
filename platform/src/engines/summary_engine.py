@@ -183,75 +183,93 @@ def get_monthly_summary(year: Optional[int] = None, month: Optional[int] = None)
     end = datetime(year, month, last_day, 23, 59, 59)
 
     with get_db() as db:
-        picks = db.query(Pick).filter(
+        picks_orm = db.query(Pick).filter(
             Pick.generated_at >= start,
             Pick.generated_at <= end,
             Pick.recommendation == "BET",
         ).all()
-        parlays = db.query(Parlay).filter(
+        parlays_orm = db.query(Parlay).filter(
             Parlay.created_at >= start,
             Parlay.created_at <= end,
         ).all()
+        # Read all fields inside session to avoid DetachedInstanceError
+        picks = [
+            {
+                "sport": p.sport, "market": p.market, "best_book": p.best_book,
+                "units": p.units, "result": p.result, "clv_pct": p.clv_pct,
+                "actual_pnl_units": p.actual_pnl_units,
+                "selection": p.selection, "id": p.id,
+                "settled_at": p.settled_at,
+            }
+            for p in picks_orm
+        ]
+        parlays = [
+            {
+                "id": pl.id, "legs": len(pl.legs or []),
+                "combined_odds": pl.combined_odds, "pnl_units": pl.pnl_units,
+            }
+            for pl in parlays_orm
+        ]
 
     total_bets = len(picks)
-    settled = [p for p in picks if p.actual_pnl_units is not None]
-    total_profit = sum(p.actual_pnl_units for p in settled)
-    total_units = sum(p.units for p in picks if p.units)
+    settled = [p for p in picks if p["actual_pnl_units"] is not None]
+    total_profit = sum(p["actual_pnl_units"] for p in settled)
+    total_units = sum(p["units"] for p in picks if p["units"])
     total_roi = total_profit / total_units if total_units > 0 else 0.0
-    clv_picks = [p for p in picks if p.clv_pct is not None]
-    avg_clv = sum(p.clv_pct for p in clv_picks) / len(clv_picks) if clv_picks else 0.0
+    clv_picks = [p for p in picks if p["clv_pct"] is not None]
+    avg_clv = sum(p["clv_pct"] for p in clv_picks) / len(clv_picks) if clv_picks else 0.0
 
     sport_pnl: dict = {}
     for p in settled:
-        sport_pnl.setdefault(p.sport, 0.0)
-        sport_pnl[p.sport] += p.actual_pnl_units
+        sport_pnl.setdefault(p["sport"], 0.0)
+        sport_pnl[p["sport"]] += p["actual_pnl_units"]
     best_sport = max(sport_pnl, key=sport_pnl.get) if sport_pnl else None
 
     market_pnl: dict = {}
     for p in settled:
-        market_pnl.setdefault(p.market, 0.0)
-        market_pnl[p.market] += p.actual_pnl_units
+        market_pnl.setdefault(p["market"], 0.0)
+        market_pnl[p["market"]] += p["actual_pnl_units"]
     best_market = max(market_pnl, key=market_pnl.get) if market_pnl else None
 
     book_pnl: dict = {}
     for p in settled:
-        book_pnl.setdefault(p.best_book, 0.0)
-        book_pnl[p.best_book] += p.actual_pnl_units
+        book_pnl.setdefault(p["best_book"], 0.0)
+        book_pnl[p["best_book"]] += p["actual_pnl_units"]
     best_sportsbook = max(book_pnl, key=book_pnl.get) if book_pnl else None
 
     # parlays sorted by pnl
     settled_parlays = sorted(
-        [pl for pl in parlays if pl.pnl_units is not None],
-        key=lambda pl: pl.pnl_units,
+        [pl for pl in parlays if pl["pnl_units"] is not None],
+        key=lambda pl: pl["pnl_units"],
         reverse=True,
     )
     best_parlays = [
-        {"id": pl.id, "legs": len(pl.legs), "odds": pl.combined_odds, "pnl": pl.pnl_units}
+        {"id": pl["id"], "legs": pl["legs"], "odds": pl["combined_odds"], "pnl": pl["pnl_units"]}
         for pl in settled_parlays[:5]
     ]
 
     # best props
     prop_picks = sorted(
-        [p for p in settled if "prop" in (p.market or "").lower()],
-        key=lambda p: p.actual_pnl_units,
+        [p for p in settled if "prop" in (p["market"] or "").lower()],
+        key=lambda p: p["actual_pnl_units"],
         reverse=True,
     )
     best_props = [
-        {"id": p.id, "selection": p.selection, "sport": p.sport, "pnl": p.actual_pnl_units}
+        {"id": p["id"], "selection": p["selection"], "sport": p["sport"], "pnl": p["actual_pnl_units"]}
         for p in prop_picks[:5]
     ]
 
     # streaks
     picks_sorted = sorted(
-        [p for p in picks if p.result in ("won", "lost") and p.settled_at],
-        key=lambda p: p.settled_at,
+        [p for p in picks if p["result"] in ("won", "lost") and p["settled_at"]],
+        key=lambda p: p["settled_at"],
     )
     largest_winning_streak = 0
     largest_losing_streak = 0
     cur_win = 0
     cur_loss = 0
     for p in picks_sorted:
-        if p.result == "won":
+        if p["result"] == "won":
             cur_win += 1
             cur_loss = 0
         else:

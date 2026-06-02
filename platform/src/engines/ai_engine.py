@@ -164,7 +164,10 @@ def _call_json(prompt: str, system: str) -> dict | None:
             model=CLAUDE_MODEL, max_tokens=CLAUDE_MAX_TOKENS, system=system,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = resp.content[0].text.strip()
+        raw = resp.content[0].text.strip() if resp.content else ""
+        if not raw:
+            logger.warning("Claude returned empty content")
+            return None
         # Strip markdown code fences Claude sometimes wraps JSON in
         if raw.startswith("```"):
             raw = raw.split("```", 2)[1]
@@ -186,7 +189,7 @@ def _call_text(prompt: str, system: str) -> str | None:
             model=CLAUDE_MODEL, max_tokens=CLAUDE_MAX_TOKENS, system=system,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.content[0].text.strip()
+        return resp.content[0].text.strip() if resp.content else None
     except anthropic.APIError as e:
         logger.error("Claude API error: %s", e)
         return None

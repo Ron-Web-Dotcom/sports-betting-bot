@@ -90,15 +90,16 @@ def apply_feedback_to_model(picks: list[dict]) -> list[dict]:
     from src.db.models import UserFeedback, Pick as PickModel
 
     with get_db() as db:
-        feedback_rows = db.query(UserFeedback).all()
-        # build sport+market -> avg rating map
+        rows = (
+            db.query(UserFeedback.rating, PickModel.sport, PickModel.market)
+            .join(PickModel, PickModel.id == UserFeedback.pick_id)
+            .all()
+        )
         combo_scores: dict[str, list[float]] = {}
-        for fb in feedback_rows:
-            pick_row = db.query(PickModel).filter(PickModel.id == fb.pick_id).first()
-            if pick_row:
-                key = f"{pick_row.sport}:{pick_row.market}"
-                combo_scores.setdefault(key, [])
-                combo_scores[key].append(1.0 if fb.rating == "helpful" else 0.0)
+        for rating, sport, market in rows:
+            key = f"{sport}:{market}"
+            combo_scores.setdefault(key, [])
+            combo_scores[key].append(1.0 if rating == "helpful" else 0.0)
 
     avg_scores = {k: sum(v) / len(v) for k, v in combo_scores.items()}
 

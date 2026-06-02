@@ -120,22 +120,26 @@ def check(pick, odds_by_book: dict | None = None) -> GateResult:
 
 def _books_showing_edge(ev_pct: float, odds_by_book: dict) -> int:
     """
-    Count how many books offer odds that support a positive-EV bet
-    at the same implied probability level as the best-odds book.
-
-    A bet that's only +EV at one outlier book is likely a data error.
+    Count how many books have implied probability within 5% of the best (lowest)
+    implied probability. A bet that's +EV at only one outlier book is likely a
+    data error — we require at least 2 books showing a similar line.
     """
-    from src.engines.ev_engine import american_to_decimal, implied_prob
+    from src.engines.ev_engine import implied_prob
 
-    count = 0
-    for book, american_odds in odds_by_book.items():
+    if not odds_by_book:
+        return 0
+
+    probs = []
+    for american_odds in odds_by_book.values():
         try:
-            dec  = american_to_decimal(int(american_odds))
-            prob = implied_prob(int(american_odds))
-            # Book shows edge if its implied prob is within 3% of the best book
-            # (i.e., the line is roughly consistent, not a one-book anomaly)
-            if dec > 1.0:
-                count += 1
+            p = implied_prob(int(american_odds))
+            if 0 < p < 1:
+                probs.append(p)
         except (TypeError, ValueError, ZeroDivisionError):
             continue
-    return count
+
+    if not probs:
+        return 0
+
+    best_prob = min(probs)
+    return sum(1 for p in probs if p <= best_prob * 1.05)
