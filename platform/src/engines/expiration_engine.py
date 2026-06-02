@@ -32,8 +32,8 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
                 diff = (ct - now).total_seconds() / 60
                 minutes_to_game = max(0.0, diff)
 
-    # game is imminent
-    if minutes_to_game < 60:
+    # game is imminent — also treat unknown start time (inf) as bet_now
+    if minutes_to_game < 60 or minutes_to_game == float("inf"):
         return ExpirationWindow(
             current_odds=current_odds,
             expected_odds=current_odds,
@@ -58,7 +58,7 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
     deltas = []
     for mv in recent:
         before = mv.get("odds_before", 0)
-        after = mv.get("odds_after", mv.get("odds_after", 0))
+        after = mv.get("odds_after", 0)
         deltas.append(after - before)
 
     moving_against = all(d > 0 for d in deltas) if deltas else False  # positive = odds getting worse (higher for fav)

@@ -96,11 +96,11 @@ def settle_completed_picks(self):
 
                 # Re-fetch within same session to avoid stale state
                 db_pick = db.query(Pick).filter_by(id=pick.id).first()
-                if not db_pick or db_pick.result != BetResult.PENDING:
+                if not db_pick or db_pick.result not in (BetResult.PENDING, None, "pending"):
                     # Already settled — skip to prevent double-settlement
                     continue
 
-                pnl = _calculate_pnl(pick, result)
+                pnl = _calculate_pnl(db_pick, result)
                 db_pick.result = result
                 db_pick.actual_pnl_units = pnl
                 db_pick.settled_at = datetime.utcnow()

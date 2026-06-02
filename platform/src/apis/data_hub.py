@@ -64,16 +64,24 @@ def build_game_context(
     # Run all fetches in parallel with a 30s wall-clock budget
     with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
-        for future in as_completed(futures, timeout=30):
-            key = futures[future]
-            try:
-                result = future.result()
-                if result:
-                    context[key] = result
-                    context["sources_used"].append(key.split("_")[0])
-            except Exception as e:
-                logger.warning("Data hub fetch failed [%s]: %s", key, e)
-                context["sources_failed"].append(key)
+        try:
+            for future in as_completed(futures, timeout=30):
+                key = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        context[key] = result
+                        context["sources_used"].append(key.split("_")[0])
+                except Exception as e:
+                    logger.warning("Data hub fetch failed [%s]: %s", key, e)
+                    context["sources_failed"].append(key)
+        except TimeoutError:
+            logger.warning("Data hub timed out after 30s; cancelling remaining fetches")
+            for f in futures:
+                f.cancel()
+            context["sources_failed"].extend(
+                key for f, key in futures.items() if not f.done()
+            )
 
     context["sources_used"] = list(set(context["sources_used"]))
     context["data_completeness"] = _score_completeness(context)
@@ -115,15 +123,20 @@ def build_player_context(
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
-        for future in as_completed(futures, timeout=20):
-            key = futures[future]
-            try:
-                result = future.result()
-                if result:
-                    context[key] = result
-                    context["sources_used"].append(key.split("_")[0])
-            except Exception as e:
-                logger.warning("Player context fetch failed [%s]: %s", key, e)
+        try:
+            for future in as_completed(futures, timeout=20):
+                key = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        context[key] = result
+                        context["sources_used"].append(key.split("_")[0])
+                except Exception as e:
+                    logger.warning("Player context fetch failed [%s]: %s", key, e)
+        except TimeoutError:
+            logger.warning("Player context timed out after 20s; cancelling remaining fetches")
+            for f in futures:
+                f.cancel()
 
     context["sources_used"] = list(set(context["sources_used"]))
     return context

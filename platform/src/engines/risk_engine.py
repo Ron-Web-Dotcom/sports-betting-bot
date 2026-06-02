@@ -41,7 +41,7 @@ def _daily_units_used(sport: str | None = None) -> float:
             if sport:
                 q = q.filter(Pick.sport == sport)
             picks = q.all()
-            return sum(p.units for p in picks)
+            return sum(p.units or 0 for p in picks)
     except Exception as e:
         logger.warning("daily_units_used lookup failed: %s", e)
         return 0.0

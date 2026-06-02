@@ -8,11 +8,18 @@ from src.core.config import EFFECTIVE_DB_URL, USE_SQLITE
 
 _connect_args = {"check_same_thread": False} if USE_SQLITE else {}
 
+_pool_kwargs = {} if USE_SQLITE else {
+    "pool_size": 20,
+    "max_overflow": 40,
+    "pool_recycle": 3600,
+}
+
 engine = create_engine(
     EFFECTIVE_DB_URL,
     connect_args=_connect_args,
     pool_pre_ping=True,
     echo=False,
+    **_pool_kwargs,
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)

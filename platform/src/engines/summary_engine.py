@@ -39,8 +39,8 @@ def get_daily_summary(date: Optional[datetime] = None) -> dict:
     best_pick = None
     worst_pick = None
     if settled_picks:
-        bp = max(settled_picks, key=lambda p: p.actual_pnl_units)
-        wp = min(settled_picks, key=lambda p: p.actual_pnl_units)
+        bp = max(settled_picks, key=lambda p: p.actual_pnl_units or 0)
+        wp = min(settled_picks, key=lambda p: p.actual_pnl_units or 0)
         best_pick = {"id": bp.id, "selection": bp.selection, "sport": bp.sport, "pnl": bp.actual_pnl_units}
         worst_pick = {"id": wp.id, "selection": wp.selection, "sport": wp.sport, "pnl": wp.actual_pnl_units}
 

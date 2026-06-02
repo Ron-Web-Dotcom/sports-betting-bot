@@ -37,6 +37,8 @@ app.conf.update(
     },
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    task_soft_time_limit=300,   # SIGTERM at 5 min — lets task clean up
+    task_time_limit=600,        # SIGKILL at 10 min — prevents hung workers
 )
 
 app.conf.beat_schedule = {

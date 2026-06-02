@@ -47,14 +47,17 @@ def scan_and_save_odds(self):
                 })
 
             for game_id, info in by_game.items():
-                movements = detect_movements(
-                    game_id          = game_id,
-                    event_name       = info["event_name"],
-                    current_snapshots= info["snaps"],
-                )
-                for mv in movements:
-                    save_movement(mv)
-                all_movements.extend(movements)
+                try:
+                    movements = detect_movements(
+                        game_id          = game_id,
+                        event_name       = info["event_name"],
+                        current_snapshots= info["snaps"],
+                    )
+                    for mv in movements:
+                        save_movement(mv)
+                    all_movements.extend(movements)
+                except Exception as game_exc:
+                    logger.error("Movement detection failed for game %s: %s", game_id, game_exc)
 
         except Exception as mv_exc:
             logger.warning("Line movement detection failed: %s", mv_exc)
