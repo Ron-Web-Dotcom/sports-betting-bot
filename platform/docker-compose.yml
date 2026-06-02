@@ -1,95 +1,146 @@
 version: "3.9"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# All secrets come from .env — never hardcode credentials here.
+# Copy .env.example to .env and fill in your values before running.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-app-env: &app-env
+  USE_SQLITE: "false"
+  DATABASE_URL: postgresql://${POSTGRES_USER:-sip}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sip_db}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER: redis://redis:6379/1
+  CELERY_BACKEND: redis://redis:6379/2
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  PYTHONUNBUFFERED: "1"
+
+x-app-base: &app-base
+  build: .
+  env_file: .env
+  environment:
+    <<: *app-env
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "5"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: sip
-      POSTGRES_PASSWORD: sip_pass
-      POSTGRES_DB: sip_db
+      POSTGRES_USER: ${POSTGRES_USER:-sip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # required — no default
+      POSTGRES_DB: ${POSTGRES_DB:-sip_db}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Do NOT expose 5432 to host on a production VPS — internal only
+    expose:
+      - "5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sip -d sip_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sip} -d ${POSTGRES_DB:-sip_db}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api:
-    build: .
-    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
-    environment:
-      - USE_SQLITE=false
-      - DATABASE_URL=postgresql://sip:sip_pass@postgres:5432/sip_db
-      - REDIS_URL=redis://redis:6379/0
-    env_file: .env
+    <<: *app-base
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2
     ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - .:/app
+      - "127.0.0.1:8000:8000"   # bind to localhost only — put nginx in front
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   celery-worker:
-    build: .
-    command: celery -A src.workers.celery_app worker --loglevel=info -Q odds,news,picks,alerts,settlement,analytics -c 4
-    environment:
-      - USE_SQLITE=false
-      - DATABASE_URL=postgresql://sip:sip_pass@postgres:5432/sip_db
-      - REDIS_URL=redis://redis:6379/0
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - .:/app
+    <<: *app-base
+    command: >
+      celery -A src.workers.celery_app worker
+      --loglevel=info
+      -Q odds,news,picks,alerts,settlement,analytics
+      --concurrency=4
+      --max-tasks-per-child=200
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
 
   celery-beat:
-    build: .
-    command: celery -A src.workers.celery_app beat --loglevel=info --scheduler celery.schedulers:PersistentScheduler
-    environment:
-      - USE_SQLITE=false
-      - DATABASE_URL=postgresql://sip:sip_pass@postgres:5432/sip_db
-      - REDIS_URL=redis://redis:6379/0
-    env_file: .env
+    <<: *app-base
+    command: >
+      celery -A src.workers.celery_app beat
+      --loglevel=info
+      --scheduler celery.schedulers:PersistentScheduler
+      --pidfile=/tmp/celerybeat.pid
     depends_on:
       redis:
         condition: service_healthy
-    volumes:
-      - .:/app
 
   discord-bot:
-    build: .
+    <<: *app-base
     command: python -m src.discord_bot.run
+
+  # Nightly DB backup — dumps postgres to a local volume at 2 AM UTC
+  db-backup:
+    image: postgres:16-alpine
+    restart: "no"
     environment:
-      - USE_SQLITE=false
-      - DATABASE_URL=postgresql://sip:sip_pass@postgres:5432/sip_db
-      - REDIS_URL=redis://redis:6379/0
-    env_file: .env
+      POSTGRES_USER: ${POSTGRES_USER:-sip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-sip_db}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgbackups:/backups
+    entrypoint: >
+      sh -c "
+        mkdir -p /backups &&
+        pg_dump -h postgres -U $${POSTGRES_USER:-sip} $${POSTGRES_DB:-sip_db} |
+        gzip > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql.gz &&
+        find /backups -name '*.sql.gz' -mtime +7 -delete &&
+        echo 'Backup complete'
+      "
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - .:/app
+    profiles:
+      - backup   # run manually: docker compose --profile backup run db-backup
 
 volumes:
   pgdata:
+  pgbackups:

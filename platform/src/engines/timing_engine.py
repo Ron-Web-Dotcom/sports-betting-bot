@@ -33,9 +33,12 @@ def get_alert_window(minutes_remaining: float) -> int | None:
     """
     Return which pre-game alert window we're in, or None.
     Windows: 60, 30, 15, 10, 5, 0 minutes before game.
+
+    Iterates ascending so we return the SMALLEST window the game qualifies for.
+    e.g. 31 minutes → 30-min window (not 60-min window).
     """
-    for window in sorted(PREGAME_ALERT_WINDOWS, reverse=True):
-        if minutes_remaining <= window + 2:   # 2-min tolerance
+    for window in sorted(PREGAME_ALERT_WINDOWS):   # ascending: 0,5,10,15,30,60
+        if minutes_remaining <= window + 2:         # 2-min tolerance
             return window
     return None
 
