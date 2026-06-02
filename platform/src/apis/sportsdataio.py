@@ -4,15 +4,10 @@ SportsData.io adapter.
 Provides real-time scores, standings, injuries, depth charts, player props,
 DFS projections, and team/game stats across NFL, NBA, MLB, NHL, and Soccer.
 
-Each sport requires its own subscription key set via env vars:
-  SPORTSDATAIO_NFL_KEY    — NFL data
-  SPORTSDATAIO_NBA_KEY    — NBA data
-  SPORTSDATAIO_MLB_KEY    — MLB data
-  SPORTSDATAIO_NHL_KEY    — NHL data
-  SPORTSDATAIO_SOCCER_KEY — Soccer data
+Single API key works across all sports — sport name is part of the URL path:
+  https://api.sportsdata.io/v3/{sport}/scores/json/{endpoint}?key={key}
 
-Auth: ?key={api_key} query parameter appended to every request.
-Base URL pattern: https://api.sportsdata.io/v3/{sport}/{category}/json/{endpoint}
+Set env var: SPORTSDATAIO_KEY
 
 Endpoint reference: https://sportsdata.io/developers/api-documentation
 """
@@ -24,37 +19,43 @@ from src.apis.base import get_json
 
 logger = logging.getLogger(__name__)
 
-# ── Sport routing ──────────────────────────────────────────────────────────────
-
-_SPORT_MAP: dict[str, tuple[str, str]] = {
-    "americanfootball_nfl": ("nfl",    "SPORTSDATAIO_NFL_KEY"),
-    "basketball_nba":       ("nba",    "SPORTSDATAIO_NBA_KEY"),
-    "baseball_mlb":         ("mlb",    "SPORTSDATAIO_MLB_KEY"),
-    "icehockey_nhl":        ("nhl",    "SPORTSDATAIO_NHL_KEY"),
-}
-
 _BASE = "https://api.sportsdata.io/v3"
 
+# Maps our internal sport_key → SportsData.io sport slug
+_SPORT_SLUGS: dict[str, str] = {
+    "americanfootball_nfl": "nfl",
+    "basketball_nba":       "nba",
+    "baseball_mlb":         "mlb",
+    "icehockey_nhl":        "nhl",
+    "soccer_epl":           "soccer",
+    "soccer_usa_mls":       "soccer",
+    "soccer_bundesliga":    "soccer",
+    "soccer_uefa_champs_league": "soccer",
+}
 
-def _resolve(sport_key: str) -> tuple[str, str] | tuple[None, None]:
-    """Return (sdio_sport, api_key) or (None, None) if unconfigured."""
-    if sport_key.startswith("soccer_") or sport_key == "soccer":
-        key = os.getenv("SPORTSDATAIO_SOCCER_KEY", "").strip()
-        return ("soccer", key) if key else (None, None)
-    entry = _SPORT_MAP.get(sport_key)
-    if not entry:
-        return None, None
-    sdio_sport, env_var = entry
-    key = os.getenv(env_var, "").strip()
-    return (sdio_sport, key) if key else (None, None)
+
+def _slug(sport_key: str) -> str | None:
+    if sport_key.startswith("soccer_"):
+        return "soccer"
+    return _SPORT_SLUGS.get(sport_key)
+
+
+def _key() -> str:
+    return os.getenv("SPORTSDATAIO_KEY", "").strip()
 
 
 def _get(sport_key: str, path: str, params: dict | None = None) -> list | dict | None:
-    """GET from SportsData.io. Auth via ?key= query param."""
-    sdio_sport, api_key = _resolve(sport_key)
-    if not sdio_sport:
+    """
+    GET from SportsData.io.
+    URL: https://api.sportsdata.io/v3/{sport}{path}?key={key}
+    """
+    sport = _slug(sport_key)
+    if not sport:
         return None
-    url = f"{_BASE}/{sdio_sport}{path}"
+    api_key = _key()
+    if not api_key:
+        return None
+    url = f"{_BASE}/{sport}{path}"
     p = dict(params or {})
     p["key"] = api_key
     try:
@@ -92,10 +93,10 @@ def get_standings(sport_key: str) -> list[dict]:
     MLB:  /scores/json/Standings/{season}
     NHL:  /scores/json/Standings/{season}
     """
-    sdio_sport, _ = _resolve(sport_key)
-    if not sdio_sport:
+    sport = _slug(sport_key)
+    if not sport:
         return []
-    season = _current_season(sdio_sport)
+    season = _current_season(sport)
     data = _get(sport_key, f"/scores/json/Standings/{season}")
     if not data:
         return []
@@ -121,8 +122,8 @@ def get_standings(sport_key: str) -> list[dict]:
 
 def get_injuries(sport_key: str) -> list[dict]:
     """Current injury report, normalised across all sports."""
-    sdio_sport, _ = _resolve(sport_key)
-    if not sdio_sport:
+    sport = _slug(sport_key)
+    if not sport:
         return []
     paths = {
         "nfl":    "/scores/json/Injuries",
@@ -131,7 +132,7 @@ def get_injuries(sport_key: str) -> list[dict]:
         "nhl":    "/scores/json/PlayerInjuries",
         "soccer": "/scores/json/PlayerInjuries",
     }
-    path = paths.get(sdio_sport)
+    path = paths.get(sport)
     if not path:
         return []
     data = _get(sport_key, path)
@@ -155,10 +156,10 @@ def get_injuries(sport_key: str) -> list[dict]:
 
 def get_team_stats(sport_key: str, team: str) -> dict:
     """Season stats for a team. Supported: NFL, NBA."""
-    sdio_sport, _ = _resolve(sport_key)
-    if not sdio_sport or sdio_sport not in ("nfl", "nba"):
+    sport = _slug(sport_key)
+    if not sport or sport not in ("nfl", "nba"):
         return {}
-    season = _current_season(sdio_sport)
+    season = _current_season(sport)
     data = _get(sport_key, f"/stats/json/TeamSeasonStats/{season}")
     if not data:
         return {}
@@ -174,8 +175,8 @@ def get_team_stats(sport_key: str, team: str) -> dict:
 
 def get_depth_chart(sport_key: str, team: str | None = None) -> list[dict]:
     """Depth chart entries. Supported: NFL, NBA."""
-    sdio_sport, _ = _resolve(sport_key)
-    if not sdio_sport or sdio_sport not in ("nfl", "nba"):
+    sport = _slug(sport_key)
+    if not sport or sport not in ("nfl", "nba"):
         return []
     data = _get(sport_key, "/scores/json/DepthCharts")
     if not data:
@@ -191,10 +192,10 @@ def get_depth_chart(sport_key: str, team: str | None = None) -> list[dict]:
 
 def get_schedule(sport_key: str) -> list[dict]:
     """Upcoming games for the current season."""
-    sdio_sport, _ = _resolve(sport_key)
-    if not sdio_sport:
+    sport = _slug(sport_key)
+    if not sport:
         return []
-    season = _current_season(sdio_sport)
+    season = _current_season(sport)
     data = _get(sport_key, f"/scores/json/Games/{season}")
     if not data:
         return []
@@ -216,8 +217,8 @@ def get_schedule(sport_key: str) -> list[dict]:
 
 def get_player_props(sport_key: str, game_id: str) -> list[dict]:
     """Player prop projections for a specific game."""
-    sdio_sport, _ = _resolve(sport_key)
-    if not sdio_sport:
+    sport = _slug(sport_key)
+    if not sport:
         return []
     paths = {
         "nfl": f"/projections/json/PlayerGameProjectionStatsByGameID/{game_id}",
@@ -225,7 +226,7 @@ def get_player_props(sport_key: str, game_id: str) -> list[dict]:
         "mlb": f"/projections/json/PlayerGameProjectionStatsByGameID/{game_id}",
         "nhl": f"/projections/json/PlayerGameProjectionStatsByGameID/{game_id}",
     }
-    path = paths.get(sdio_sport)
+    path = paths.get(sport)
     if not path:
         return []
     data = _get(sport_key, path)
@@ -258,8 +259,8 @@ def enrich_game_context(sport_key: str, home_team: str, away_team: str) -> dict:
     Aggregate standings, injuries, and team stats for both teams.
     Returns {"available": False} immediately if no key is configured.
     """
-    sdio_sport, api_key = _resolve(sport_key)
-    if not sdio_sport or not api_key:
+    sport, api_key = _slug(sport_key), _key()
+    if not sport or not api_key:
         return {"available": False, "sport": sport_key, "source": "sportsdataio"}
 
     injuries   = get_injuries(sport_key)
