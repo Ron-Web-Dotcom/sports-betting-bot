@@ -60,6 +60,7 @@ def compute_roi_by_dimension(dimension: str, period: str = "lifetime") -> list[d
         units_won  = sum(p.actual_pnl_units or 0 for p in wins)
         units_lost = sum(abs(p.actual_pnl_units or 0) for p in losses)
 
+        total_wagered = sum(p.units or 1 for p in group)
         results.append({
             "dimension":       dimension,
             "value":           key,
@@ -69,8 +70,9 @@ def compute_roi_by_dimension(dimension: str, period: str = "lifetime") -> list[d
             "units_won":       round(units_won, 2),
             "units_lost":      round(units_lost, 2),
             "net_units":       round(units_won - units_lost, 2),
+            "total_wagered":   round(total_wagered, 2),
             "hit_rate":        round(len(wins) / len(group), 4),
-            "roi":             round((units_won - units_lost) / max(units_lost, 0.01), 4),
+            "roi":             round((units_won - units_lost) / max(total_wagered, 0.01), 4),
             "avg_ev":          round(sum(p.ev_pct or 0 for p in group) / len(group), 4),
             "avg_confidence":  round(sum(p.confidence_pct or 0 for p in group) / len(group), 2),
         })
