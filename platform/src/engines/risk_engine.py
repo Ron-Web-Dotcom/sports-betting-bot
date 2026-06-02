@@ -161,23 +161,31 @@ def _atomic_daily_unit_check_and_reserve(
         from src.core.config import REDIS_URL
         r = _redis.from_url(REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
         key = f"daily_units:{date.today().isoformat()}"
-        new_total = r.incrby(key, units)
-        r.expire(key, 90_000)   # 25 hours — auto-expires after day rolls over
-        if new_total > MAX_DAILY_UNITS:
-            # Roll back the reservation
-            r.decrby(key, units)
-            used = new_total - units
-            remaining = max(0, int(MAX_DAILY_UNITS - used))
-            if remaining == 0:
-                return RiskAssessment(
-                    risk_score=risk_score, approved=False, units_allowed=0,
-                    rejection_reason="Daily unit limit reached (15u)",
-                    red_flags=red_flags, kelly_fraction=fk,
-                )
-            # Partially reserve what's left
-            r.incrby(key, remaining)
-            return remaining
-        return units
+        # Lua script: atomically reserve up to MAX_DAILY_UNITS units.
+        # Returns the number of units actually reserved (0 = fully exhausted).
+        lua = """
+local key    = KEYS[1]
+local req    = tonumber(ARGV[1])
+local limit  = tonumber(ARGV[2])
+local ttl    = tonumber(ARGV[3])
+local cur    = tonumber(redis.call('GET', key) or 0)
+local avail  = math.max(0, limit - cur)
+local grant  = math.min(req, avail)
+if grant > 0 then
+    redis.call('INCRBY', key, grant)
+    redis.call('EXPIRE', key, ttl)
+end
+return grant
+"""
+        granted = r.eval(lua, 1, key, units, MAX_DAILY_UNITS, 90_000)
+        granted = int(granted)
+        if granted == 0:
+            return RiskAssessment(
+                risk_score=risk_score, approved=False, units_allowed=0,
+                rejection_reason="Daily unit limit reached (15u)",
+                red_flags=red_flags, kelly_fraction=fk,
+            )
+        return granted
     except Exception as e:
         logger.warning("Redis unit reservation failed, falling back to DB check: %s", e)
         # Fallback: read from DB (not atomic but better than nothing)

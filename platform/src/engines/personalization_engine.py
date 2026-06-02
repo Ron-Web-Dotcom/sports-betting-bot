@@ -25,6 +25,17 @@ class UserProfile:
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
 
+def _parse_sports(val) -> list:
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, ValueError):
+            return []
+    return []
+
+
 def get_profile(user_id: str) -> UserProfile:
     from src.db.session import get_db
     from src.db.models import UserProfile as UserProfileModel
@@ -37,7 +48,7 @@ def get_profile(user_id: str) -> UserProfile:
             user_id=row.user_id,
             bankroll=row.bankroll,
             risk_profile=row.risk_profile,
-            sports=json.loads(row.sports) if isinstance(row.sports, str) else (row.sports or []),
+            sports=_parse_sports(row.sports),
             max_units=row.max_units,
             min_ev=row.min_ev,
             created_at=row.created_at,

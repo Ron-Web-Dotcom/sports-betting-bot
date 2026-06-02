@@ -114,6 +114,6 @@ SPORTS = {
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
 
 # ── Claude ─────────────────────────────────────────────────────────────────────
-CLAUDE_MODEL      = "claude-sonnet-4-6"
+CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 CLAUDE_MAX_TOKENS = 2048
 

@@ -148,31 +148,29 @@ def test_atomic_unit_check_rejects_when_limit_hit_via_db_fallback():
 
 
 def test_atomic_unit_check_redis_atomically_reserves():
-    """Simulate Redis INCRBY returning a value within limits — units approved."""
+    """Lua eval grants requested units when within daily limit."""
     from src.engines.risk_engine import _atomic_daily_unit_check_and_reserve
     mock_redis = MagicMock()
-    mock_redis.incrby.return_value = 5   # 5 total after adding 3 (was 2)
+    mock_redis.eval.return_value = 3   # Lua script grants all 3
     with patch("redis.from_url", return_value=mock_redis):
         result = _atomic_daily_unit_check_and_reserve(
             units=3, sport="nfl", red_flags=[], risk_score=30.0, fk=0.15
         )
     assert result == 3
-    mock_redis.incrby.assert_called_once()
-    mock_redis.expire.assert_called_once()
+    mock_redis.eval.assert_called_once()
 
 
 def test_atomic_unit_check_redis_rolls_back_when_over_limit():
-    """If INCRBY pushes over limit, decrby rolls back and returns remaining."""
+    """Lua eval returns 0 when daily limit is exhausted — returns RiskAssessment."""
     from src.engines.risk_engine import _atomic_daily_unit_check_and_reserve, RiskAssessment
     mock_redis = MagicMock()
-    mock_redis.incrby.return_value = 17   # over 15-unit limit
+    mock_redis.eval.return_value = 0   # Lua script grants nothing
     with patch("redis.from_url", return_value=mock_redis):
         result = _atomic_daily_unit_check_and_reserve(
             units=3, sport="nfl", red_flags=[], risk_score=30.0, fk=0.15
         )
-    mock_redis.decrby.assert_called_once()  # rolled back
-    # remaining = 15 - (17-3) = 1
-    assert isinstance(result, int) or isinstance(result, RiskAssessment)
+    assert isinstance(result, RiskAssessment)
+    assert result.approved is False
 
 
 # ── H-001: Detached ORM — verify scalar query pattern ────────────────────────

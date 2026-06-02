@@ -197,7 +197,7 @@ def persist_pick(
             trend_score          = pick.trend_score,
             reasoning            = pick.reasoning,
             key_factors          = pick.key_factors,
-            risk_flags           = pick.risk_flags + gate.warnings,   # surface warnings in pick
+            risk_flags           = (pick.risk_flags or []) + (gate.warnings or []),
         )
         db.add(p)
         db.flush()

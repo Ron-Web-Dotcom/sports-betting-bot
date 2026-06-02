@@ -34,10 +34,12 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
 
     # game is imminent — also treat unknown start time (inf) as bet_now
     if minutes_to_game < 60 or minutes_to_game == float("inf"):
+        # Cap infinite time to 60 min window; timedelta(minutes=inf) raises OverflowError
+        safe_minutes = min(minutes_to_game, 60) if minutes_to_game != float("inf") else 60
         return ExpirationWindow(
             current_odds=current_odds,
             expected_odds=current_odds,
-            bet_before=(now + timedelta(minutes=minutes_to_game)).isoformat(),
+            bet_before=(now + timedelta(minutes=safe_minutes)).isoformat(),
             urgency="bet_now",
             minutes_remaining=minutes_to_game,
             reasoning="Game starts in less than 60 minutes — bet now.",

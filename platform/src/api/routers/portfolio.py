@@ -21,16 +21,17 @@ def bankroll_history(days: int = Query(30, ge=1, le=365)):
         rows = db.query(BankrollSnapshot).filter(
             BankrollSnapshot.recorded_at >= cutoff
         ).order_by(BankrollSnapshot.recorded_at.asc()).all()
-
-    return [
-        {
-            "date": r.recorded_at.isoformat() if r.recorded_at else None,
-            "balance": r.balance,
-            "units_total": r.units_total,
-            "note": r.note,
-        }
-        for r in rows
-    ]
+        # Extract fields inside session to avoid DetachedInstanceError
+        result = [
+            {
+                "date": r.recorded_at.isoformat() if r.recorded_at else None,
+                "balance": r.balance,
+                "units_total": r.units_total,
+                "note": r.note,
+            }
+            for r in rows
+        ]
+    return result
 
 
 @router.post("/snapshot")

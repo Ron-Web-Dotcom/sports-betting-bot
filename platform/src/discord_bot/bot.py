@@ -122,7 +122,7 @@ async def post_line_movement(movement: dict) -> None:
 
 async def post_parlay(parlay: dict) -> None:
     legs = parlay.get("legs", [])
-    desc = "\n".join(f"• {l.get('bet', l)}" for l in legs)
+    desc = "\n".join(f"• {l.get('bet', 'Unknown')}" for l in legs)
     embed = _embed(
         title=f"Parlay ({len(legs)} legs) — {parlay.get('combined_odds', 0):+d}",
         description=desc,

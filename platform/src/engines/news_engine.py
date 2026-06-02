@@ -147,16 +147,22 @@ def get_recent_injuries(hours: int = 24) -> list[dict]:
             NewsEvent.category == "injury",
             NewsEvent.fetched_at >= cutoff,
         ).all()
-
-    result = []
-    for row in rows:
-        players = row.affected_players or []
-        teams = row.affected_teams or []
-        result.append({
-            "sport": row.sport,
-            "player_name": players[0] if players else "",
-            "team": teams[0] if teams else "",
-            "status": "out",  # all saved injuries are critical
-            "detail": row.detail or "",
-        })
+        result = []
+        for row in rows:
+            players = row.affected_players or []
+            teams = row.affected_teams or []
+            headline = row.headline or ""
+            # Extract actual status from saved headline "Player — status (team)"
+            status = "out"
+            for s in INJURY_CRITICAL_STATUSES:
+                if s in headline.lower():
+                    status = s
+                    break
+            result.append({
+                "sport": row.sport,
+                "player_name": players[0] if players else "",
+                "team": teams[0] if teams else "",
+                "status": status,
+                "detail": row.detail or "",
+            })
     return result

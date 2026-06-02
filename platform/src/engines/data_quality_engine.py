@@ -123,7 +123,7 @@ def run_system_quality_check() -> dict:
                 "commence_time": game.commence_time,
                 "home_team": game.home_team,
                 "away_team": game.away_team,
-                "markets": snap_dicts or None,
+                "markets": snap_dicts,
             }
             report = assess_event_quality(event, snap_dicts, [])
             results.append({

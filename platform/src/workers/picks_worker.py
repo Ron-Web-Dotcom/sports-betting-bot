@@ -109,9 +109,9 @@ def generate_picks(self):
                 ai_win_prob         = ai.get("win_probability", 0.5),
                 model_consensus     = ai.get("confidence", 0.5),
                 line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
-                # Use score_injury_impact from news_engine: 0=bad injuries, 0.5=neutral, 1=good
-                # NOT article count — more articles ≠ better news
                 news_impact_score   = game_context.get("news_impact_score", 0.5),
+                sport               = event["sport_key"],
+                market              = "h2h",
             )
 
             # Adjust confidence down when data is incomplete
