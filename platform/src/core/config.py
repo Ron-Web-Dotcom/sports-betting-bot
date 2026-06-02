@@ -30,9 +30,7 @@ def _optional(name: str, default: str = "") -> str:
 ANTHROPIC_API_KEY   = _require("ANTHROPIC_API_KEY")
 ODDS_API_KEY        = _require("ODDS_API_KEY")
 
-# Discord credentials are optional so the platform can run without a bot configured
-DISCORD_BOT_TOKEN   = _optional("DISCORD_BOT_TOKEN")
-DISCORD_GUILD_ID    = int(os.getenv("DISCORD_GUILD_ID", "0"))
+# Discord — webhook URL only; no bot token or guild ID needed
 DISCORD_WEBHOOK_URL = _optional("DISCORD_WEBHOOK_URL")
 
 # ── Database ───────────────────────────────────────────────────────────────────
@@ -113,27 +111,3 @@ SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnb
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 CLAUDE_MAX_TOKENS = 2048
 
-# ── Discord channel names ──────────────────────────────────────────────────────
-DISCORD_CHANNELS = {
-    "top_picks":      "top-picks",
-    "new_odds":       "new-odds",
-    "line_movement":  "line-movement",
-    "player_props":   "player-props",
-    "parlays":        "parlays",
-    "soccer":         "soccer",
-    "nba":            "nba",
-    "nfl":            "nfl",
-    "mlb":            "mlb",
-    "nhl":            "nhl",
-    "mma":            "mma",
-    "tennis":         "tennis",
-    "golf":           "golf",
-    "esports":        "esports",
-    "live_tracker":   "live-tracker",
-    "game_alerts":    "game-alerts",
-    "results":        "results",
-    "daily_summary":  "daily-summary",
-    "weekly_summary": "weekly-summary",
-    "monthly_summary":"monthly-summary",
-    "discussion":     "discussion",
-}
