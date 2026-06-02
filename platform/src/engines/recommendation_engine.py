@@ -139,15 +139,48 @@ def build_recommendation(
     )
 
 
-def persist_pick(pick: PickRecommendation, game_id: int) -> int:
-    """Save a PickRecommendation to the database. Returns pick ID."""
+def persist_pick(
+    pick: PickRecommendation,
+    game_id: int,
+    odds_by_book: dict | None = None,
+) -> int | None:
+    """
+    Run the pick gate, then save to DB. Returns pick ID, or None if gate blocked it.
+
+    BET picks that fail the gate are logged and audited but never posted.
+    PASS picks bypass the gate — recording them is always correct.
+    """
+    from src.engines.pick_gate import check as gate_check
     from src.db.session import get_db
     from src.db.models import Pick, AuditTrail
+
+    gate = gate_check(pick, odds_by_book=odds_by_book)
+
+    if not gate.passed:
+        # Audit the block so we can review what was rejected and why
+        try:
+            with get_db() as db:
+                db.add(AuditTrail(
+                    event_type  = "pick_blocked",
+                    entity_type = "pick",
+                    entity_id   = 0,
+                    payload     = {
+                        "sport":   pick.sport,
+                        "game":    pick.game,
+                        "bet":     pick.bet,
+                        "ev":      pick.ev_pct,
+                        "reasons": gate.reasons,
+                    },
+                ))
+        except Exception:
+            pass
+        return None
+
     with get_db() as db:
         p = Pick(
             game_id              = game_id,
             sport                = pick.sport,
-            market               = "h2h",   # TODO: detect market type from bet string
+            market               = "h2h",
             selection            = pick.bet,
             best_book            = pick.sportsbook,
             american_odds_at_gen = pick.odds,
@@ -164,7 +197,7 @@ def persist_pick(pick: PickRecommendation, game_id: int) -> int:
             trend_score          = pick.trend_score,
             reasoning            = pick.reasoning,
             key_factors          = pick.key_factors,
-            risk_flags           = pick.risk_flags,
+            risk_flags           = pick.risk_flags + gate.warnings,   # surface warnings in pick
         )
         db.add(p)
         db.flush()
@@ -178,6 +211,7 @@ def persist_pick(pick: PickRecommendation, game_id: int) -> int:
                 "sport": pick.sport, "game": pick.game,
                 "bet": pick.bet, "units": pick.units,
                 "ev": pick.ev_pct, "rec": pick.recommendation,
+                "gate_warnings": gate.warnings,
             },
         ))
     return pick_id

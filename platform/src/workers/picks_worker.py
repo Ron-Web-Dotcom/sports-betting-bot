@@ -94,9 +94,10 @@ def generate_picks(self):
                 trend_score=ai.get("trend_score", 0.5),
             )
 
-            pick_id = persist_pick(pick, game_id)
+            pick_id = persist_pick(pick, game_id, odds_by_book=odds_by_book)
 
-            if pick.recommendation == "BET":
+            # pick_id is None when the gate blocked the pick — do not alert
+            if pick.recommendation == "BET" and pick_id is not None:
                 pick_dict = pick.__dict__.copy()
                 pick_dict["id"] = pick_id
                 bet_picks.append(pick_dict)
