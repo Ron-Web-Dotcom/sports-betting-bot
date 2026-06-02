@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 from src.workers.celery_app import app
 from src.db.session import get_db
-from src.db.models import Pick, Game
+from src.db.models import Pick, Game, Sport
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,40 @@ def settle_completed_picks(self):
             if not open_picks:
                 return {"settled": 0}
 
-            game_ids = list({p.game_id for p in open_picks if p.game_id})
-            scores = fetch_scores(game_ids)
+            # Fetch scores per sport, then build {game_external_id: score_dict} lookup
+            game_ids = {p.game_id for p in open_picks if p.game_id}
+            games = db.query(Game).filter(Game.id.in_(game_ids)).all()
+            game_map = {g.id: g for g in games}  # db id → Game
+
+            # Fetch Sport keys for those games
+            sport_ids = {g.sport_id for g in games if g.sport_id}
+            sport_key_map = {
+                s.id: s.key
+                for s in db.query(Sport).filter(Sport.id.in_(sport_ids)).all()
+            }
+
+            # Group external IDs by sport_key for batched API calls
+            sport_to_external: dict[str, list[str]] = {}
+            ext_to_db_id: dict[str, int] = {}
+            for g in games:
+                if g.external_id:
+                    sk = sport_key_map.get(g.sport_id, "")
+                    if sk:
+                        sport_to_external.setdefault(sk, []).append(g.external_id)
+                    ext_to_db_id[g.external_id] = g.id
+
+            scores: dict[int, dict] = {}  # db game_id → score dict
+            for sport_key, _ext_ids in sport_to_external.items():
+                raw = fetch_scores(sport_key, days_from=3)
+                for item in raw:
+                    ext_id = item.get("id")
+                    if ext_id and ext_id in ext_to_db_id:
+                        scores[ext_to_db_id[ext_id]] = {
+                            "completed": item.get("completed", False),
+                            "status":    item.get("status", ""),
+                            "push":      False,
+                            "winner":    _extract_winner(item),
+                        }
 
             settled_count = 0
             for pick in open_picks:
@@ -99,6 +131,20 @@ def settle_completed_picks(self):
     except Exception as exc:
         logger.error("Settlement failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+def _extract_winner(score_item: dict) -> str | None:
+    """Extract winning team name from an Odds API scores response item."""
+    scores = score_item.get("scores") or []
+    if not scores:
+        return None
+    try:
+        sorted_scores = sorted(scores, key=lambda s: float(s.get("score", 0)), reverse=True)
+        if len(sorted_scores) >= 2 and sorted_scores[0]["score"] != sorted_scores[1]["score"]:
+            return sorted_scores[0].get("name")
+    except (ValueError, TypeError):
+        pass
+    return None
 
 
 def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None:
