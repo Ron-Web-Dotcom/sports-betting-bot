@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def generate_picks(self):
     try:
+        # Idempotency guard — prevent duplicate runs within the same 10-min window.
+        # Uses Redis SETNX so only the first concurrent invocation proceeds.
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        from datetime import datetime
+        _r = _redis.from_url(REDIS_URL, socket_connect_timeout=2, decode_responses=True)
+        _lock_key = f"pick_gen_lock:{datetime.utcnow().strftime('%Y%m%d%H%M') [:-1]}"
+        if not _r.set(_lock_key, "1", nx=True, ex=650):
+            logger.info("generate_picks: another instance already running, skipping")
+            return {"skipped": True}
+    except Exception:
+        pass  # Redis unavailable — allow execution without lock
+
+    try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
         from src.engines.news_engine import get_recent_injuries
         from src.engines.ev_engine import compute_ev, assign_units, EVResult

@@ -158,15 +158,22 @@ def write_weekly_summary(stats: dict) -> str:
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
 def _call_json(prompt: str, system: str) -> dict | None:
+    raw = ""
     try:
         resp = _client.messages.create(
             model=CLAUDE_MODEL, max_tokens=CLAUDE_MAX_TOKENS, system=system,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.content[0].text.strip()
+        # Strip markdown code fences Claude sometimes wraps JSON in
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.rsplit("```", 1)[0].strip()
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        logger.error("Claude JSON error: %s", e)
+        logger.error("Claude JSON parse error: %s | raw=%r", e, raw[:200])
         return None
     except anthropic.APIError as e:
         logger.error("Claude API error: %s", e)

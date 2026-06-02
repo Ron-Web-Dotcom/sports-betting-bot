@@ -19,14 +19,15 @@ def bankroll_history(days: int = Query(30, le=365)):
     cutoff = datetime.utcnow() - timedelta(days=days)
     with get_db() as db:
         rows = db.query(BankrollSnapshot).filter(
-            BankrollSnapshot.snapshot_date >= cutoff.date()
-        ).order_by(BankrollSnapshot.snapshot_date.asc()).all()
+            BankrollSnapshot.recorded_at >= cutoff
+        ).order_by(BankrollSnapshot.recorded_at.asc()).all()
 
     return [
         {
-            "date": str(r.snapshot_date),
-            "bankroll": r.bankroll,
-            "daily_pnl": r.daily_pnl,
+            "date": r.recorded_at.isoformat() if r.recorded_at else None,
+            "balance": r.balance,
+            "units_total": r.units_total,
+            "note": r.note,
         }
         for r in rows
     ]

@@ -133,3 +133,30 @@ def fetch_all_injuries() -> dict[str, list[dict]]:
         if inj:
             result[sport_key] = inj
     return result
+
+
+def get_recent_injuries(hours: int = 24) -> list[dict]:
+    """Return recent injuries from DB as flat list — used by picks_worker."""
+    from src.db.session import get_db
+    from src.db.models import NewsEvent
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    with get_db() as db:
+        rows = db.query(NewsEvent).filter(
+            NewsEvent.category == "injury",
+            NewsEvent.fetched_at >= cutoff,
+        ).all()
+
+    result = []
+    for row in rows:
+        players = row.affected_players or []
+        teams = row.affected_teams or []
+        result.append({
+            "sport": row.sport,
+            "player_name": players[0] if players else "",
+            "team": teams[0] if teams else "",
+            "status": "out",  # all saved injuries are critical
+            "detail": row.detail or "",
+        })
+    return result
