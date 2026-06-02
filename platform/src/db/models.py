@@ -73,7 +73,7 @@ class Team(Base):
     abbrev      = Column(String(10))
     city        = Column(String(100))
     created_at  = Column(DateTime, default=datetime.utcnow)
-    Index("ix_teams_sport", "sport_id")
+    __table_args__ = (Index("ix_teams_sport", "sport_id"),)
 
 
 class Player(Base):
@@ -89,9 +89,11 @@ class Player(Base):
     external_id     = Column(String(100))  # ESPN / platform player ID
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    Index("ix_players_sport",  "sport_id")
-    Index("ix_players_team",   "team_id")
-    Index("ix_players_status", "status")
+    __table_args__ = (
+        Index("ix_players_sport",  "sport_id"),
+        Index("ix_players_team",   "team_id"),
+        Index("ix_players_status", "status"),
+    )
 
 
 class Game(Base):

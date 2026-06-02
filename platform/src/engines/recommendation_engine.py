@@ -172,8 +172,8 @@ def persist_pick(
                         "reasons": gate.reasons,
                     },
                 ))
-        except Exception:
-            pass
+        except Exception as _audit_exc:
+            logger.error("Audit trail write failed for blocked pick '%s': %s", pick.bet, _audit_exc)
         return None
 
     with get_db() as db:

@@ -34,7 +34,7 @@ ODDS_API_KEY        = _require("ODDS_API_KEY")
 DISCORD_WEBHOOK_URL = _optional("DISCORD_WEBHOOK_URL")
 
 # ── Database ───────────────────────────────────────────────────────────────────
-DATABASE_URL    = os.getenv("DATABASE_URL",    "postgresql://sip:sip_pass@localhost:5432/sip_db")
+DATABASE_URL    = os.getenv("DATABASE_URL", "")
 REDIS_URL       = os.getenv("REDIS_URL",       "redis://localhost:6379/0")
 CELERY_BROKER   = os.getenv("CELERY_BROKER",   "redis://localhost:6379/1")
 CELERY_BACKEND  = os.getenv("CELERY_BACKEND",  "redis://localhost:6379/2")
@@ -50,6 +50,12 @@ if USE_SQLITE and ENVIRONMENT == "production":
     raise RuntimeError(
         "USE_SQLITE=true is not allowed in ENVIRONMENT=production. "
         "Set USE_SQLITE=false and configure DATABASE_URL to a PostgreSQL instance."
+    )
+
+if not USE_SQLITE and not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL must be set when USE_SQLITE=false. "
+        "Add DATABASE_URL=postgresql://user:pass@host:5432/dbname to your .env file."
     )
 
 # ── External API bases ─────────────────────────────────────────────────────────
