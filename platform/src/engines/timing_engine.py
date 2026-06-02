@@ -19,6 +19,10 @@ def minutes_to_game(commence_time_str: str) -> float:
         else:
             from dateutil import parser
             game_time = parser.parse(commence_time_str)
+        # Strip timezone info so both sides are naive UTC — mixing aware and
+        # naive datetimes raises TypeError in Python 3.
+        if hasattr(game_time, "tzinfo") and game_time.tzinfo is not None:
+            game_time = game_time.replace(tzinfo=None)
         delta = game_time - datetime.utcnow()
         return delta.total_seconds() / 60
     except Exception:

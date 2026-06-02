@@ -46,6 +46,14 @@ SQLITE_URL = f"sqlite:///{BASE_DIR}/data/sip.db"
 USE_SQLITE = os.getenv("USE_SQLITE", "true").lower() == "true"
 EFFECTIVE_DB_URL = SQLITE_URL if USE_SQLITE else DATABASE_URL
 
+# SQLite does not support concurrent writes — it will corrupt data under load.
+# Refuse to start with SQLite in production.
+if USE_SQLITE and ENVIRONMENT == "production":
+    raise RuntimeError(
+        "USE_SQLITE=true is not allowed in ENVIRONMENT=production. "
+        "Set USE_SQLITE=false and configure DATABASE_URL to a PostgreSQL instance."
+    )
+
 # ── External API bases ─────────────────────────────────────────────────────────
 ODDS_API_BASE        = "https://api.the-odds-api.com/v4"
 ESPN_API_BASE        = "https://site.api.espn.com/apis/site/v2/sports"

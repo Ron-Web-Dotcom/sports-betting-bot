@@ -189,26 +189,27 @@ def record_closing_lines():
     from src.engines.clv_engine import record_clv
     from src.engines.odds_engine import get_latest_snapshots_by_game
 
+    # Extract plain values before session closes — avoids DetachedInstanceError
     with get_db() as db:
         from sqlalchemy import or_
-        open_picks = db.query(Pick).filter(
+        rows = db.query(Pick.id, Pick.game_id, Pick.american_odds_at_gen).filter(
             or_(Pick.result == BetResult.PENDING, Pick.result.is_(None)),
             Pick.recommendation == "BET",
         ).all()
 
-    if not open_picks:
+    if not rows:
         return {"recorded": 0}
 
     snapshots = get_latest_snapshots_by_game()
     recorded = 0
 
-    for pick in open_picks:
-        snap_list = snapshots.get(pick.game_id, [])
+    for pick_id, game_id, odds_at_gen in rows:
+        snap_list = snapshots.get(game_id, [])
         if not snap_list:
             continue
         closing_odds = snap_list[0].get("best_odds")
         if closing_odds:
-            record_clv(pick.id, pick.american_odds_at_gen, closing_odds)
+            record_clv(pick_id, odds_at_gen, closing_odds)
             recorded += 1
 
     return {"recorded": recorded}

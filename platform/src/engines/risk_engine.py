@@ -115,17 +115,12 @@ def assess(
     risk_score = _compute_risk_score(ev_pct, confidence, 1 - line_movement_volatility, data_quality, injury_flags, len(red_flags))
     fk = kelly_fraction(win_prob, decimal_odds)
 
-    # Hard caps
-    daily_used        = _daily_units_used()
-    daily_used_sport  = _daily_units_used(sport)
-    units             = min(requested_units, int(MAX_SINGLE_UNITS))
-
-    if daily_used + units > MAX_DAILY_UNITS:
-        remaining = max(0, int(MAX_DAILY_UNITS - daily_used))
-        if remaining == 0:
-            return RiskAssessment(risk_score=risk_score, approved=False, units_allowed=0,
-                                  rejection_reason="Daily unit limit reached (15u)", red_flags=red_flags, kelly_fraction=fk)
-        units = remaining
+    # Hard caps — use a Redis atomic increment to prevent concurrent workers
+    # from both reading 12u and both approving picks that push total to 18u.
+    units = min(requested_units, int(MAX_SINGLE_UNITS))
+    units = _atomic_daily_unit_check_and_reserve(units, sport, red_flags, risk_score, fk)
+    if isinstance(units, RiskAssessment):
+        return units  # limit hit or reservation failed
 
     # Downgrade if red flags
     if len(red_flags) >= 2:
@@ -142,3 +137,58 @@ def assess(
         red_flags     = red_flags,
         kelly_fraction= fk,
     )
+
+
+def _atomic_daily_unit_check_and_reserve(
+    units: int,
+    sport: str,
+    red_flags: list[str],
+    risk_score: float,
+    fk: float,
+) -> "int | RiskAssessment":
+    """
+    Atomically check and reserve daily units using Redis INCRBY.
+
+    Redis INCRBY is atomic — no two workers can both read-then-write
+    the same counter. If the increment would exceed the limit, we
+    decrement back and return a rejection.
+
+    Falls back to the DB-query approach if Redis is unavailable.
+    """
+    from datetime import date
+    try:
+        import redis as _redis
+        from src.core.config import REDIS_URL
+        r = _redis.from_url(REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
+        key = f"daily_units:{date.today().isoformat()}"
+        new_total = r.incrby(key, units)
+        r.expire(key, 90_000)   # 25 hours — auto-expires after day rolls over
+        if new_total > MAX_DAILY_UNITS:
+            # Roll back the reservation
+            r.decrby(key, units)
+            used = new_total - units
+            remaining = max(0, int(MAX_DAILY_UNITS - used))
+            if remaining == 0:
+                return RiskAssessment(
+                    risk_score=risk_score, approved=False, units_allowed=0,
+                    rejection_reason="Daily unit limit reached (15u)",
+                    red_flags=red_flags, kelly_fraction=fk,
+                )
+            # Partially reserve what's left
+            r.incrby(key, remaining)
+            return remaining
+        return units
+    except Exception as e:
+        logger.warning("Redis unit reservation failed, falling back to DB check: %s", e)
+        # Fallback: read from DB (not atomic but better than nothing)
+        daily_used = _daily_units_used()
+        if daily_used + units > MAX_DAILY_UNITS:
+            remaining = max(0, int(MAX_DAILY_UNITS - daily_used))
+            if remaining == 0:
+                return RiskAssessment(
+                    risk_score=risk_score, approved=False, units_allowed=0,
+                    rejection_reason="Daily unit limit reached (15u)",
+                    red_flags=red_flags, kelly_fraction=fk,
+                )
+            return remaining
+        return units

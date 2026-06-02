@@ -159,30 +159,35 @@ def generate_parlays():
         from src.db.models import Pick
         from datetime import datetime, timedelta
 
+        # Extract plain values inside session — avoids DetachedInstanceError after close
         with get_db() as db:
-            today_picks = db.query(Pick).filter(
+            rows = db.query(
+                Pick.id, Pick.game_id, Pick.selection, Pick.sport,
+                Pick.market, Pick.best_book, Pick.american_odds_at_gen,
+                Pick.confidence_pct, Pick.ev_pct,
+            ).filter(
                 Pick.generated_at >= datetime.utcnow() - timedelta(hours=12),
                 Pick.recommendation == "BET",
             ).all()
 
-        if len(today_picks) < 2:
+        if len(rows) < 2:
             return {"parlays": 0}
 
         from src.engines.parlay_engine import ParlayLeg
         parlay_legs = [
             ParlayLeg(
-                event_id       = str(p.game_id or p.id),
-                event_name     = p.selection or "",
-                sport          = p.sport or "",
-                market         = p.market or "h2h",
-                selection      = p.selection or "",
-                book           = p.best_book or "",
-                american_odds  = p.american_odds_at_gen or -110,
-                win_probability= (p.confidence_pct or 0.5),
-                ev_pct         = p.ev_pct or 0.0,
-                confidence     = p.confidence_pct or 0.5,
+                event_id       = str(game_id or pid),
+                event_name     = selection or "",
+                sport          = sport or "",
+                market         = market or "h2h",
+                selection      = selection or "",
+                book           = best_book or "",
+                american_odds  = american_odds or -110,
+                win_probability= confidence_pct or 0.5,
+                ev_pct         = ev_pct or 0.0,
+                confidence     = confidence_pct or 0.5,
             )
-            for p in today_picks
+            for pid, game_id, selection, sport, market, best_book, american_odds, confidence_pct, ev_pct in rows
         ]
         parlays = find_best_parlays(parlay_legs, max_legs=4, top_n=3)
 

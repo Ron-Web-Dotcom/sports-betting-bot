@@ -7,15 +7,12 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run a coroutine from a sync Celery context."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+    """Run a coroutine from a sync Celery context.
+
+    asyncio.run() always creates a fresh event loop and tears it down
+    cleanly — safe to call from any Celery worker thread.
+    """
+    return asyncio.run(coro)
 
 
 @app.task
@@ -65,18 +62,21 @@ def send_pregame_alerts():
     from src.db.models import Game, AlertRecord
     from datetime import datetime
 
+    # Extract plain values inside session — avoids DetachedInstanceError after close
     with get_db() as db:
-        upcoming = db.query(Game).filter(Game.commence_time >= datetime.utcnow()).all()
+        rows = db.query(
+            Game.id, Game.home_team, Game.away_team, Game.commence_time
+        ).filter(Game.commence_time >= datetime.utcnow()).all()
 
     events = [
         {
-            "id": str(g.id),
-            "sport_key": g.sport_key,
-            "home_team": g.home_team,
-            "away_team": g.away_team,
-            "commence_time": g.commence_time.isoformat(),
+            "id": str(gid),
+            "sport_key": "",   # not on Game model directly — resolved via Sport FK if needed
+            "home_team": home,
+            "away_team": away,
+            "commence_time": ct.isoformat() if ct else "",
         }
-        for g in upcoming
+        for gid, home, away, ct in rows
     ]
 
     windowed = upcoming_games_by_window(events)

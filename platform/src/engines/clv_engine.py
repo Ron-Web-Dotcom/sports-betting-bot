@@ -38,7 +38,8 @@ def record_clv(pick_id: int, odds_at_pick: int, odds_at_close: int) -> None:
             pick.american_odds_close = odds_at_close
             pick.clv_pct             = clv
 
-        # Upsert CLV record — try INSERT, fall back to UPDATE on conflict
+        # Upsert CLV record using a savepoint so a conflict doesn't poison
+        # the outer session (db.rollback() would roll back the pick update too).
         existing = db.query(CLVRecord).filter_by(pick_id=pick_id).first()
         if existing:
             existing.odds_at_close    = odds_at_close
@@ -59,9 +60,11 @@ def record_clv(pick_id: int, odds_at_pick: int, odds_at_close: int) -> None:
             )
             db.add(rec)
             try:
-                db.flush()
+                # Use a savepoint: rollback only undoes the INSERT, not the
+                # preceding pick update, keeping the outer transaction intact.
+                with db.begin_nested():
+                    db.flush()
             except IntegrityError:
-                db.rollback()
                 # Race condition: another process inserted first — update instead
                 existing = db.query(CLVRecord).filter_by(pick_id=pick_id).first()
                 if existing:
