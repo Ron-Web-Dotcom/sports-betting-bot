@@ -15,13 +15,14 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Weights for composite confidence
+# Signal weights — must sum to 1.0 so perfect inputs yield raw_score of 1.0.
+# Calibration is an additive correction applied separately (not a weight).
 WEIGHTS = {
-    "ai_prob":        0.35,
+    "ai_prob":        0.40,
     "model_consensus":0.25,
     "line_movement":  0.20,
-    "news_impact":    0.10,
-    "calibration":    0.10,
+    "news_impact":    0.15,
+    "calibration":    0.10,   # kept for backward compat — not used in raw sum
 }
 
 
@@ -88,8 +89,11 @@ def compute_confidence(
     raw = max(0.0, min(1.0, raw))
 
     bucket = _bucket(raw)
+    # Calibration adj is a direct additive correction (e.g. +0.03 if we outperform
+    # predicted win rate in this bucket). Do NOT multiply by the calibration weight —
+    # that dampened a 7% correction down to 0.7%, making calibration useless.
     adj    = get_calibration_adjustment(sport, market, bucket)
-    calibrated = max(0.0, min(1.0, raw + adj * WEIGHTS["calibration"]))
+    calibrated = max(0.0, min(1.0, raw + adj))
 
     return ConfidenceResult(
         raw_score        = round(raw, 4),

@@ -94,7 +94,9 @@ def generate_picks(self):
                 ai_win_prob         = ai.get("win_probability", 0.5),
                 model_consensus     = ai.get("confidence", 0.5),
                 line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
-                news_impact_score   = min(len(game_context.get("news_espn", [])) / 5, 1.0),
+                # Use score_injury_impact from news_engine: 0=bad injuries, 0.5=neutral, 1=good
+                # NOT article count — more articles ≠ better news
+                news_impact_score   = game_context.get("news_impact_score", 0.5),
             )
 
             # Adjust confidence down when data is incomplete
@@ -112,7 +114,20 @@ def generate_picks(self):
                 injury_flags     = sum(1 for i in all_injuries if i.get("status") in ("out", "doubtful")),
             )
 
-            comparison = compare_all_markets(snap_list)
+            # compare_all_markets expects {markets: {market: {selection: [book_entries]}}}
+            # Build that structure from the flat snap_list
+            from src.engines.ev_engine import american_to_decimal, implied_prob as _ip
+            markets_dict: dict = {}
+            for s in snap_list:
+                mkt, sel, book = s.get("market","h2h"), s.get("selection",""), s.get("book","")
+                odds = s.get("best_odds", -110)
+                markets_dict.setdefault(mkt, {}).setdefault(sel, []).append({
+                    "book": book,
+                    "american_odds": odds,
+                    "decimal_odds": american_to_decimal(odds),
+                    "implied_prob": _ip(odds),
+                })
+            comparison = compare_all_markets({"markets": markets_dict})
 
             pick = build_recommendation(
                 sport=event["sport_key"],

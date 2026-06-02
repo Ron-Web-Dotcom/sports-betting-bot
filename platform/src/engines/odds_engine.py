@@ -152,6 +152,7 @@ def run_full_odds_scan() -> list[dict]:
 
 def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     """Return {game_id: [snapshot_dicts]} for all open games."""
+    from src.db.session import get_db   # local import — avoids circular dependency
     from src.db.models import OddsSnapshot, Game
     from datetime import datetime, timedelta
 

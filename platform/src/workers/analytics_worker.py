@@ -13,8 +13,34 @@ def send_daily_summary():
 
     daily = get_daily_summary()
     clv_stats = aggregate_clv("daily")
-    picks_dicts = []
-    results_dicts = []
+
+    # Fetch actual picks and results from DB for the summary
+    from src.db.session import get_db
+    from src.db.models import Pick
+    from datetime import datetime, timedelta
+    with get_db() as db:
+        today_picks = db.query(
+            Pick.selection, Pick.sport, Pick.american_odds_at_gen,
+            Pick.ev_pct, Pick.units, Pick.recommendation,
+        ).filter(
+            Pick.generated_at >= datetime.utcnow() - timedelta(hours=24),
+            Pick.recommendation == "BET",
+        ).limit(20).all()
+        settled = db.query(
+            Pick.selection, Pick.sport, Pick.result, Pick.actual_pnl_units,
+        ).filter(
+            Pick.settled_at >= datetime.utcnow() - timedelta(hours=24),
+            Pick.result.isnot(None),
+        ).limit(20).all()
+
+    picks_dicts = [
+        {"bet": sel, "sport": sp, "odds": odds, "ev": ev, "units": u}
+        for sel, sp, odds, ev, u, _ in today_picks
+    ]
+    results_dicts = [
+        {"bet": sel, "sport": sp, "result": res, "pnl": pnl}
+        for sel, sp, res, pnl in settled
+    ]
     summary = write_daily_summary(picks_dicts, results_dicts, clv_stats, bankroll=daily.get("net_units", 0))
 
     from src.workers.alert_worker import _run_async
@@ -92,3 +118,32 @@ def snapshot_portfolio():
         ))
     logger.info("Portfolio snapshot saved")
     return stats
+
+
+@app.task
+def cleanup_old_snapshots():
+    """Delete OddsSnapshots older than 7 days — prevents unbounded table growth.
+
+    Without cleanup: ~6.9M rows/day accumulate and eventually kill query performance.
+    """
+    from src.db.session import get_db
+    from src.db.models import OddsSnapshot, LineMovement, AlertRecord
+    from datetime import datetime, timedelta
+
+    cutoff_snapshots = datetime.utcnow() - timedelta(days=7)
+    cutoff_alerts    = datetime.utcnow() - timedelta(days=30)
+
+    with get_db() as db:
+        deleted_snaps = db.query(OddsSnapshot).filter(
+            OddsSnapshot.captured_at < cutoff_snapshots
+        ).delete(synchronize_session=False)
+
+        deleted_alerts = db.query(AlertRecord).filter(
+            AlertRecord.sent_at < cutoff_alerts
+        ).delete(synchronize_session=False)
+
+    logger.info(
+        "Cleanup: deleted %d old snapshots, %d old alert records",
+        deleted_snaps, deleted_alerts,
+    )
+    return {"snapshots_deleted": deleted_snaps, "alerts_deleted": deleted_alerts}

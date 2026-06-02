@@ -116,19 +116,23 @@ def get_performance_stats(period: str = "lifetime") -> dict:
 
     wins   = [p for p in picks if p.result == "won"]
     losses = [p for p in picks if p.result == "lost"]
-    units_won  = sum(p.actual_pnl_units or 0 for p in wins)
-    units_lost = sum(abs(p.actual_pnl_units or 0) for p in losses)
+    units_won    = sum(p.actual_pnl_units or 0 for p in wins)
+    units_lost   = sum(abs(p.actual_pnl_units or 0) for p in losses)
+    # Total wagered = units staked on every bet (wins + losses + pushes)
+    total_wagered = sum(p.units or 1 for p in picks)
 
     return {
-        "period":      period,
-        "total":       len(picks),
-        "wins":        len(wins),
-        "losses":      len(losses),
-        "units_won":   round(units_won,  2),
-        "units_lost":  round(units_lost, 2),
-        "net_units":   round(units_won - units_lost, 2),
-        "hit_rate":    round(len(wins) / len(picks), 4) if picks else 0.0,
-        "roi":         round((units_won - units_lost) / max(units_lost, 1), 4),
+        "period":        period,
+        "total":         len(picks),
+        "wins":          len(wins),
+        "losses":        len(losses),
+        "units_won":     round(units_won,  2),
+        "units_lost":    round(units_lost, 2),
+        "net_units":     round(units_won - units_lost, 2),
+        "total_wagered": round(total_wagered, 2),
+        "hit_rate":      round(len(wins) / len(picks), 4) if picks else 0.0,
+        # ROI = net profit / total amount wagered (industry standard)
+        "roi":           round((units_won - units_lost) / max(total_wagered, 0.01), 4),
         "profit_factor": round(units_won / max(units_lost, 0.01), 2),
     }
 

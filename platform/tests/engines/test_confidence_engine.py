@@ -45,8 +45,9 @@ def test_confidence_clamped_low():
 
 
 def test_weights_sum_correct():
-    non_cal = WEIGHTS["ai_prob"] + WEIGHTS["model_consensus"] + WEIGHTS["line_movement"] + WEIGHTS["news_impact"]
-    assert abs(non_cal + WEIGHTS["calibration"] - 1.0) < 1e-9
+    """Signal weights (excluding calibration) must sum to 1.0."""
+    signal_sum = WEIGHTS["ai_prob"] + WEIGHTS["model_consensus"] + WEIGHTS["line_movement"] + WEIGHTS["news_impact"]
+    assert abs(signal_sum - 1.0) < 1e-9
 
 
 def test_all_fields_present():

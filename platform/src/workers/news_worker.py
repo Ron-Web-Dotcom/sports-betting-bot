@@ -9,10 +9,12 @@ logger = logging.getLogger(__name__)
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def fetch_and_save_news(self):
     try:
-        injuries = fetch_all_injuries()
-        save_injuries(injuries)
-        logger.info("News worker: saved %d injury/news items", len(injuries))
-        return {"injuries": len(injuries)}
+        injuries_by_sport = fetch_all_injuries()   # dict[str, list[dict]]
+        # Flatten to list[dict] before saving — save_injuries expects a flat list
+        flat_injuries = [inj for lst in injuries_by_sport.values() for inj in lst]
+        save_injuries(flat_injuries)
+        logger.info("News worker: saved %d injury/news items", len(flat_injuries))
+        return {"injuries": len(flat_injuries)}
     except Exception as exc:
         logger.error("News fetch failed: %s", exc)
         raise self.retry(exc=exc)

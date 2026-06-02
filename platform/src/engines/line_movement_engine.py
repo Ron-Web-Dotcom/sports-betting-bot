@@ -99,7 +99,9 @@ def save_movement(alert: LineMovementAlert) -> None:
     from src.db.models import LineMovement
     with get_db() as db:
         db.add(LineMovement(
-            game_id       = int(alert.game_id) if isinstance(alert.game_id, str) and alert.game_id.isdigit() else None,
+            game_id       = int(alert.game_id) if isinstance(alert.game_id, int) else (
+                                int(alert.game_id) if isinstance(alert.game_id, str) and alert.game_id.lstrip("-").isdigit() else None
+                            ),
             market        = alert.market,
             selection     = alert.selection,
             book          = alert.book,

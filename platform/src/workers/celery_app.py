@@ -95,4 +95,15 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.send_monthly_summary",
         "schedule": crontab(day_of_month=1, hour=0, minute=1),
     },
+    # OddsSnapshot cleanup — nightly 3 AM: delete snapshots older than 7 days
+    # Without this, ~6.9M rows/day accumulate and eventually kill the DB
+    "cleanup-old-snapshots": {
+        "task": "src.workers.analytics_worker.cleanup_old_snapshots",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    # Parlay generation — daily at 9 AM after picks are in
+    "generate-parlays-daily": {
+        "task": "src.workers.picks_worker.generate_parlays",
+        "schedule": crontab(hour=9, minute=0),
+    },
 }

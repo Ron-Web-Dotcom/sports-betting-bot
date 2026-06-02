@@ -150,7 +150,6 @@ def _extract_winner(score_item: dict) -> str | None:
 
 def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None:
     """Map game outcome to pick result."""
-    # Handle canceled / postponed games
     status = score.get("status", "")
     if status in ("canceled", "postponed"):
         return "void"
@@ -158,10 +157,50 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
     if score.get("push"):
         return "push"
 
+    selection = (pick.selection or "").strip()
+    market    = (pick.market or "h2h").lower()
+
+    # ── Totals (Over/Under) ───────────────────────────────────────────────────
+    if market == "totals" or selection.lower().startswith(("over", "under")):
+        total_line  = score.get("total_line")     # e.g. 221.5
+        total_scored = score.get("total_scored")  # actual combined score
+        if total_line is None or total_scored is None:
+            return None
+        is_over = selection.lower().startswith("over")
+        if abs(total_scored - total_line) < 0.1:
+            return "push"
+        return "won" if (is_over and total_scored > total_line) or \
+                        (not is_over and total_scored < total_line) else "lost"
+
+    # ── Spreads ───────────────────────────────────────────────────────────────
+    import re as _re
+    spread_match = _re.search(r'([+-]?\d+(?:\.\d+)?)\s*$', selection)
+    if market == "spreads" or spread_match:
+        home_score = score.get("home_score")
+        away_score = score.get("away_score")
+        home_team  = score.get("home_team", "")
+        if home_score is None or away_score is None or not spread_match:
+            # Fall through to moneyline matching below
+            pass
+        else:
+            spread = float(spread_match.group(1))
+            team_part = _re.sub(r'[+-]?\d+(?:\.\d+)?\s*$', '', selection).strip()
+            team_norm = _normalize_team_name(team_part)
+            home_norm = _normalize_team_name(home_team)
+            is_home   = home_norm and team_norm and (
+                home_norm in team_norm or team_norm in home_norm
+            )
+            margin = (home_score - away_score) if is_home else (away_score - home_score)
+            covered = margin + spread
+            if abs(covered) < 0.1:
+                return "push"
+            return "won" if covered > 0 else "lost"
+
+    # ── Moneyline (h2h) ───────────────────────────────────────────────────────
     if not winner:
         return None
 
-    selection_norm = _normalize_team_name(pick.selection or "")
+    selection_norm = _normalize_team_name(selection)
     winner_norm    = _normalize_team_name(winner)
 
     if winner_norm and selection_norm and (
