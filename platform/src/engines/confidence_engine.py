@@ -39,7 +39,7 @@ class ConfidenceResult:
 
 
 def _bucket(score: float) -> str:
-    pct = score * 100
+    pct = min(score * 100, 99.99)   # cap so bucket never exceeds "95-100"
     low = int(pct // 5) * 5
     return f"{low}-{low+5}"
 

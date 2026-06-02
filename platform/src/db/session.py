@@ -1,10 +1,13 @@
 """Database session factory — supports both SQLite (dev) and PostgreSQL (prod)."""
+import logging
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 
 from src.core.config import EFFECTIVE_DB_URL, USE_SQLITE
+
+logger = logging.getLogger(__name__)
 
 _connect_args = {"check_same_thread": False} if USE_SQLITE else {}
 
@@ -38,8 +41,9 @@ def get_db() -> Session:
     try:
         yield db
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
+        logger.error("DB transaction rolled back: %s", exc)
         raise
     finally:
         db.close()

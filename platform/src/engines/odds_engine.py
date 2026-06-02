@@ -159,18 +159,17 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     from src.db.models import OddsSnapshot, Game
     from datetime import datetime, timedelta
 
+    result: dict[int, list[dict]] = {}
     with get_db() as db:
         recent = db.query(OddsSnapshot).filter(
             OddsSnapshot.captured_at >= datetime.utcnow() - timedelta(hours=2)
         ).all()
-
-    result: dict[int, list[dict]] = {}
-    for snap in recent:
-        result.setdefault(snap.game_id, []).append({
-            "book": snap.book,
-            "market": snap.market,
-            "selection": snap.selection,
-            "best_odds": snap.american_odds,
-            "decimal_odds": snap.decimal_odds,
-        })
+        for snap in recent:
+            result.setdefault(snap.game_id, []).append({
+                "book":         snap.book,
+                "market":       snap.market,
+                "selection":    snap.selection,
+                "best_odds":    snap.american_odds,
+                "decimal_odds": snap.decimal_odds,
+            })
     return result

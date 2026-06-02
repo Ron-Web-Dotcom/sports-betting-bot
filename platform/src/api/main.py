@@ -45,8 +45,14 @@ async def require_api_key(request: Request, call_next):
     """All non-health endpoints require X-API-Key header or ?api_key= query param.
     PLATFORM_API_KEY not set → check skipped (dev/test only).
     """
-    if not _API_KEY or request.url.path in _PUBLIC_PATHS or request.method == "OPTIONS":
+    if request.url.path in _PUBLIC_PATHS or request.method == "OPTIONS":
         return await call_next(request)
+    # If PLATFORM_API_KEY is not configured, block all non-public routes in production
+    if not _API_KEY:
+        from src.core.config import ENVIRONMENT
+        if ENVIRONMENT == "production":
+            return JSONResponse(status_code=503, content={"detail": "API key not configured"})
+        return await call_next(request)  # dev/test: allow through with warning
 
     key = request.headers.get("X-API-Key") or request.query_params.get("api_key", "")
     if not key or key != _API_KEY:

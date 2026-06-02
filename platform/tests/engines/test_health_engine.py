@@ -42,10 +42,12 @@ def test_check_redis_down_on_error():
     assert result.status == "down"
 
 
-def test_check_discord_degraded_when_not_set():
+def test_check_discord_ok_when_not_configured():
+    # Not configured = optional integration, report ok rather than degraded
     with patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": ""}):
         result = check_discord()
-    assert result.status == "degraded"
+    assert result.status == "ok"
+    assert "Not configured" in (result.error or "")
 
 
 def test_get_system_health_returns_systemhealth():

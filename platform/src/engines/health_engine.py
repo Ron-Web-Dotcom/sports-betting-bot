@@ -36,7 +36,10 @@ def check_odds_api() -> ServiceStatus:
         return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=datetime.utcnow(), error=str(e))
+        # Redact API key from error message to prevent secret leakage in logs
+        api_key = os.getenv("ODDS_API_KEY", "")
+        safe_err = str(e).replace(api_key, "***") if api_key else str(e)
+        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=datetime.utcnow(), error=safe_err)
 
 
 def check_redis() -> ServiceStatus:
@@ -77,7 +80,10 @@ def check_discord() -> ServiceStatus:
     try:
         webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
         if not webhook:
-            raise ValueError("DISCORD_WEBHOOK_URL not set")
+            return ServiceStatus(
+                name=name, status="ok", latency_ms=0,
+                last_check=datetime.utcnow(), error="Not configured (optional)",
+            )
         # Discord webhooks only accept POST — GET returns 405. Send an empty POST
         # with ?wait=false so Discord doesn't queue a message, just validates the URL.
         data = b"{}"

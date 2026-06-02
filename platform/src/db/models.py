@@ -200,6 +200,8 @@ class Pick(Base):
         Index("ix_picks_result",       "result"),
         Index("ix_picks_sport",        "sport"),
         Index("ix_picks_units",        "units"),
+        # Composite index for settlement query: result + recommendation + generated_at
+        Index("ix_picks_settlement", "result", "recommendation", "generated_at"),
     )
 
 

@@ -42,7 +42,7 @@ def settle_completed_picks(self):
             open_picks = db.query(Pick).filter(
                 or_(Pick.result == BetResult.PENDING, Pick.result.is_(None)),
                 Pick.recommendation == "BET",
-                Pick.generated_at >= datetime.utcnow() - timedelta(days=3),
+                Pick.generated_at >= datetime.utcnow() - timedelta(days=14),
             ).all()
 
             if not open_picks:
@@ -81,6 +81,7 @@ def settle_completed_picks(self):
                             "status":    item.get("status", ""),
                             "push":      False,
                             "winner":    _extract_winner(item),
+                            **_extract_score_details(item),
                         }
 
             settled_count = 0
@@ -140,12 +141,44 @@ def _extract_winner(score_item: dict) -> str | None:
     if not scores:
         return None
     try:
-        sorted_scores = sorted(scores, key=lambda s: float(s.get("score", 0)), reverse=True)
+        sorted_scores = sorted(scores, key=lambda s: float(s.get("score", 0) or 0), reverse=True)
         if len(sorted_scores) >= 2 and sorted_scores[0]["score"] != sorted_scores[1]["score"]:
             return sorted_scores[0].get("name")
     except (ValueError, TypeError):
         pass
     return None
+
+
+def _extract_score_details(score_item: dict) -> dict:
+    """
+    Extract home/away scores and compute total_scored from an Odds API scores item.
+    Returns a dict with home_score, away_score, home_team, total_scored.
+    """
+    scores_list = score_item.get("scores") or []
+    home_team   = score_item.get("home_team", "")
+    home_norm   = _normalize_team_name(home_team)
+
+    home_score: float | None = None
+    away_score: float | None = None
+
+    for s in scores_list:
+        try:
+            val = float(s.get("score") or 0)
+        except (ValueError, TypeError):
+            continue
+        name_norm = _normalize_team_name(s.get("name", ""))
+        if home_norm and name_norm and (home_norm in name_norm or name_norm in home_norm):
+            home_score = val
+        else:
+            away_score = val
+
+    total_scored = (home_score + away_score) if (home_score is not None and away_score is not None) else None
+    return {
+        "home_score":   home_score,
+        "away_score":   away_score,
+        "home_team":    home_team,
+        "total_scored": total_scored,
+    }
 
 
 def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None:
@@ -162,8 +195,10 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
 
     # ── Totals (Over/Under) ───────────────────────────────────────────────────
     if market == "totals" or selection.lower().startswith(("over", "under")):
-        total_line  = score.get("total_line")     # e.g. 221.5
-        total_scored = score.get("total_scored")  # actual combined score
+        # Extract total_line from pick selection: "Over 221.5" → 221.5
+        line_match = re.search(r'(\d+(?:\.\d+)?)', selection)
+        total_line   = float(line_match.group(1)) if line_match else None
+        total_scored = score.get("total_scored")  # actual combined score from _extract_score_details
         if total_line is None or total_scored is None:
             return None
         is_over = selection.lower().startswith("over")
