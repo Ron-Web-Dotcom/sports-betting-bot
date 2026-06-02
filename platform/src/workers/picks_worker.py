@@ -48,33 +48,60 @@ def generate_picks(self):
 
             odds_by_book = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
 
-            ai = analyse_pick(event, game_injuries, [], odds_by_book)
+            # Build full real-world context from all data sources
+            from src.apis.data_hub import build_game_context
+            game_context = build_game_context(
+                sport_key  = event["sport_key"],
+                home_team  = event["home_team"],
+                away_team  = event["away_team"],
+                game_time  = event["commence_time"],
+            )
+
+            # Merge hub injuries (richer) with odds-engine injuries
+            hub_injuries = (
+                game_context.get("injuries_espn_home", []) +
+                game_context.get("rotowire_injuries", [])
+            )
+            all_injuries = hub_injuries or game_injuries
+
+            hub_news = game_context.get("news_espn", [])
+
+            ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
             if not ai:
                 continue
 
-            from src.engines.ev_engine import american_to_decimal, implied_prob, remove_vig
+            from src.engines.ev_engine import american_to_decimal, implied_prob, remove_vig, evaluate
             best_odds = best_snap.get("best_odds", -110)
-            dec = american_to_decimal(best_odds)
-            fair_prob = remove_vig([best_odds])[0] if odds_by_book else implied_prob(dec)
 
-            ev = compute_ev(fair_prob, dec, best_odds)
-            units = assign_units(ev.ev_pct)
-            ev_result = EVResult(
-                fair_prob=fair_prob,
-                implied_prob=ev.implied_prob,
-                ev_pct=ev.ev_pct,
-                decimal_odds=dec,
-                american_odds=best_odds,
-                is_positive_ev=ev.is_positive_ev,
+            # Use the full evaluate() pipeline for a complete EVResult
+            opponent_odds = list(odds_by_book.values())[1] if len(odds_by_book) > 1 else None
+            ev_result = evaluate(
+                american_odds   = best_odds,
+                projected_prob  = ai.get("win_probability", 0.5),
+                opponent_odds   = opponent_odds,
             )
 
             confidence = compute_confidence(
-                ai_score=ai.get("confidence", 0.5),
-                statistical_score=ai.get("statistical_score", 0.5),
-                market_score=ai.get("market_score", 0.5),
-                line_score=0.5,
+                ai_win_prob         = ai.get("win_probability", 0.5),
+                model_consensus     = ai.get("confidence", 0.5),
+                line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
+                news_impact_score   = min(len(game_context.get("news_espn", [])) / 5, 1.0),
             )
-            risk = assess(ev_result, confidence, game_injuries)
+
+            # Adjust confidence down when data is incomplete
+            data_quality = game_context.get("data_completeness", 1.0)
+            if data_quality < 0.5:
+                confidence.calibrated_score = round(confidence.calibrated_score * data_quality, 4)
+
+            risk = assess(
+                requested_units  = ev_result.units,
+                sport            = event["sport_key"],
+                ev_pct           = ev_result.ev_pct,
+                confidence       = confidence.calibrated_score,
+                win_prob         = ev_result.projected_prob,
+                decimal_odds     = ev_result.decimal_odds,
+                injury_flags     = sum(1 for i in all_injuries if i.get("status") in ("out", "doubtful")),
+            )
 
             comparison = compare_all_markets(snap_list)
 

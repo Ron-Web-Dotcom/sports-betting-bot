@@ -1,0 +1,275 @@
+"""
+Tests for all data source adapters.
+
+All tests mock the HTTP layer — no real network calls.
+We test that each adapter correctly parses responses and handles failures.
+"""
+import pytest
+from unittest.mock import patch, MagicMock
+
+
+# ── ESPN ───────────────────────────────────────────────────────────────────────
+
+class TestESPN:
+    def test_fetch_injuries_parses_response(self):
+        mock_response = {
+            "injuries": [
+                {
+                    "team": {"displayName": "Los Angeles Lakers"},
+                    "injuries": [
+                        {
+                            "athlete": {
+                                "displayName": "LeBron James",
+                                "position": {"abbreviation": "SF"},
+                            },
+                            "status": "Questionable",
+                            "shortComment": "Left ankle soreness",
+                        }
+                    ],
+                }
+            ]
+        }
+        with patch("src.apis.espn.get_json", return_value=mock_response):
+            from src.apis.espn import fetch_injuries
+            result = fetch_injuries("basketball_nba")
+
+        assert len(result) == 1
+        assert result[0]["player"] == "LeBron James"
+        assert result[0]["status"] == "questionable"
+        assert result[0]["source"] == "espn"
+
+    def test_fetch_injuries_unknown_sport_returns_empty(self):
+        from src.apis.espn import fetch_injuries
+        result = fetch_injuries("unknown_sport_xyz")
+        assert result == []
+
+    def test_fetch_injuries_api_failure_returns_empty(self):
+        with patch("src.apis.espn.get_json", return_value=None):
+            from src.apis.espn import fetch_injuries
+            result = fetch_injuries("basketball_nba")
+        assert result == []
+
+    def test_fetch_news_parses_articles(self):
+        mock_response = {
+            "articles": [
+                {"headline": "Lakers injury update", "description": "LeBron out tonight", "published": "2024-01-15T18:00:00Z"},
+                {"headline": "Warriors trade news", "description": "Curry returns", "published": "2024-01-15T17:00:00Z"},
+            ]
+        }
+        with patch("src.apis.espn.get_json", return_value=mock_response):
+            from src.apis.espn import fetch_news
+            result = fetch_news("basketball_nba", limit=2)
+
+        assert len(result) == 2
+        assert result[0]["headline"] == "Lakers injury update"
+        assert result[0]["source"] == "espn"
+
+    def test_fetch_scoreboard_parses_games(self):
+        mock_response = {
+            "events": [
+                {
+                    "id": "401234",
+                    "name": "Lakers vs Celtics",
+                    "date": "2024-01-15T20:00Z",
+                    "competitions": [{
+                        "competitors": [
+                            {"homeAway": "home", "team": {"displayName": "Lakers"}, "score": ""},
+                            {"homeAway": "away", "team": {"displayName": "Celtics"}, "score": ""},
+                        ]
+                    }],
+                    "status": {"type": {"description": "Scheduled", "completed": False}},
+                }
+            ]
+        }
+        with patch("src.apis.espn.get_json", return_value=mock_response):
+            from src.apis.espn import fetch_scoreboard
+            result = fetch_scoreboard("basketball_nba")
+
+        assert len(result) == 1
+        assert result[0]["home_team"] == "Lakers"
+        assert result[0]["away_team"] == "Celtics"
+        assert result[0]["source"] == "espn"
+
+
+# ── StatMuse ───────────────────────────────────────────────────────────────────
+
+class TestStatMuse:
+    _NEXT_DATA = """<script id="__NEXT_DATA__" type="application/json">
+    {"props":{"pageProps":{"data":{
+        "players":[{"pts":27.3,"reb":7.1,"ast":7.4,"gp":55}],
+        "summary":{"text":"LeBron James averaged 27.3 points per game this season."}
+    }}}}
+    </script>"""
+
+    def test_player_season_stats_parses_next_data(self):
+        with patch("src.apis.statmuse.get_html", return_value=self._NEXT_DATA):
+            from src.apis.statmuse import player_season_stats
+            result = player_season_stats("LeBron James", "basketball_nba")
+
+        assert result["player"] == "LeBron James"
+        assert "27.3" in result["summary"] or result["stats"].get("pts") == 27.3
+        assert result["source"] == "statmuse"
+
+    def test_player_season_stats_http_failure_returns_empty(self):
+        with patch("src.apis.statmuse.get_html", return_value=None):
+            from src.apis.statmuse import player_season_stats
+            result = player_season_stats("LeBron James", "basketball_nba")
+
+        assert result["stats"] == {}
+        assert result["source"] == "statmuse"
+
+    def test_head_to_head_structure(self):
+        with patch("src.apis.statmuse.get_html", return_value=self._NEXT_DATA):
+            from src.apis.statmuse import head_to_head
+            result = head_to_head("Lakers", "Celtics", "basketball_nba")
+
+        assert result["home"] == "Lakers"
+        assert result["away"] == "Celtics"
+        assert result["source"] == "statmuse"
+
+    def test_query_returns_summary(self):
+        with patch("src.apis.statmuse.get_html", return_value=self._NEXT_DATA):
+            from src.apis.statmuse import query
+            result = query("LeBron James points last 10 games", "basketball_nba")
+
+        assert result["source"] == "statmuse"
+        assert "query" in result
+
+
+# ── Ball Don't Lie ─────────────────────────────────────────────────────────────
+
+class TestBallDontLie:
+    def test_search_player_returns_list(self):
+        mock_response = {
+            "data": [
+                {"id": 237, "first_name": "LeBron", "last_name": "James",
+                 "position": "F", "team": {"full_name": "Los Angeles Lakers"}}
+            ]
+        }
+        with patch("src.apis.balldontlie.get_json", return_value=mock_response):
+            from src.apis.balldontlie import search_player
+            result = search_player("LeBron")
+
+        assert len(result) == 1
+        assert result[0]["name"] == "LeBron James"
+        assert result[0]["source"] == "balldontlie"
+
+    def test_player_season_averages(self):
+        mock_response = {
+            "data": [{"pts": 27.3, "reb": 7.1, "ast": 7.4, "fg_pct": 0.54, "games_played": 55}]
+        }
+        with patch("src.apis.balldontlie.get_json", return_value=mock_response):
+            from src.apis.balldontlie import player_season_averages
+            result = player_season_averages(237, 2023)
+
+        assert result["pts"] == 27.3
+        assert result["source"] == "balldontlie"
+
+    def test_empty_response_returns_empty(self):
+        with patch("src.apis.balldontlie.get_json", return_value={"data": []}):
+            from src.apis.balldontlie import player_season_averages
+            result = player_season_averages(999, 2023)
+        assert result == {}
+
+
+# ── Weather ────────────────────────────────────────────────────────────────────
+
+class TestWeather:
+    def test_impact_high_wind_bets_under(self):
+        from src.apis.weather import _assess_impact
+        impact = _assess_impact(temp_f=45, wind_mph=25, precip_mm=0)
+        assert impact["bet_under"] is True
+        assert impact["total_adjustment"] < -0.10
+
+    def test_impact_mild_conditions_no_signal(self):
+        from src.apis.weather import _assess_impact
+        impact = _assess_impact(temp_f=72, wind_mph=5, precip_mm=0)
+        assert impact["bet_under"] is False
+        assert impact["total_adjustment"] == 0.0
+
+    def test_impact_freezing_temp_reduces_scoring(self):
+        from src.apis.weather import _assess_impact
+        impact = _assess_impact(temp_f=15, wind_mph=8, precip_mm=0)
+        assert any("freezing" in f.lower() or "cold" in f.lower() for f in impact["factors"])
+        assert impact["total_adjustment"] < -0.10
+
+    def test_weather_not_relevant_for_indoor_sports(self):
+        from src.apis.weather import WEATHER_RELEVANT
+        assert "basketball_nba" not in WEATHER_RELEVANT
+        assert "americanfootball_nfl" in WEATHER_RELEVANT
+        assert "baseball_mlb" in WEATHER_RELEVANT
+
+
+# ── Action Network ─────────────────────────────────────────────────────────────
+
+class TestActionNetwork:
+    def test_detect_sharp_action_signals_reverse_line(self):
+        from src.apis.action_network import detect_sharp_action
+        consensus = {
+            "home": "Lakers",
+            "away": "Celtics",
+            "lines": [{
+                "market":        "moneyline",
+                "home_bets_pct": 75,
+                "away_bets_pct": 25,
+                "home_money_pct": 35,
+                "away_money_pct": 65,
+            }]
+        }
+        signals = detect_sharp_action(consensus)
+        assert len(signals) > 0
+        assert "Sharp money" in signals[0]
+        assert "Celtics" in signals[0]
+
+    def test_no_sharp_signal_when_balanced(self):
+        from src.apis.action_network import detect_sharp_action
+        consensus = {
+            "home": "Lakers", "away": "Celtics",
+            "lines": [{
+                "market": "moneyline",
+                "home_bets_pct": 52, "away_bets_pct": 48,
+                "home_money_pct": 54, "away_money_pct": 46,
+            }]
+        }
+        signals = detect_sharp_action(consensus)
+        assert signals == []
+
+
+# ── Data Hub ───────────────────────────────────────────────────────────────────
+
+class TestDataHub:
+    def test_build_game_context_structure(self):
+        with patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]), \
+             patch("src.apis.data_hub._fetch_news_espn", return_value=[{"headline": "Y"}]), \
+             patch("src.apis.data_hub._fetch_scoreboard_espn", return_value=[]), \
+             patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead 5-3"}), \
+             patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}), \
+             patch("src.apis.data_hub._fetch_sharp_action", return_value={}), \
+             patch("src.apis.data_hub._fetch_weather", return_value={}), \
+             patch("src.apis.data_hub._fetch_trending", return_value=[]):
+            from src.apis.data_hub import build_game_context
+            ctx = build_game_context("basketball_nba", "Lakers", "Celtics", "2024-01-15T20:00:00Z")
+
+        assert ctx["sport"] == "basketball_nba"
+        assert ctx["home_team"] == "Lakers"
+        assert "sources_used" in ctx
+        assert "data_completeness" in ctx
+        assert 0.0 <= ctx["data_completeness"] <= 1.0
+
+    def test_completeness_score_with_all_data(self):
+        from src.apis.data_hub import _score_completeness
+        context = {
+            "injuries_espn_home": [{"player": "X"}],
+            "h2h_statmuse":       {"summary": "Y"},
+            "home_form_statmuse": {"games": []},
+            "away_form_statmuse": {"games": []},
+            "sharp_action":       {"signals": []},
+            "news_espn":          [{"headline": "Z"}],
+        }
+        score = _score_completeness(context)
+        assert score == 1.0
+
+    def test_completeness_score_with_no_data(self):
+        from src.apis.data_hub import _score_completeness
+        score = _score_completeness({})
+        assert score == 0.0

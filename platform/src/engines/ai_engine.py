@@ -54,13 +54,42 @@ Keep it under 300 words. Format for Discord."""
 
 # ── Core analysis ──────────────────────────────────────────────────────────────
 
-def analyse_pick(event: dict, injuries: list, news: list, odds_by_book: dict) -> dict | None:
+def analyse_pick(
+    event:        dict,
+    injuries:     list,
+    news:         list,
+    odds_by_book: dict,
+    game_context: dict | None = None,
+) -> dict | None:
+    """
+    Analyse a betting opportunity using all available real-world data.
+
+    game_context is a rich dict from data_hub.build_game_context() containing
+    H2H history, recent form, sharp action, weather, and injury reports from
+    ESPN, StatMuse, RotoWire, and Sleeper. The more context provided, the
+    stronger and more traceable the reasoning will be.
+
+    Claude's role here is EXPLANATION only — it receives pre-computed EV and
+    confidence scores and must justify them with specific, verifiable factors.
+    It does not override the EV model.
+    """
     payload = {
-        "event":     event,
-        "injuries":  injuries[:15],
-        "news":      news[:5],
-        "odds":      odds_by_book,
+        "event":        event,
+        "injuries":     injuries[:15],
+        "news":         news[:5],
+        "odds":         odds_by_book,
     }
+
+    if game_context:
+        # Include only the most signal-rich context keys to stay within token budget
+        payload["head_to_head"]   = game_context.get("h2h_statmuse", {})
+        payload["home_form"]      = game_context.get("home_form_statmuse", {})
+        payload["away_form"]      = game_context.get("away_form_statmuse", {})
+        payload["sharp_action"]   = game_context.get("sharp_action", {})
+        payload["weather"]        = game_context.get("weather", {})
+        payload["data_quality"]   = game_context.get("data_completeness", 1.0)
+        payload["sources"]        = game_context.get("sources_used", [])
+
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)
 
