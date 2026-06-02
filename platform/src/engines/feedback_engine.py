@@ -36,10 +36,9 @@ def get_pick_quality_score(pick_id: int) -> float:
 
     with get_db() as db:
         rows = db.query(UserFeedback).filter(UserFeedback.pick_id == pick_id).all()
-
-    if not rows:
-        return 0.0
-    scores = [1.0 if r.rating == "helpful" else 0.0 for r in rows]
+        if not rows:
+            return 0.0
+        scores = [1.0 if r.rating == "helpful" else 0.0 for r in rows]
     return sum(scores) / len(scores)
 
 
@@ -49,10 +48,10 @@ def get_explanation_quality(pick_id: int) -> float:
 
     with get_db() as db:
         rows = db.query(UserFeedback).filter(UserFeedback.pick_id == pick_id).all()
-
-    if not rows:
-        return 0.0
-    return sum(r.explanation_rating for r in rows) / len(rows)
+        if not rows:
+            return 0.0
+        ratings = [r.explanation_rating for r in rows]
+    return sum(ratings) / len(ratings)
 
 
 def get_overall_satisfaction(period: str = "weekly") -> dict:
@@ -70,13 +69,11 @@ def get_overall_satisfaction(period: str = "weekly") -> dict:
 
     with get_db() as db:
         rows = db.query(UserFeedback).filter(UserFeedback.submitted_at >= since).all()
-
-    total = len(rows)
-    if total == 0:
-        return {"satisfaction_rate": 0.0, "total_ratings": 0, "avg_explanation": 0.0}
-
-    helpful = sum(1 for r in rows if r.rating == "helpful")
-    avg_explanation = sum(r.explanation_rating for r in rows) / total
+        total = len(rows)
+        if total == 0:
+            return {"satisfaction_rate": 0.0, "total_ratings": 0, "avg_explanation": 0.0}
+        helpful = sum(1 for r in rows if r.rating == "helpful")
+        avg_explanation = sum(r.explanation_rating for r in rows) / total
     return {
         "satisfaction_rate": helpful / total,
         "total_ratings": total,
