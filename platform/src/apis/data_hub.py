@@ -56,10 +56,6 @@ def build_game_context(
         "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
         # SportsData.io — checks for its own API key, returns {} if unconfigured
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
-        "home_roster":         (_fetch_team_roster,        (sport_key, home_team)),
-        "away_roster":         (_fetch_team_roster,        (sport_key, away_team)),
-        "home_team_profile":   (_fetch_team_profile,       (sport_key, home_team)),
-        "away_team_profile":   (_fetch_team_profile,       (sport_key, away_team)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -130,7 +126,6 @@ def build_player_context(
         tasks["vs_opponent"] = (_fetch_player_vs_team, (player_name, opponent, sport_key))
     if sport_key == "basketball_nba":
         tasks["bdl_log"] = (_fetch_bdl_game_log, (player_name,))
-    tasks["player_profile"] = (_fetch_player_profile_sdio, (player_name, sport_key))
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
@@ -222,28 +217,6 @@ def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.sportsdataio import enrich_game_context
     result = enrich_game_context(sport_key, home_team, away_team)
     return result if result.get("available") else {}
-
-def _fetch_team_roster(sport_key: str, team_name: str) -> list:
-    from src.apis.sportsdataio import get_team_roster
-    return get_team_roster(sport_key, team_name)
-
-def _fetch_team_profile(sport_key: str, team_name: str) -> dict:
-    from src.apis.sportsdataio import get_team_by_name
-    return get_team_by_name(sport_key, team_name)
-
-def _fetch_player_profile_sdio(player_name: str, sport_key: str) -> dict:
-    from src.apis.sportsdataio import get_all_teams, get_players_basic
-    teams = get_all_teams(sport_key)
-    name_lower = player_name.lower()
-    for team in teams:
-        abbrev = team.get("key", "")
-        if not abbrev:
-            continue
-        players = get_players_basic(sport_key, abbrev)
-        for p in players:
-            if name_lower in p.get("name", "").lower():
-                return p
-    return {}
 
 def _fetch_player_season(name: str, sport_key: str) -> dict:
     from src.apis.statmuse import player_season_stats
