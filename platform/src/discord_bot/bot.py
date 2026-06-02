@@ -62,9 +62,14 @@ async def send_to_channel(channel_name: str, content: str = "", embed: discord.E
 
 # ── Slash Commands ─────────────────────────────────────────────────────────────
 
+MAX_ANALYZE_CHARS = 500
+
+
 @bot.tree.command(name="analyze", description="Analyse a betting situation or game")
 async def cmd_analyze(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
+    # Truncate to prevent token abuse
+    query = query[:MAX_ANALYZE_CHARS]
     from src.engines.ai_engine import handle_command
     result = handle_command("analyze", query)
     embed = discord.Embed(title="Analysis", description=result, color=0x1E88E5)
@@ -151,9 +156,22 @@ async def cmd_bankroll(interaction: discord.Interaction, situation: str):
     await interaction.followup.send(embed=embed)
 
 
+MAX_BANKROLL = 10_000_000.0
+
+
 @bot.tree.command(name="setbankroll", description="Set your bankroll amount")
 async def cmd_setbankroll(interaction: discord.Interaction, amount: float):
     await interaction.response.defer(ephemeral=True)
+    if amount <= 0:
+        await interaction.followup.send(
+            "Invalid bankroll: amount must be greater than $0.", ephemeral=True
+        )
+        return
+    if amount > MAX_BANKROLL:
+        await interaction.followup.send(
+            f"Invalid bankroll: amount must not exceed ${MAX_BANKROLL:,.0f}.", ephemeral=True
+        )
+        return
     from src.engines.personalization_engine import get_profile, save_profile
     profile = get_profile(str(interaction.user.id))
     profile.bankroll = amount

@@ -11,7 +11,7 @@ Also implements fractional Kelly position sizing.
 """
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from src.core.config import MAX_DAILY_UNITS, MAX_SINGLE_UNITS, MAX_SPORT_EXPOSURE_PCT
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def _daily_units_used(sport: str | None = None) -> float:
     try:
         from src.db.session import get_db
         from src.db.models import Pick
-        today = date.today().isoformat()
+        today = datetime.combine(date.today(), datetime.min.time())
         with get_db() as db:
             q = db.query(Pick).filter(
                 Pick.generated_at >= today,

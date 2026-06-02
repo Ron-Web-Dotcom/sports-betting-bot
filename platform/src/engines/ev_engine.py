@@ -4,8 +4,11 @@ Engine 3 — Expected Value Engine.
 Computes true probability estimates, removes the bookmaker's vig,
 calculates EV and assigns unit rating.
 """
+import logging
 from dataclasses import dataclass
 from src.core.config import UNIT_TIERS, MIN_EV_PCT
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,6 +24,8 @@ class EVResult:
 
 
 def american_to_decimal(american: int) -> float:
+    if american == 0:
+        return 2.0  # even money — guard against divide-by-zero
     if american > 0:
         return american / 100 + 1
     return 100 / abs(american) + 1
@@ -75,6 +80,20 @@ def evaluate(
         projected_prob: Our model's win probability estimate.
         opponent_odds:  Opposing side odds (used for vig removal if provided).
     """
+    if american_odds == 0:
+        logger.warning("evaluate() called with american_odds=0; returning zero-EV result")
+        return EVResult(
+            american_odds=0,
+            decimal_odds=2.0,
+            book_implied=0.5,
+            no_vig_prob=0.5,
+            projected_prob=max(0.0, projected_prob),
+            ev_pct=0.0,
+            units=0,
+            is_positive_ev=False,
+        )
+
+    projected_prob = max(0.0, projected_prob)
     dec     = american_to_decimal(american_odds)
     book_imp = implied_prob(american_odds)
 
@@ -100,6 +119,8 @@ def evaluate(
 
 def bankroll_examples(units: int, unit_size_pct: float = 0.01, american_odds: int = -110) -> dict:
     """Generate stake / profit examples for standard bankroll sizes."""
+    if units <= 0:
+        return {}
     bankrolls = [100, 500, 1000, 5000]
     dec = american_to_decimal(american_odds)
     examples = {}

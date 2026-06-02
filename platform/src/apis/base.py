@@ -30,6 +30,7 @@ def get_client() -> httpx.Client:
             headers=_HEADERS,
             timeout=httpx.Timeout(connect=5.0, read=20.0, write=5.0, pool=5.0),
             follow_redirects=True,
+            max_redirects=3,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
     return _client
