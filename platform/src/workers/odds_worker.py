@@ -20,6 +20,8 @@ def scan_and_save_odds(self):
             from src.db.models import OddsSnapshot, Game
             from datetime import datetime, timedelta
 
+            # Group snapshots by game_id inside session to avoid DetachedInstanceError
+            by_game: dict[int, dict] = {}
             with get_db() as db:
                 cutoff = datetime.utcnow() - timedelta(hours=2)
                 recent = (
@@ -28,23 +30,20 @@ def scan_and_save_odds(self):
                     .filter(OddsSnapshot.captured_at >= cutoff)
                     .all()
                 )
-
-            # Group snapshots by game_id
-            by_game: dict[int, dict] = {}
-            for snap, ext_id, home, away in recent:
-                gid = snap.game_id
-                if gid not in by_game:
-                    by_game[gid] = {
-                        "event_name": f"{away} vs {home}",
-                        "snaps": [],
-                    }
-                by_game[gid]["snaps"].append({
-                    "market":        snap.market,
-                    "selection":     snap.selection,
-                    "book":          snap.book,
-                    "american_odds": snap.american_odds,
-                    "captured_at":   snap.captured_at,
-                })
+                for snap, ext_id, home, away in recent:
+                    gid = snap.game_id
+                    if gid not in by_game:
+                        by_game[gid] = {
+                            "event_name": f"{away} vs {home}",
+                            "snaps": [],
+                        }
+                    by_game[gid]["snaps"].append({
+                        "market":        snap.market,
+                        "selection":     snap.selection,
+                        "book":          snap.book,
+                        "american_odds": snap.american_odds,
+                        "captured_at":   snap.captured_at,
+                    })
 
             for game_id, info in by_game.items():
                 try:

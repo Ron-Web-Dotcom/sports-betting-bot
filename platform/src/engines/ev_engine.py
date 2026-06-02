@@ -32,6 +32,8 @@ def american_to_decimal(american: int) -> float:
 
 
 def decimal_to_american(decimal: float) -> int:
+    if decimal <= 1.0:
+        return -10000  # break-even or invalid odds — cap at max negative
     if decimal >= 2.0:
         return int((decimal - 1) * 100)
     return int(-100 / (decimal - 1))
