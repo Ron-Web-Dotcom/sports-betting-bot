@@ -2,7 +2,12 @@
 Data Hub — single interface for all real-world data sources.
 
 Aggregates ESPN, StatMuse, Ball Don't Lie, Sleeper, Weather, Action Network,
-RotoWire, and SofaScore into one normalized context payload per game.
+RotoWire, SofaScore, API-Sports, TheSportsDB, Stats Perform, and SportsData.io
+into one normalized context payload per game.
+
+Core sources (no key needed): ESPN, StatMuse, SofaScore, TheSportsDB (free tier),
+                               Action Network, Sleeper, RotoWire, Ball Don't Lie
+Premium sources (API key req'd): API-Sports, Stats Perform, SportsData.io
 
 This payload is what gets fed to the AI engine and pick gate.
 Richer context = better explanations = more trustworthy recommendations.
@@ -51,6 +56,11 @@ def build_game_context(
         "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
         "trending_players":    (_fetch_trending,          (sport_key,)),
         "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
+        # New premium sources — each checks for its own API key and returns {} if unconfigured
+        "api_sports":          (_fetch_api_sports,        (sport_key, home_team, away_team)),
+        "sportsdb":            (_fetch_sportsdb,          (sport_key, home_team, away_team)),
+        "statsperform":        (_fetch_statsperform,      (sport_key, home_team, away_team)),
+        "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -63,7 +73,7 @@ def build_game_context(
         tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
     # Run all fetches in parallel with a 30s wall-clock budget
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
         try:
             for future in as_completed(futures, timeout=30):
@@ -208,6 +218,26 @@ def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_t
     result = enrich_game_context(sport_key, home_team, away_team, game_time)
     return result if result.get("available") else {}
 
+def _fetch_api_sports(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.api_sports import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team)
+    return result if result.get("available") else {}
+
+def _fetch_sportsdb(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.sportsdb import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team)
+    return result if result.get("available") else {}
+
+def _fetch_statsperform(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.statsperform import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team)
+    return result if result.get("available") else {}
+
+def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.sportsdataio import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team)
+    return result if result.get("available") else {}
+
 def _fetch_player_season(name: str, sport_key: str) -> dict:
     from src.apis.statmuse import player_season_stats
     return player_season_stats(name, sport_key)
@@ -232,8 +262,12 @@ def _fetch_bdl_game_log(name: str) -> list:
 
 
 def _score_completeness(context: dict) -> float:
-    """Score how complete the data context is (0.0–1.0)."""
-    checks = [
+    """Score how complete the data context is (0.0–1.0).
+
+    Core sources (always expected) count double; premium sources (key-gated)
+    count as bonus so missing keys don't tank the score.
+    """
+    core = [
         bool(context.get("injuries_espn_home")),
         bool(context.get("h2h_statmuse")),
         bool(context.get("home_form_statmuse")),
@@ -242,4 +276,13 @@ def _score_completeness(context: dict) -> float:
         bool(context.get("news_espn")),
         bool(context.get("sofascore")),
     ]
-    return sum(checks) / len(checks)
+    premium = [
+        bool(context.get("api_sports")),
+        bool(context.get("sportsdb")),
+        bool(context.get("statsperform")),
+        bool(context.get("sportsdataio")),
+    ]
+    # Core sources: max 1.0; each premium source adds up to 0.25 bonus, capped at 1.0
+    core_score = sum(core) / len(core)
+    premium_bonus = min(sum(premium) * 0.05, 0.20)
+    return min(1.0, round(core_score + premium_bonus, 4))
