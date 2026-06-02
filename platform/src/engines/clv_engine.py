@@ -96,11 +96,11 @@ def aggregate_clv(period: str = "daily", sport: str | None = None) -> dict:
         if sport:
             q = q.filter(CLVRecord.sport == sport)
         records = q.all()
+        clvs = [r.clv_pct for r in records]  # extract inside session
 
-    if not records:
-        return {"period": period, "sport": sport, "count": 0, "avg_clv": 0.0, "positive_pct": 0.0}
+    if not clvs:
+        return {"period": period, "sport": sport, "count": 0, "avg_clv": 0.0, "positive_pct": 0.0, "total_clv": 0.0}
 
-    clvs = [r.clv_pct for r in records]
     positive = sum(1 for c in clvs if c > 0)
     return {
         "period":       period,
