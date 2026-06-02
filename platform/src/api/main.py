@@ -8,7 +8,7 @@ import os
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from src.api.routers import picks, analytics, portfolio, discussion, health, personalization, feedback
+from src.api.routers import picks, analytics, portfolio, discussion, health, personalization, feedback, sports_data
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,7 @@ app.include_router(portfolio.router,        prefix="/portfolio",tags=["portfolio
 app.include_router(discussion.router,       prefix="/discuss",  tags=["discussion"])
 app.include_router(personalization.router,  prefix="/profile",  tags=["personalization"])
 app.include_router(feedback.router,         prefix="/feedback", tags=["feedback"])
+app.include_router(sports_data.router,      prefix="/sports",   tags=["sports-data"])
 
 
 @app.on_event("startup")

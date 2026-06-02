@@ -254,6 +254,98 @@ def get_player_props(sport_key: str, game_id: str) -> list[dict]:
     return out
 
 
+def get_all_teams(sport_key: str) -> list[dict]:
+    """
+    Full team directory for a sport.
+    GET /v3/{sport}/scores/json/AllTeams?key=...
+
+    Returns list of dicts with team id, name, city, abbreviation,
+    division, conference, stadium, colours, logo URL.
+    """
+    data = _get(sport_key, "/scores/json/AllTeams")
+    if not data:
+        return []
+    out = []
+    for t in (data if isinstance(data, list) else []):
+        out.append({
+            "team_id":      t.get("TeamID") or t.get("GlobalTeamID"),
+            "key":          t.get("Key") or t.get("Abbreviation", ""),
+            "name":         t.get("Name", ""),
+            "city":         t.get("City", ""),
+            "full_name":    f"{t.get('City', '')} {t.get('Name', '')}".strip(),
+            "conference":   t.get("Conference", ""),
+            "division":     t.get("Division", ""),
+            "stadium":      t.get("StadiumDetails", {}).get("Name", "") if isinstance(t.get("StadiumDetails"), dict) else t.get("Stadium", ""),
+            "primary_color":  t.get("PrimaryColor", ""),
+            "secondary_color": t.get("SecondaryColor", ""),
+            "wikipedia_logo": t.get("WikipediaLogoUrl", ""),
+            "source":       "sportsdataio",
+        })
+    return out
+
+
+def get_team_by_name(sport_key: str, team_name: str) -> dict:
+    """
+    Find a team in AllTeams by name or abbreviation.
+    Returns first matching team dict or {}.
+    """
+    teams = get_all_teams(sport_key)
+    name_lower = team_name.lower()
+    for t in teams:
+        if (name_lower in t.get("full_name", "").lower()
+                or name_lower in t.get("name", "").lower()
+                or name_lower == t.get("key", "").lower()):
+            return t
+    return {}
+
+
+def get_players_basic(sport_key: str, team_abbrev: str) -> list[dict]:
+    """
+    Player roster + basic profiles for a team.
+    GET /v3/{sport}/scores/json/PlayersBasic/{team}?key=...
+
+    Returns list with player id, name, position, status, jersey number,
+    height, weight, birth date, college, experience.
+    """
+    data = _get(sport_key, f"/scores/json/PlayersBasic/{team_abbrev}")
+    if not data:
+        return []
+    out = []
+    for p in (data if isinstance(data, list) else []):
+        out.append({
+            "player_id":  p.get("PlayerID") or p.get("GlobalPlayerID"),
+            "name":       (p.get("Name") or
+                           f"{p.get('FirstName','')} {p.get('LastName','')}".strip()),
+            "position":   p.get("Position", ""),
+            "status":     p.get("Status", ""),
+            "jersey":     p.get("Jersey"),
+            "height":     p.get("Height"),
+            "weight":     p.get("Weight"),
+            "birth_date": p.get("BirthDate"),
+            "college":    p.get("College", ""),
+            "experience": p.get("Experience"),
+            "team":       p.get("Team") or team_abbrev,
+            "photo_url":  p.get("PhotoUrl", ""),
+            "source":     "sportsdataio",
+        })
+    return out
+
+
+def get_team_roster(sport_key: str, team_name: str) -> list[dict]:
+    """
+    Convenience wrapper: look up team abbreviation from name then fetch roster.
+    Returns empty list if team is not found.
+    """
+    team = get_team_by_name(sport_key, team_name)
+    if not team:
+        logger.warning("sportsdataio: team '%s' not found in AllTeams for %s", team_name, sport_key)
+        return []
+    abbrev = team.get("key", "")
+    if not abbrev:
+        return []
+    return get_players_basic(sport_key, abbrev)
+
+
 def enrich_game_context(sport_key: str, home_team: str, away_team: str) -> dict:
     """
     Aggregate standings, injuries, and team stats for both teams.
