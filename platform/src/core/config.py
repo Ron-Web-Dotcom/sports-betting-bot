@@ -27,7 +27,7 @@ def _optional(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 # Keys that are always required (no fallback — fail fast rather than silently use wrong key)
-ANTHROPIC_API_KEY   = _require("ANTHROPIC_API_KEY")
+OPENAI_API_KEY      = _require("OPENAI_API_KEY")
 ODDS_API_KEY        = _require("ODDS_API_KEY")
 
 # Discord — webhook URL only; no bot token or guild ID needed
@@ -113,7 +113,7 @@ SPORTS = {
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
 
-# ── Claude ─────────────────────────────────────────────────────────────────────
-CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-CLAUDE_MAX_TOKENS = 2048
+# ── OpenAI ─────────────────────────────────────────────────────────────────────
+OPENAI_MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_MAX_TOKENS = 2048
 
