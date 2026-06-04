@@ -21,6 +21,7 @@ Key endpoints used:
 """
 import logging
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from src.apis.base import get_json
 
 logger = logging.getLogger(__name__)
@@ -240,7 +241,7 @@ def get_player_stats(player_id: str, season_id: str) -> dict:
 def search_player(name: str, sport_key: str) -> list[dict]:
     """Search for a player by name across all sports."""
     slug = _slug(sport_key)
-    data = _get(f"/search/all/?q={name.replace(' ', '%20')}")
+    data = _get(f"/search/all/?q={quote(name)}")
     if not data:
         return []
     players = []

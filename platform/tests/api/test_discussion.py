@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
+import src.api.main as api_main
 
 
 @pytest.fixture
 def client():
     from src.api.main import app
+    api_main._API_KEY = ""  # disable auth for tests
     return TestClient(app)
 
 

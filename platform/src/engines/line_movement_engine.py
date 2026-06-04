@@ -125,17 +125,19 @@ def score_for_confidence(game_id: int | str, market: str, selection: str, hours:
 
         cutoff = datetime.utcnow() - timedelta(hours=hours)
         with get_db() as db:
-            moves = db.query(LineMovement).filter(
+            rows = db.query(LineMovement).filter(
                 LineMovement.market    == market,
                 LineMovement.selection == selection,
                 LineMovement.detected_at >= cutoff,
             ).all()
+            # extract inside session to avoid DetachedInstanceError
+            move_types = [m.movement_type for m in rows]
 
-        if not moves:
+        if not move_types:
             return 0.5  # neutral
 
-        sharp_moves = sum(1 for m in moves if m.movement_type in ("sharp", "steam"))
-        public_moves = sum(1 for m in moves if m.movement_type == "public")
+        sharp_moves = sum(1 for t in move_types if t in ("sharp", "steam"))
+        public_moves = sum(1 for t in move_types if t == "public")
 
         if sharp_moves + public_moves == 0:
             return 0.5

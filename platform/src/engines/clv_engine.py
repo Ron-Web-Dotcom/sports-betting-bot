@@ -127,9 +127,12 @@ def clv_by_dimension(dimension: str = "sport", period: str = "lifetime") -> dict
     }
     cutoff = cutoffs.get(period, cutoffs["lifetime"])
 
+    valid_dims = {"sport", "market", "book"}
+    dims = [dimension] if dimension in valid_dims else list(valid_dims)
+
     result: dict = {}
     with get_db() as db:
-        for dim in ["sport", "market", "book"]:
+        for dim in dims:
             col = getattr(CLVRecord, dim)
             q = db.query(col, func.avg(CLVRecord.clv_pct), func.count(CLVRecord.id))\
                   .filter(CLVRecord.recorded_at >= cutoff)\

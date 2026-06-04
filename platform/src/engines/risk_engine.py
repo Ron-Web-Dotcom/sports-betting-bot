@@ -182,7 +182,7 @@ return grant
         if granted == 0:
             return RiskAssessment(
                 risk_score=risk_score, approved=False, units_allowed=0,
-                rejection_reason="Daily unit limit reached (15u)",
+                rejection_reason=f"Daily unit limit reached ({MAX_DAILY_UNITS}u)",
                 red_flags=red_flags, kelly_fraction=fk,
             )
         return granted
@@ -195,7 +195,7 @@ return grant
             if remaining == 0:
                 return RiskAssessment(
                     risk_score=risk_score, approved=False, units_allowed=0,
-                    rejection_reason="Daily unit limit reached (15u)",
+                    rejection_reason=f"Daily unit limit reached ({MAX_DAILY_UNITS}u)",
                     red_flags=red_flags, kelly_fraction=fk,
                 )
             return remaining

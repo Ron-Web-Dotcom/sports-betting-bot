@@ -111,8 +111,8 @@ def get_weekly_summary(week_start: Optional[datetime] = None) -> dict:
 
     total_bets = len(pick_rows)
     settled = [p for p in pick_rows if p["actual_pnl_units"] is not None]
-    total_units_won  = sum(p["actual_pnl_units"] for p in settled if (p["actual_pnl_units"] or 0) > 0)
-    total_units_lost = abs(sum(p["actual_pnl_units"] for p in settled if (p["actual_pnl_units"] or 0) < 0))
+    total_units_won  = sum(p["actual_pnl_units"] for p in settled if p["actual_pnl_units"] is not None and p["actual_pnl_units"] > 0)
+    total_units_lost = abs(sum(p["actual_pnl_units"] for p in settled if p["actual_pnl_units"] is not None and p["actual_pnl_units"] < 0))
     net_units      = sum(p["actual_pnl_units"] for p in settled)
     net_profit     = net_units
     total_wagered  = sum(p["units"] for p in pick_rows if p["units"])

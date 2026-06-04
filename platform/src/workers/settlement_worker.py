@@ -205,7 +205,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
         if abs(total_scored - total_line) < 0.1:
             return BetResult.PUSH
         return BetResult.WON if (is_over and total_scored > total_line) or \
-                        (not is_over and total_scored < total_line) else "lost"
+                        (not is_over and total_scored < total_line) else BetResult.LOST
 
     # ── Spreads ───────────────────────────────────────────────────────────────
     import re as _re
@@ -229,7 +229,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             covered = margin + spread
             if abs(covered) < 0.1:
                 return BetResult.PUSH
-            return BetResult.WON if covered > 0 else "lost"
+            return BetResult.WON if covered > 0 else BetResult.LOST
 
     # ── Moneyline (h2h) ───────────────────────────────────────────────────────
     if not winner:

@@ -58,13 +58,23 @@ def test_bankroll_history_endpoint_returns_list():
 
 # ── B2: ai_engine strips markdown fences from JSON responses ────────────────────
 
+def _openai_resp(text: str) -> MagicMock:
+    """Build a mock that matches openai.ChatCompletion response shape."""
+    msg = MagicMock()
+    msg.content = text
+    choice = MagicMock()
+    choice.message = msg
+    resp = MagicMock()
+    resp.choices = [choice]
+    return resp
+
+
 def test_call_json_strips_markdown_fences():
     from src.engines import ai_engine
     fenced = '```json\n{"should_bet": true, "recommendation": "BET"}\n```'
-    mock_resp = MagicMock()
-    mock_resp.content = [MagicMock(text=fenced)]
 
-    with patch.object(ai_engine._client.messages, "create", return_value=mock_resp):
+    with patch.object(ai_engine._client.chat.completions, "create",
+                      return_value=_openai_resp(fenced)):
         result = ai_engine._call_json("prompt", "system")
 
     assert result is not None
@@ -74,10 +84,9 @@ def test_call_json_strips_markdown_fences():
 def test_call_json_plain_json_still_works():
     from src.engines import ai_engine
     plain = '{"should_bet": false, "recommendation": "PASS"}'
-    mock_resp = MagicMock()
-    mock_resp.content = [MagicMock(text=plain)]
 
-    with patch.object(ai_engine._client.messages, "create", return_value=mock_resp):
+    with patch.object(ai_engine._client.chat.completions, "create",
+                      return_value=_openai_resp(plain)):
         result = ai_engine._call_json("prompt", "system")
 
     assert result is not None
@@ -86,21 +95,20 @@ def test_call_json_plain_json_still_works():
 
 def test_call_json_returns_none_on_invalid_json():
     from src.engines import ai_engine
-    mock_resp = MagicMock()
-    mock_resp.content = [MagicMock(text="not valid json at all")]
 
-    with patch.object(ai_engine._client.messages, "create", return_value=mock_resp):
+    with patch.object(ai_engine._client.chat.completions, "create",
+                      return_value=_openai_resp("not valid json at all")):
         result = ai_engine._call_json("prompt", "system")
 
     assert result is None
 
 
 def test_call_json_returns_none_on_api_error():
-    import anthropic
+    from openai import APIError
     from src.engines import ai_engine
 
-    with patch.object(ai_engine._client.messages, "create",
-                      side_effect=anthropic.APIError("rate limit", request=MagicMock(), body=None)):
+    with patch.object(ai_engine._client.chat.completions, "create",
+                      side_effect=APIError("rate limit", request=MagicMock(), body=None)):
         result = ai_engine._call_json("prompt", "system")
 
     assert result is None
@@ -109,10 +117,9 @@ def test_call_json_returns_none_on_api_error():
 def test_call_json_strips_fence_without_language_tag():
     from src.engines import ai_engine
     fenced = '```\n{"key": "value"}\n```'
-    mock_resp = MagicMock()
-    mock_resp.content = [MagicMock(text=fenced)]
 
-    with patch.object(ai_engine._client.messages, "create", return_value=mock_resp):
+    with patch.object(ai_engine._client.chat.completions, "create",
+                      return_value=_openai_resp(fenced)):
         result = ai_engine._call_json("prompt", "system")
 
     assert result is not None

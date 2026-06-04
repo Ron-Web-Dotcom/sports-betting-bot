@@ -35,7 +35,6 @@ def generate_picks(self):
     try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
         from src.engines.news_engine import get_recent_injuries
-        from src.engines.ev_engine import compute_ev, assign_units, EVResult
         from src.engines.confidence_engine import compute_confidence
         from src.engines.risk_engine import assess
         from src.engines.comparison_engine import compare_all_markets
@@ -131,7 +130,7 @@ def generate_picks(self):
 
             # compare_all_markets expects {markets: {market: {selection: [book_entries]}}}
             # Build that structure from the flat snap_list
-            from src.engines.ev_engine import american_to_decimal, implied_prob as _ip
+            from src.engines.ev_engine import american_to_decimal, implied_prob as _ip  # noqa: F811
             markets_dict: dict = {}
             for s in snap_list:
                 mkt, sel, book = s.get("market","h2h"), s.get("selection",""), s.get("book","")
@@ -148,6 +147,7 @@ def generate_picks(self):
                 sport=event["sport_key"],
                 game=f"{event['home_team']} vs {event['away_team']}",
                 bet=ai.get("selection", ""),
+                market=ai.get("market", best_snap.get("market", "h2h")),
                 ev_result=ev_result,
                 confidence=confidence,
                 risk=risk,

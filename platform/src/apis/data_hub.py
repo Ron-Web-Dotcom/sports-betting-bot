@@ -237,7 +237,6 @@ def _fetch_bdl_game_log(name: str) -> list:
     if not players:
         return []
     pid = players[0].get("id")
-    season = datetime.utcnow().year if datetime.utcnow().month > 9 else datetime.utcnow().year - 1
     return player_game_log(pid, last_n=10)
 
 

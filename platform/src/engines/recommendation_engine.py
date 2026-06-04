@@ -23,6 +23,7 @@ class PickRecommendation:
     sport:          str
     game:           str
     bet:            str           # "Lakers ML" / "Over 224.5" / "LeBron 30+ pts"
+    market:         str           # h2h | spreads | totals | player_prop
     sportsbook:     str
     odds:           int
 
@@ -97,6 +98,7 @@ def build_recommendation(
     comparison:     BookComparison | None,
     ai_reasoning:   str,
     key_factors:    list[str],
+    market:         str = "h2h",
     statistical_score: float = 0.5,
     ml_score:          float = 0.5,
     market_score:      float = 0.5,
@@ -116,6 +118,7 @@ def build_recommendation(
         sport              = sport,
         game               = game,
         bet                = bet,
+        market             = market,
         sportsbook         = comparison.best_book if comparison else "",
         odds               = ev_result.american_odds,
         recommendation     = rec,
@@ -180,7 +183,7 @@ def persist_pick(
         p = Pick(
             game_id              = game_id,
             sport                = pick.sport,
-            market               = "h2h",
+            market               = pick.market,
             selection            = pick.bet,
             best_book            = pick.sportsbook,
             american_odds_at_gen = pick.odds,

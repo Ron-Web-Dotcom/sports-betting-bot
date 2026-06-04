@@ -5,37 +5,33 @@ from unittest.mock import patch, MagicMock
 
 # ── C-001: No hardcoded secrets ────────────────────────────────────────────────
 
-def test_config_raises_if_anthropic_key_missing():
-    import importlib
+def _purge_config():
     import sys
+    for mod in list(sys.modules):
+        if "src.core.config" in mod or mod == "src.core.config":
+            del sys.modules[mod]
+
+
+def test_config_requires_openai_key():
+    """_require raises RuntimeError when OPENAI_API_KEY is absent."""
+    import src.core.config as _cfg_mod
     with patch.dict("os.environ", {}, clear=True):
-        # Remove cached module so _require() is re-evaluated
-        for mod in list(sys.modules):
-            if "src.core.config" in mod:
-                del sys.modules[mod]
-        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-            import src.core.config  # noqa
+        with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+            _cfg_mod._require("OPENAI_API_KEY")
 
 
-def test_config_raises_if_odds_key_missing():
-    import sys
-    import os
-    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test"}, clear=True):
-        for mod in list(sys.modules):
-            if "src.core.config" in mod:
-                del sys.modules[mod]
+def test_config_requires_odds_key():
+    """_require raises RuntimeError when ODDS_API_KEY is absent."""
+    import src.core.config as _cfg_mod
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}, clear=True):
         with pytest.raises(RuntimeError, match="ODDS_API_KEY"):
-            import src.core.config  # noqa
+            _cfg_mod._require("ODDS_API_KEY")
 
 
 # Restore config for subsequent tests
 import os
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("ODDS_API_KEY", "test-odds-key")
-import importlib, sys
-for mod in list(sys.modules):
-    if "src.core.config" in mod:
-        del sys.modules[mod]
 import src.core.config  # re-import with env vars set
 
 
@@ -78,16 +74,14 @@ def test_bankroll_snapshot_fields_exist():
     assert not hasattr(snap, "notes")
 
 
-# ── M-002 / CLAUDE_MODEL is valid ─────────────────────────────────────────────
+# ── M-002 / OPENAI_MODEL is valid ─────────────────────────────────────────────
 
-def test_claude_model_is_valid():
-    from src.core.config import CLAUDE_MODEL
-    # Must be a real Anthropic model ID — not the non-existent "claude-opus-4-8"
-    valid_prefixes = ("claude-opus", "claude-sonnet", "claude-haiku")
-    assert any(CLAUDE_MODEL.startswith(p) for p in valid_prefixes), (
-        f"CLAUDE_MODEL '{CLAUDE_MODEL}' is not a recognised model"
+def test_openai_model_is_valid():
+    from src.core.config import OPENAI_MODEL
+    valid_prefixes = ("gpt-4", "gpt-3.5", "o1", "o3")
+    assert any(OPENAI_MODEL.startswith(p) for p in valid_prefixes), (
+        f"OPENAI_MODEL '{OPENAI_MODEL}' is not a recognised OpenAI model"
     )
-    assert CLAUDE_MODEL != "claude-opus-4-8", "claude-opus-4-8 does not exist"
 
 
 # ── H-011: ParlayLeg type passed to find_best_parlays ────────────────────────

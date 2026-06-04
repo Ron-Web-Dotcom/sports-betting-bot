@@ -73,7 +73,7 @@ def _current_season(sdio_sport: str) -> str:
     year = now.year
     if sdio_sport == "nfl":
         # NFL season starts Sep; use current year if Aug+, else prev year
-        return f"{year}REG" if now.month >= 8 else f"{year - 1}REG"
+        return f"{year}REG" if now.month >= 9 else f"{year - 1}REG"
     if sdio_sport in ("nba", "nhl"):
         # Oct–Jun season; season labelled by end year
         return str(year) if now.month >= 10 else str(year - 1)

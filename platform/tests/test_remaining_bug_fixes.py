@@ -86,7 +86,7 @@ def test_sqlite_allowed_in_development():
     with patch.dict("os.environ", {
         "USE_SQLITE": "true",
         "ENVIRONMENT": "development",
-        "ANTHROPIC_API_KEY": "test",
+        "OPENAI_API_KEY": "test",
         "ODDS_API_KEY": "test",
     }):
         for mod in list(sys.modules):
@@ -102,7 +102,7 @@ def test_sqlite_blocked_in_production():
     with patch.dict("os.environ", {
         "USE_SQLITE": "true",
         "ENVIRONMENT": "production",
-        "ANTHROPIC_API_KEY": "test",
+        "OPENAI_API_KEY": "test",
         "ODDS_API_KEY": "test",
     }):
         for mod in list(sys.modules):
@@ -114,7 +114,7 @@ def test_sqlite_blocked_in_production():
 
 # Restore config module
 import sys, os
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("ODDS_API_KEY", "test-odds-key")
 for mod in list(sys.modules):
     if "src.core.config" in mod:

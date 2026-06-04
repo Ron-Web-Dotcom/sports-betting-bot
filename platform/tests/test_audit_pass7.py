@@ -279,7 +279,7 @@ def test_config_requires_database_url_when_not_sqlite():
         del sys.modules[m]
 
     with patch.dict(os.environ, {"USE_SQLITE": "false", "DATABASE_URL": "",
-                                  "ANTHROPIC_API_KEY": "fake", "ODDS_API_KEY": "fake",
+                                  "OPENAI_API_KEY": "fake", "ODDS_API_KEY": "fake",
                                   "ENVIRONMENT": "development"}):
         with pytest.raises(RuntimeError, match="DATABASE_URL"):
             import src.core.config  # noqa: F401

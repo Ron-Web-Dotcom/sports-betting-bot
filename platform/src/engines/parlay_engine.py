@@ -7,7 +7,7 @@ Builds standard parlays, SGPs, and round robins.
 """
 import logging
 from dataclasses import dataclass, field
-from itertools import combinations, permutations
+from itertools import combinations
 from src.engines.ev_engine import american_to_decimal, compute_ev
 
 logger = logging.getLogger(__name__)
