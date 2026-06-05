@@ -85,22 +85,43 @@ async def post_prop_pick(pick: dict) -> None:
 
 
 async def post_prop_result(pick: dict, result: str, actual: float) -> None:
-    """Discord notification when a prop pick is settled."""
+    """Discord notification when a prop pick is settled — fires for wins, losses, and pushes."""
     icons   = {"won": "✅", "lost": "❌", "push": "➖"}
     colors  = {"won": 0x2E7D32, "lost": 0xC62828, "push": 0x757575}
     icon    = icons.get(result, "❓")
     color   = colors.get(result, 0x757575)
-    missed  = round(actual - pick.get("line", 0), 2)
-    missed_str = f"{missed:+.1f}" if result != "push" else "exact"
+    line    = pick.get("line", 0)
+    missed  = round(actual - line, 2)
+    sport   = pick.get("sport_key", "—").split("_")[-1].upper()
+    direction = pick.get("direction", "").upper()
+
+    if result == "push":
+        diff_str = "exact"
+    elif result == "won":
+        diff_str = f"{missed:+.1f} ({'over' if actual > line else 'under'} by {abs(missed)})"
+    else:
+        diff_str = f"{missed:+.1f} — missed by {abs(missed)}"
+
+    fields = [
+        {"name": "Result",    "value": f"{icon} {result.upper()}"},
+        {"name": "Sport",     "value": sport},
+        {"name": "Picked",    "value": f"{direction} {line}"},
+        {"name": "Actual",    "value": str(actual)},
+        {"name": "Difference","value": diff_str},
+    ]
+
+    if result == "lost":
+        fields.append({
+            "name":  "📚 Learning",
+            "value": "This loss has been logged. The AI will use it as context next time it analyses this player/stat.",
+            "inline": False,
+        })
 
     embed = _embed(
         title=f"{icon} Prop Result: {pick.get('subject')} {pick.get('stat')}",
-        description=f"**{pick.get('direction', '').upper()} {pick.get('line')}** → Actual: **{actual}** ({missed_str})",
+        description=f"**{direction} {line}** → Actual: **{actual}** ({diff_str})",
         color=color,
-        fields=[
-            {"name": "Result",  "value": result.upper()},
-            {"name": "Sport",   "value": pick.get("sport_key", "—").split("_")[-1].upper()},
-        ],
+        fields=fields,
     )
     await _post({"embeds": [embed]})
 

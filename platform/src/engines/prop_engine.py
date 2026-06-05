@@ -186,12 +186,20 @@ def score_props(props: list[dict]) -> list[PropPick]:
     return picks
 
 
-def record_prop_result(subject: str, stat: str, sport_key: str,
-                       direction: str, line: float,
-                       actual_value: float, game_time: str = "") -> str:
+def record_prop_result(
+    subject:      str,
+    stat:         str,
+    sport_key:    str,
+    direction:    str,
+    line:         float,
+    actual_value: float,
+    game_time:    str  = "",
+    pick_dict:    dict | None = None,  # original PropPick dict for the alert
+) -> str:
     """
     Grade a prop pick (over/under) against actual result.
-    Saves to PropResult table for learning loop. Returns 'won'|'lost'|'push'.
+    Saves to PropResult table and fires Discord alert for ALL outcomes.
+    Returns 'won'|'lost'|'push'.
     """
     if actual_value > line:
         outcome = "won" if direction == "over" else "lost"
@@ -200,6 +208,7 @@ def record_prop_result(subject: str, stat: str, sport_key: str,
     else:
         outcome = "push"
 
+    # ── Save to DB ────────────────────────────────────────────────────────────
     try:
         from src.db.session import get_db
         from src.db.models import PropResult
@@ -217,6 +226,21 @@ def record_prop_result(subject: str, stat: str, sport_key: str,
             ))
     except Exception as e:
         logger.warning("Failed to save prop result: %s", e)
+
+    # ── Fire Discord alert for every result (win, loss, push) ─────────────────
+    try:
+        from src.workers.alert_worker import send_prop_result_alert
+        alert_pick = pick_dict or {
+            "subject":   subject,
+            "stat":      stat,
+            "sport_key": sport_key,
+            "direction": direction,
+            "line":      line,
+            "game_time": game_time,
+        }
+        send_prop_result_alert.delay(alert_pick, outcome, actual_value)
+    except Exception as e:
+        logger.warning("Failed to queue prop result alert: %s", e)
 
     return outcome
 
