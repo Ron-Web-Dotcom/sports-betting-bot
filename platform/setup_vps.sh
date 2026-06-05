@@ -14,7 +14,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 # ── 1. Preflight checks ───────────────────────────────────────────────────────
 info "Checking prerequisites..."
 [[ -f .env ]] || error ".env file not found. Copy .env.example to .env and fill in your values."
-grep -q "^ANTHROPIC_API_KEY=sk-ant" .env || error "ANTHROPIC_API_KEY not set in .env"
+grep -q "^OPENAI_API_KEY=sk-" .env || error "OPENAI_API_KEY not set in .env"
 grep -q "^ODDS_API_KEY=" .env          || error "ODDS_API_KEY not set in .env"
 grep -q "^POSTGRES_PASSWORD=" .env     || error "POSTGRES_PASSWORD not set in .env"
 PGPASS=$(grep "^POSTGRES_PASSWORD=" .env | cut -d= -f2)
