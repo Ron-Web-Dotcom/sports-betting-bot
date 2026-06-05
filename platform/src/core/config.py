@@ -114,10 +114,9 @@ SPORTS = {
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
 
 # ── Betting apps (optional — platform degrades gracefully if not set) ──────────
-NOVIG_API_KEY      = _optional("NOVIG_API_KEY")
 KALSHI_API_KEY_ID  = _optional("KALSHI_API_KEY_ID")
 KALSHI_PRIVATE_KEY = _optional("KALSHI_PRIVATE_KEY")
-# PrizePicks, Underdog, Betr, HardRock — no key required
+# PrizePicks, Underdog, HardRock — no key required
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
 OPENAI_MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o")

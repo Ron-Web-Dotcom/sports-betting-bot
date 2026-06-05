@@ -251,9 +251,7 @@ class TestDataHub:
             "src.apis.data_hub._fetch_rotowire_injuries",
             "src.apis.data_hub._fetch_prizepicks_props",
             "src.apis.data_hub._fetch_underdog_props",
-            "src.apis.data_hub._fetch_novig_odds",
             "src.apis.data_hub._fetch_kalshi_markets",
-            "src.apis.data_hub._fetch_betr_odds",
         ]
         from contextlib import ExitStack
         with ExitStack() as stack:

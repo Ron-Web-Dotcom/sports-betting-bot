@@ -140,9 +140,7 @@ _ALL_HUB_FETCHERS = [
     "src.apis.data_hub._fetch_rotowire_injuries",
     "src.apis.data_hub._fetch_prizepicks_props",
     "src.apis.data_hub._fetch_underdog_props",
-    "src.apis.data_hub._fetch_novig_odds",
     "src.apis.data_hub._fetch_kalshi_markets",
-    "src.apis.data_hub._fetch_betr_odds",
 ]
 
 # ── Data hub: all sources fail → graceful degradation ─────────────────────────

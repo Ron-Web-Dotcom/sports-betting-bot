@@ -75,24 +75,20 @@ def scan_and_save_odds(self):
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scan_player_props(self):
     """
-    Scan all 5 betting apps for live odds, props, and markets every 10 min 24/7.
+    Scan betting apps for live odds, props, and markets every 10 min 24/7.
 
     Sources:
       PrizePicks  — player Over/Under props (public, no key)
       Underdog    — player Over/Under props (public, no key)
       HardRock    — ML/spread/totals via Odds API (already in scan_and_save_odds)
-      Novig       — no-vig exchange odds (NOVIG_API_KEY required)
       Kalshi      — prediction market contracts (KALSHI_API_KEY_ID required)
-      Betr        — micro-betting / parlay lines (public, no key)
 
     Results cached in Redis (TTL 15 min) for picks_worker to read.
     """
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
-        from src.apis.novig import get_all_markets as novig_markets
         from src.apis.kalshi import get_sports_markets as kalshi_markets
-        from src.apis.betr import get_all_events as betr_events
         from src.core.config import REDIS_URL
         import redis as _redis
         import json
@@ -102,12 +98,10 @@ def scan_player_props(self):
         tasks = {
             "prizepicks": get_all_projections,
             "underdog":   get_all_lines,
-            "novig":      novig_markets,
             "kalshi":     kalshi_markets,
-            "betr":       betr_events,
         }
 
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {pool.submit(fn): name for name, fn in tasks.items()}
             for future in as_completed(futures, timeout=30):
                 name = futures[future]
