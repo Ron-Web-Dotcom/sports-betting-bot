@@ -51,36 +51,86 @@ def _embed(title: str, description: str, color: int, fields: list[dict] | None =
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 async def post_prop_pick(pick: dict) -> None:
-    """Discord alert for a PrizePicks prop recommendation."""
-    direction = pick.get("direction", "over").upper()
-    color     = 0x2E7D32 if direction == "OVER" else 0xC62828
-    sport     = pick.get("sport_key", "").split("_")[-1].upper()
-    icon      = "📈" if direction == "OVER" else "📉"
-    conf_pct  = round(pick.get("confidence", 0) * 100)
-    ev_pct    = round(pick.get("ev_pct", 0) * 100, 1)
+    """Discord prop pick card — mirrors the PrizePicks card layout."""
+    direction  = (pick.get("direction") or "over").upper()
+    arrow      = "↑" if direction == "OVER" else "↓"
+    color      = 0x1B5E20 if direction == "OVER" else 0xB71C1C
+    conf_pct   = round((pick.get("confidence") or 0) * 100)
+    ev_pct     = round((pick.get("ev_pct") or 0) * 100, 1)
+    line       = pick.get("line", "—")
+    stat       = pick.get("stat", "")
+    subject    = pick.get("subject", "Unknown")
+    team       = pick.get("team", "")
+    opponent   = pick.get("opponent", "")
+    game_time  = pick.get("game_time", "")
+    is_team    = pick.get("is_team_prop", False)
 
+    # Sport label — match PP style (WORLD CUP, NBA, NFL, etc.)
+    sport_key  = pick.get("sport_key", "")
+    _SPORT_LABELS = {
+        "soccer_fifa_world_cup":          "WORLD CUP",
+        "basketball_nba":                 "NBA",
+        "americanfootball_nfl":           "NFL",
+        "baseball_mlb":                   "MLB",
+        "icehockey_nhl":                  "NHL",
+        "soccer_epl":                     "PREMIER LEAGUE",
+        "soccer_usa_mls":                 "MLS",
+        "basketball_ncaab":               "NCAAB",
+        "americanfootball_ncaaf":         "NCAAF",
+        "mma_mixed_martial_arts":         "UFC/MMA",
+        "tennis_atp_french_open":         "TENNIS",
+        "golf_masters_tournament_winner": "GOLF",
+    }
+    sport_label = _SPORT_LABELS.get(sport_key, sport_key.split("_")[-1].upper())
+
+    # Matchup line (e.g. "United States vs England")
+    matchup = f"{team} vs {opponent}" if team and opponent else (team or opponent or "—")
+
+    # Card-style title: arrow + line + stat (mirrors PP card)
+    title = f"{arrow} {line} {stat}  ·  {subject}"
+
+    # Subtitle row: sport • matchup • time
+    time_str = ""
+    if game_time:
+        try:
+            from datetime import datetime
+            import zoneinfo
+            dt = datetime.fromisoformat(game_time.replace("Z", "+00:00"))
+            dt_et = dt.astimezone(zoneinfo.ZoneInfo("America/New_York"))
+            time_str = dt_et.strftime("%-I:%M %p ET")
+        except Exception:
+            time_str = game_time[:16]
+
+    desc_parts = [f"**{sport_label}**"]
+    if matchup and matchup != "—":
+        desc_parts.append(matchup)
+    if time_str:
+        desc_parts.append(time_str)
+    description = "  ·  ".join(desc_parts)
+
+    # Fields — clean, compact
     fields = [
-        {"name": "Sport",      "value": sport},
-        {"name": "Stat",       "value": pick.get("stat", "—")},
-        {"name": "Line",       "value": str(pick.get("line", "—"))},
-        {"name": "Direction",  "value": f"{icon} {direction}"},
-        {"name": "Confidence", "value": f"{conf_pct}%"},
-        {"name": "Edge",       "value": f"+{ev_pct}%"},
-        {"name": "Opponent",   "value": pick.get("opponent", "—")},
-        {"name": "Game Time",  "value": pick.get("game_time", "—")},
+        {"name": "Direction",   "value": f"**{arrow} {direction}**",    "inline": True},
+        {"name": "Line",        "value": f"**{line}** {stat}",          "inline": True},
+        {"name": "Confidence",  "value": f"{conf_pct}%",                "inline": True},
+        {"name": "Edge",        "value": f"+{ev_pct}%",                 "inline": True},
+        {"name": "Type",        "value": "Team Prop" if is_team else "Player Prop", "inline": True},
+        {"name": "Source",      "value": (pick.get("source") or "prizepicks").title(), "inline": True},
     ]
-    factors = pick.get("key_factors", [])
-    if factors:
-        fields.append({"name": "Key Factors", "value": "\n".join(f"• {f}" for f in factors[:3]), "inline": False})
-    fields.append({"name": "Reasoning", "value": pick.get("reasoning", "—")[:500], "inline": False})
 
-    prop_type = "Team Prop" if pick.get("is_team_prop") else "Player Prop"
-    embed = _embed(
-        title=f"{icon} PrizePicks {prop_type}: {pick.get('subject', 'Unknown')} {direction} {pick.get('line')} {pick.get('stat', '')}",
-        description=f"Source: **{pick.get('source', 'prizepicks').title()}**",
-        color=color,
-        fields=fields,
-    )
+    factors = pick.get("key_factors") or []
+    if factors:
+        fields.append({
+            "name": "Why",
+            "value": "\n".join(f"• {f}" for f in factors[:3]),
+            "inline": False,
+        })
+
+    reasoning = (pick.get("reasoning") or "")[:400]
+    if reasoning:
+        fields.append({"name": "Analysis", "value": reasoning, "inline": False})
+
+    embed = _embed(title=title, description=description, color=color, fields=fields)
     await _post({"embeds": [embed]})
 
 

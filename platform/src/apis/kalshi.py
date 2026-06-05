@@ -39,6 +39,7 @@ _SPORT_TAGS = {
     "americanfootball_ncaaf":         ["NCAAF", "COLLEGE_FOOTBALL"],
     "soccer_epl":                     ["SOCCER", "EPL", "FOOTBALL"],
     "soccer_usa_mls":                 ["MLS", "SOCCER"],
+    "soccer_fifa_world_cup":          ["WORLD CUP", "FIFA", "SOCCER", "FOOTBALL"],
     "tennis_atp_french_open":         ["TENNIS"],
     "mma_mixed_martial_arts":         ["UFC", "MMA"],
     "golf_masters_tournament_winner": ["GOLF", "PGA"],

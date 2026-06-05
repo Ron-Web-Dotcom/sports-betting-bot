@@ -16,18 +16,19 @@ _CDN    = "https://cdn.espn.com/core"
 
 # Maps our sport keys → ESPN sport/league path segments
 SPORT_MAP = {
-    "basketball_nba":         ("basketball", "nba"),
-    "americanfootball_nfl":   ("football",   "nfl"),
-    "baseball_mlb":           ("baseball",   "mlb"),
-    "icehockey_nhl":          ("hockey",     "nhl"),
-    "soccer_epl":             ("soccer",     "eng.1"),
-    "soccer_uefa_champs_league": ("soccer",  "uefa.champions"),
-    "soccer_usa_mls":         ("soccer",     "usa.1"),
-    "basketball_ncaab":       ("basketball", "mens-college-basketball"),
-    "americanfootball_ncaaf": ("football",   "college-football"),
-    "mma":                    ("mma",        "ufc"),
-    "tennis":                 ("tennis",     "atp"),
-    "golf_masters_tournament_winner": ("golf", "pga"),
+    "basketball_nba":            ("basketball", "nba"),
+    "americanfootball_nfl":      ("football",   "nfl"),
+    "baseball_mlb":              ("baseball",   "mlb"),
+    "icehockey_nhl":             ("hockey",     "nhl"),
+    "soccer_epl":                ("soccer",     "eng.1"),
+    "soccer_uefa_champs_league": ("soccer",     "uefa.champions"),
+    "soccer_usa_mls":            ("soccer",     "usa.1"),
+    "soccer_fifa_world_cup":     ("soccer",     "fifa.world"),
+    "basketball_ncaab":          ("basketball", "mens-college-basketball"),
+    "americanfootball_ncaaf":    ("football",   "college-football"),
+    "mma":                       ("mma",        "ufc"),
+    "tennis":                    ("tennis",     "atp"),
+    "golf_masters_tournament_winner": ("golf",  "pga"),
 }
 
 

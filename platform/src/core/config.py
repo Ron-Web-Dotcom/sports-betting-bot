@@ -99,6 +99,8 @@ SPORTS = {
     "mlb":      "baseball_mlb",
     "nhl":      "icehockey_nhl",
     "soccer":   "soccer_epl",
+    "worldcup": "soccer_fifa_world_cup",
+    "wc":       "soccer_fifa_world_cup",
     "tennis":   "tennis_atp_french_open",
     "ufc":      "mma_mixed_martial_arts",
     "mma":      "mma_mixed_martial_arts",

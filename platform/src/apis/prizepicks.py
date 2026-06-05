@@ -29,19 +29,21 @@ _HEADERS = {
 
 # Maps our internal sport_key → PrizePicks league_id
 # IDs sourced from their /leagues endpoint
+# Run get_leagues() to verify/update IDs when new events are added
 _LEAGUE_IDS: dict[str, int] = {
-    "basketball_nba":           7,
-    "americanfootball_nfl":     9,
-    "baseball_mlb":             2,
-    "icehockey_nhl":            6,
-    "basketball_ncaab":         3,
-    "americanfootball_ncaaf":   8,
-    "soccer_epl":               14,
-    "soccer_usa_mls":           14,
-    "tennis_atp_french_open":   16,
-    "mma_mixed_martial_arts":   10,
-    "golf_masters_tournament_winner": 12,
-    "esports_lol":              15,
+    "basketball_nba":                7,
+    "americanfootball_nfl":          9,
+    "baseball_mlb":                  2,
+    "icehockey_nhl":                 6,
+    "basketball_ncaab":              3,
+    "americanfootball_ncaaf":        8,
+    "soccer_epl":                    14,
+    "soccer_usa_mls":                19,
+    "soccer_fifa_world_cup":         37,   # FIFA World Cup 2026 — verify via /leagues
+    "tennis_atp_french_open":        16,
+    "mma_mixed_martial_arts":        10,
+    "golf_masters_tournament_winner":12,
+    "esports_lol":                   15,
 }
 
 

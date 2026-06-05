@@ -37,6 +37,7 @@ def fetch_injuries(sport_key: str) -> list[dict]:
         "baseball_mlb":           ("baseball",   "mlb"),
         "icehockey_nhl":          ("hockey",     "nhl"),
         "soccer_epl":             ("soccer",     "eng.1"),
+        "soccer_fifa_world_cup":  ("soccer",     "fifa.world"),
     }
     mapping_entry = mapping.get(sport_key)
     if not mapping_entry:
