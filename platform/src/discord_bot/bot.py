@@ -196,7 +196,7 @@ _SPORT_LABELS_SHORT = {
 
 
 async def post_pp_parlay(picks: list[dict]) -> None:
-    """PrizePicks multi-pick entry card — 2 to 6 legs, shows multiplier."""
+    """PrizePicks multi-pick entry card — 2 to 6 legs, with per-leg reasoning."""
     if not picks:
         return
     n        = min(len(picks), 6)
@@ -204,7 +204,8 @@ async def post_pp_parlay(picks: list[dict]) -> None:
     mult     = _PP_MULTIPLIERS.get(n, 40)
     avg_conf = round(sum((p.get("confidence") or 0) for p in picks) / n * 100)
 
-    leg_lines = []
+    # Build one block per leg: header line + top reason + top key factor
+    leg_blocks = []
     for i, p in enumerate(picks, 1):
         arrow   = "↑" if (p.get("direction") or "over").lower() == "over" else "↓"
         sport   = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), "")
@@ -212,8 +213,22 @@ async def post_pp_parlay(picks: list[dict]) -> None:
         stat    = p.get("stat", "")
         line    = p.get("line", "?")
         conf    = round((p.get("confidence") or 0) * 100)
-        leg_lines.append(
-            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}%"
+        ev      = round((p.get("ev_pct") or 0) * 100, 1)
+
+        # Pull top key factor (first one) as the quick reason
+        factors   = p.get("key_factors") or []
+        reasoning = (p.get("reasoning") or "").strip()
+        # Use first key factor if available, else first sentence of reasoning
+        if factors:
+            top_reason = factors[0]
+        elif reasoning:
+            top_reason = reasoning.split(".")[0].strip()
+        else:
+            top_reason = "—"
+
+        leg_blocks.append(
+            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}% conf  ·  +{ev}% edge\n"
+            f"     └ {top_reason}"
         )
 
     fields = [
@@ -229,14 +244,14 @@ async def post_pp_parlay(picks: list[dict]) -> None:
     ]
     await _post({"embeds": [_embed(
         title=f"🏆 PrizePicks Entry — {n} Picks  ·  {mult}x Payout",
-        description="\n".join(leg_lines),
+        description="\n".join(leg_blocks),
         color=0x1565C0,
         fields=fields,
     )]})
 
 
 async def post_hardrock_parlay(picks: list[dict]) -> None:
-    """HardRock parlay card — 2 to 4 legs, combined odds + example payout."""
+    """HardRock parlay card — 2 to 4 legs, combined odds + per-leg reasoning."""
     if not picks:
         return
     n     = min(len(picks), 4)
@@ -259,13 +274,28 @@ async def post_hardrock_parlay(picks: list[dict]) -> None:
     odds_str       = f"+{combined_american}" if combined_american > 0 else str(combined_american)
     example_payout = round(10 * combined_decimal, 2)
 
-    leg_lines = []
+    leg_blocks = []
     for i, p in enumerate(picks, 1):
         sport    = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), p.get("sport", ""))
         bet      = p.get("bet") or p.get("selection") or p.get("subject", "?")
         leg_odds = p.get("american_odds") or p.get("odds", "?")
         lo_str   = f"+{leg_odds}" if isinstance(leg_odds, int) and leg_odds > 0 else str(leg_odds)
-        leg_lines.append(f"`{i}.` **{bet}**  ·  {lo_str}  ·  {sport}")
+        conf     = round((p.get("confidence_pct") or p.get("confidence") or 0) * (1 if (p.get("confidence") or 0) <= 1 else 0.01))
+
+        # Per-leg reason
+        factors   = p.get("key_factors") or []
+        reasoning = (p.get("reasoning") or p.get("ai_reasoning") or "").strip()
+        if factors:
+            top_reason = factors[0]
+        elif reasoning:
+            top_reason = reasoning.split(".")[0].strip()
+        else:
+            top_reason = "—"
+
+        leg_blocks.append(
+            f"`{i}.` **{bet}**  ·  {lo_str}  ·  {sport}  ·  {conf}% conf\n"
+            f"     └ {top_reason}"
+        )
 
     fields = [
         {"name": "Legs",          "value": str(n),               "inline": True},
@@ -275,7 +305,7 @@ async def post_hardrock_parlay(picks: list[dict]) -> None:
     ]
     await _post({"embeds": [_embed(
         title=f"🎰 HardRock Parlay — {n} Legs  ·  {odds_str}",
-        description="\n".join(leg_lines),
+        description="\n".join(leg_blocks),
         color=0x6A1B9A,
         fields=fields,
     )]})
