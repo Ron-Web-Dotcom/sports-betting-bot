@@ -46,6 +46,30 @@ def send_line_movement_alerts(movements: list[dict]):
 
 
 @app.task
+def send_lineup_alerts(alerts: list[dict]):
+    """Fire Discord alerts for injury/lineup changes that affect active props."""
+    from src.discord_bot.bot import _post
+    try:
+        embeds = [
+            {
+                "title":       a["title"][:256],
+                "description": a["description"][:4096],
+                "color":       a["color"],
+                "fields": [
+                    {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", True)}
+                    for f in a.get("fields", [])[:25]
+                ],
+            }
+            for a in alerts[:10]
+        ]
+        import asyncio
+        asyncio.run(_post({"embeds": embeds}))
+        logger.info("Lineup alerts sent: %d", len(alerts))
+    except Exception as e:
+        logger.error("Failed to send lineup alerts: %s", e)
+
+
+@app.task
 def send_prop_pick_alerts(picks: list[dict]):
     from src.discord_bot.bot import post_prop_pick
     for pick in picks:

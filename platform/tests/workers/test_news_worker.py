@@ -22,9 +22,15 @@ def test_fetch_and_save_news_saves_flattened():
              "status": "questionable", "detail": "", "fetched_at": "2026-01-01"},
         ],
     }
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
     with patch("src.workers.news_worker.fetch_all_injuries", return_value=injuries_by_sport), \
-         patch("src.workers.news_worker.save_injuries") as mock_save:
-        nw.fetch_and_save_news()
+         patch("src.workers.news_worker.save_injuries") as mock_save, \
+         patch("redis.Redis.from_url", return_value=mock_redis), \
+         patch("src.workers.news_worker._is_sleep_time", return_value=False):
+        import redis
+        with patch.object(redis, "from_url", return_value=mock_redis):
+            nw.fetch_and_save_news()
 
     mock_save.assert_called_once()
     flat = mock_save.call_args[0][0]
