@@ -2,10 +2,12 @@
 Data Hub — single interface for all real-world data sources.
 
 Aggregates ESPN, StatMuse, Ball Don't Lie, Sleeper, Weather, Action Network,
-RotoWire, SofaScore, and SportsData.io into one normalized context payload.
+RotoWire, SofaScore, SportsData.io, PrizePicks, and Underdog Fantasy into one
+normalized context payload.
 
-Free sources: ESPN, StatMuse, SofaScore, Action Network, Sleeper, RotoWire, Ball Don't Lie
-Premium (key required): SportsData.io (per-sport subscription keys)
+Free sources: ESPN, StatMuse, SofaScore, Action Network, Sleeper, RotoWire,
+              Ball Don't Lie, PrizePicks (public), Underdog (public)
+Premium (key required): SportsData.io (single universal key)
 
 This payload is what gets fed to the AI engine and pick gate.
 Richer context = better explanations = more trustworthy recommendations.
@@ -56,6 +58,9 @@ def build_game_context(
         "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
         # SportsData.io — checks for its own API key, returns {} if unconfigured
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
+        # Player prop lines from PrizePicks and Underdog (public, no key needed)
+        "prizepicks_props":    (_fetch_prizepicks_props,  (sport_key, home_team, away_team)),
+        "underdog_props":      (_fetch_underdog_props,    (sport_key, home_team, away_team)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -218,6 +223,31 @@ def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     result = enrich_game_context(sport_key, home_team, away_team)
     return result if result.get("available") else {}
 
+def _fetch_prizepicks_props(sport_key: str, home_team: str, away_team: str) -> list:
+    from src.apis.prizepicks import get_projections
+    props = get_projections(sport_key)
+    # Filter to players on either team in this game
+    h, a = home_team.lower(), away_team.lower()
+    return [
+        p for p in props
+        if h in (p.get("team") or "").lower()
+        or a in (p.get("team") or "").lower()
+        or h in (p.get("opponent") or "").lower()
+        or a in (p.get("opponent") or "").lower()
+    ] or props  # fallback: return all if no team match (team names may differ)
+
+def _fetch_underdog_props(sport_key: str, home_team: str, away_team: str) -> list:
+    from src.apis.underdog import get_over_under_lines
+    props = get_over_under_lines(sport_key)
+    h, a = home_team.lower(), away_team.lower()
+    return [
+        p for p in props
+        if h in (p.get("team") or "").lower()
+        or a in (p.get("team") or "").lower()
+        or h in (p.get("opponent") or "").lower()
+        or a in (p.get("opponent") or "").lower()
+    ] or props
+
 def _fetch_player_season(name: str, sport_key: str) -> dict:
     from src.apis.statmuse import player_season_stats
     return player_season_stats(name, sport_key)
@@ -255,7 +285,10 @@ def _score_completeness(context: dict) -> float:
         bool(context.get("news_espn")),
         bool(context.get("sofascore")),
     ]
-    # SportsData.io bonus: +0.10 when available (standings + injuries + team stats)
-    premium_bonus = 0.10 if context.get("sportsdataio") else 0.0
+    # Bonus sources
+    bonus = 0.0
+    if context.get("sportsdataio"):    bonus += 0.10  # standings + injuries + team stats
+    if context.get("prizepicks_props"): bonus += 0.05  # live player prop lines
+    if context.get("underdog_props"):   bonus += 0.05  # additional prop lines
     core_score = sum(core) / len(core)
-    return min(1.0, round(core_score + premium_bonus, 4))
+    return min(1.0, round(core_score + bonus, 4))

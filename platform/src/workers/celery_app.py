@@ -42,10 +42,15 @@ app.conf.update(
 )
 
 app.conf.beat_schedule = {
-    # Odds — every 5 min during active hours
+    # Odds (ML/spread/totals) — every 5 min 24/7
     "scan-odds-every-5min": {
         "task": "src.workers.odds_worker.scan_and_save_odds",
         "schedule": 300,
+    },
+    # Player props (PrizePicks + Underdog) — every 10 min 24/7
+    "scan-props-every-10min": {
+        "task": "src.workers.odds_worker.scan_player_props",
+        "schedule": 600,
     },
     # News / injuries — every 15 min
     "fetch-news-every-15min": {
