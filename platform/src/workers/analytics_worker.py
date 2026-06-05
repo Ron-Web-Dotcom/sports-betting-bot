@@ -53,11 +53,30 @@ def send_daily_summary():
 
 @app.task
 def send_weekly_summary():
+    """Fires Sunday midnight Eastern — full week recap including prop W/L ratio."""
     from src.engines.summary_engine import get_weekly_summary
     from src.engines.ai_engine import write_weekly_summary
 
     weekly = get_weekly_summary()
-    summary = write_weekly_summary(weekly)
+    props  = weekly.get("props", {})
+
+    # Build prop section to append to the AI summary
+    prop_section = ""
+    if props.get("total", 0) > 0:
+        hit  = props["hit_rate"] * 100
+        record = f"{props['wins']}W - {props['losses']}L"
+        if props.get("pushes"):
+            record += f" - {props['pushes']}P"
+        prop_section = (
+            f"\n\n**PrizePicks Props:** {record} ({hit:.1f}% hit rate)"
+        )
+        if props.get("best_sport"):
+            sport = props["best_sport"].split("_")[-1].upper()
+            prop_section += f" | Best sport: {sport}"
+        if props.get("best_stat"):
+            prop_section += f" | Best stat: {props['best_stat']}"
+
+    summary = write_weekly_summary(weekly) + prop_section
 
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import post_weekly_summary
@@ -65,6 +84,28 @@ def send_weekly_summary():
 
     logger.info("Weekly summary sent")
     return {"summary_length": len(summary), "stats": weekly}
+
+
+@app.task
+def send_weekly_fresh_start():
+    """Fires Monday 12:05 AM Eastern — signals start of new betting week."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from datetime import datetime
+
+    week_num = datetime.now().isocalendar()[1]
+    embed = _embed(
+        title="🟢 New Week — Fresh Start",
+        description=(
+            f"**Week {week_num}** is now live.\n\n"
+            "Props scanning restarts. Picks engine is active.\n"
+            "All sports monitored 24/7. Good luck this week! 🎯"
+        ),
+        color=0x1565C0,
+    )
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Weekly fresh-start alert sent")
+    return {"week": week_num}
 
 
 @app.task

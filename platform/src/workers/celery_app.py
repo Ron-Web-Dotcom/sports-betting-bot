@@ -25,7 +25,7 @@ app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
-    timezone="UTC",
+    timezone="America/New_York",   # user is Eastern time
     enable_utc=True,
     task_routes={
         "src.workers.odds_worker.*":       {"queue": "odds"},
@@ -87,10 +87,15 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.send_daily_summary",
         "schedule": crontab(hour=23, minute=0),
     },
-    # Weekly summary — Sunday 11 PM UTC
+    # Weekly summary — Sunday midnight Eastern (week ends, results posted)
     "weekly-summary": {
         "task": "src.workers.analytics_worker.send_weekly_summary",
-        "schedule": crontab(day_of_week=0, hour=23, minute=30),
+        "schedule": crontab(day_of_week=0, hour=0, minute=0),
+    },
+    # Monday fresh start — 12:05 AM Eastern (new week begins)
+    "weekly-fresh-start": {
+        "task": "src.workers.analytics_worker.send_weekly_fresh_start",
+        "schedule": crontab(day_of_week=1, hour=0, minute=5),
     },
     # Self-improvement — nightly 2 AM UTC
     "self-improvement-nightly": {

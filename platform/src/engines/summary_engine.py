@@ -153,6 +153,40 @@ def get_weekly_summary(week_start: Optional[datetime] = None) -> dict:
         parlay_sport_pnl[p["sport"]] += p["actual_pnl_units"] or 0
     best_parlay_category = max(parlay_sport_pnl, key=parlay_sport_pnl.get) if parlay_sport_pnl else None
 
+    # ── PrizePicks prop results for the week ──────────────────────────────────
+    prop_wins = prop_losses = prop_pushes = 0
+    prop_by_sport: dict = {}
+    prop_by_stat:  dict = {}
+    try:
+        from src.db.models import PropResult
+        with get_db() as db:
+            prop_rows = db.query(PropResult).filter(
+                PropResult.settled_at >= week_start,
+                PropResult.settled_at < week_end,
+            ).all()
+            prop_data = [
+                {"result": r.result, "sport_key": r.sport_key, "stat": r.stat,
+                 "subject": r.subject, "line": r.line, "actual_value": r.actual_value,
+                 "direction": r.direction}
+                for r in prop_rows
+            ]
+        for p in prop_data:
+            if p["result"] == "won":
+                prop_wins += 1
+                prop_by_sport[p["sport_key"]] = prop_by_sport.get(p["sport_key"], 0) + 1
+                prop_by_stat[p["stat"]]        = prop_by_stat.get(p["stat"], 0) + 1
+            elif p["result"] == "lost":
+                prop_losses += 1
+            elif p["result"] == "push":
+                prop_pushes += 1
+    except Exception:
+        prop_data = []
+
+    prop_total    = prop_wins + prop_losses + prop_pushes
+    prop_hit_rate = prop_wins / (prop_wins + prop_losses) if (prop_wins + prop_losses) > 0 else 0.0
+    best_prop_sport = max(prop_by_sport, key=prop_by_sport.get) if prop_by_sport else None
+    best_prop_stat  = max(prop_by_stat,  key=prop_by_stat.get)  if prop_by_stat  else None
+
     return {
         "total_bets": total_bets,
         "total_units_won": total_units_won,
@@ -167,6 +201,16 @@ def get_weekly_summary(week_start: Optional[datetime] = None) -> dict:
         "best_sportsbook": best_sportsbook,
         "best_prop_category": best_prop_category,
         "best_parlay_category": best_parlay_category,
+        # PrizePicks prop breakdown
+        "props": {
+            "total":      prop_total,
+            "wins":       prop_wins,
+            "losses":     prop_losses,
+            "pushes":     prop_pushes,
+            "hit_rate":   round(prop_hit_rate, 4),
+            "best_sport": best_prop_sport,
+            "best_stat":  best_prop_stat,
+        },
     }
 
 
