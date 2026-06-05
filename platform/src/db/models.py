@@ -405,3 +405,24 @@ class AlertRecord(Base):
     message_id      = Column(String(100))  # Discord message ID
     delivered       = Column(Boolean, default=True)
     __table_args__ = (Index("ix_alerts_sent_at", "sent_at"),)
+
+
+class PropResult(Base):
+    """Tracks every graded prop pick for the learning loop."""
+    __tablename__ = "prop_results"
+    id           = Column(Integer, primary_key=True)
+    subject      = Column(String(200), nullable=False)   # player or team name
+    stat         = Column(String(100), nullable=False)   # "Points", "Rushing Yards", etc.
+    sport_key    = Column(String(100), nullable=False)
+    direction    = Column(String(10),  nullable=False)   # "over" | "under"
+    line         = Column(Float,       nullable=False)
+    actual_value = Column(Float,       nullable=True)    # filled in at settlement
+    result       = Column(String(10),  nullable=True)    # "won" | "lost" | "push"
+    game_time    = Column(String(50),  nullable=True)
+    settled_at   = Column(DateTime,    nullable=True)
+    created_at   = Column(DateTime,    default=datetime.utcnow)
+    __table_args__ = (
+        Index("ix_prop_results_subject_stat", "subject", "stat"),
+        Index("ix_prop_results_sport",        "sport_key"),
+        Index("ix_prop_results_settled",      "settled_at"),
+    )

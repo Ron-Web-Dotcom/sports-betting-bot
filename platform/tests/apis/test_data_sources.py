@@ -335,3 +335,53 @@ class TestPropChangeDetection:
         ud = _detect_prop_changes(prev, curr, "underdog")
         assert pp[0]["source"] == "prizepicks"
         assert ud[0]["source"] == "underdog"
+
+
+# ── Prop engine ────────────────────────────────────────────────────────────────
+
+class TestPropEngine:
+    _PROP = {
+        "subject": "LeBron James", "stat": "Points", "sport_key": "basketball_nba",
+        "line": 25.5, "source": "prizepicks", "is_team_prop": False,
+        "opponent": "Celtics", "team": "Lakers", "game_time": "2026-06-10T00:00:00Z",
+    }
+
+    def test_record_prop_result_over_win(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("LeBron James", "Points", "basketball_nba", "over", 25.5, 28.0)
+        assert result == "won"
+
+    def test_record_prop_result_over_loss(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("LeBron James", "Points", "basketball_nba", "over", 25.5, 22.0)
+        assert result == "lost"
+
+    def test_record_prop_result_push(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("LeBron James", "Points", "basketball_nba", "under", 25.5, 25.5)
+        assert result == "push"
+
+    def test_under_win(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("Patrick Mahomes", "Pass Yards", "americanfootball_nfl", "under", 287.5, 241.0)
+        assert result == "won"

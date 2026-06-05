@@ -50,6 +50,61 @@ def _embed(title: str, description: str, color: int, fields: list[dict] | None =
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
+async def post_prop_pick(pick: dict) -> None:
+    """Discord alert for a PrizePicks prop recommendation."""
+    direction = pick.get("direction", "over").upper()
+    color     = 0x2E7D32 if direction == "OVER" else 0xC62828
+    sport     = pick.get("sport_key", "").split("_")[-1].upper()
+    icon      = "📈" if direction == "OVER" else "📉"
+    conf_pct  = round(pick.get("confidence", 0) * 100)
+    ev_pct    = round(pick.get("ev_pct", 0) * 100, 1)
+
+    fields = [
+        {"name": "Sport",      "value": sport},
+        {"name": "Stat",       "value": pick.get("stat", "—")},
+        {"name": "Line",       "value": str(pick.get("line", "—"))},
+        {"name": "Direction",  "value": f"{icon} {direction}"},
+        {"name": "Confidence", "value": f"{conf_pct}%"},
+        {"name": "Edge",       "value": f"+{ev_pct}%"},
+        {"name": "Opponent",   "value": pick.get("opponent", "—")},
+        {"name": "Game Time",  "value": pick.get("game_time", "—")},
+    ]
+    factors = pick.get("key_factors", [])
+    if factors:
+        fields.append({"name": "Key Factors", "value": "\n".join(f"• {f}" for f in factors[:3]), "inline": False})
+    fields.append({"name": "Reasoning", "value": pick.get("reasoning", "—")[:500], "inline": False})
+
+    prop_type = "Team Prop" if pick.get("is_team_prop") else "Player Prop"
+    embed = _embed(
+        title=f"{icon} PrizePicks {prop_type}: {pick.get('subject', 'Unknown')} {direction} {pick.get('line')} {pick.get('stat', '')}",
+        description=f"Source: **{pick.get('source', 'prizepicks').title()}**",
+        color=color,
+        fields=fields,
+    )
+    await _post({"embeds": [embed]})
+
+
+async def post_prop_result(pick: dict, result: str, actual: float) -> None:
+    """Discord notification when a prop pick is settled."""
+    icons   = {"won": "✅", "lost": "❌", "push": "➖"}
+    colors  = {"won": 0x2E7D32, "lost": 0xC62828, "push": 0x757575}
+    icon    = icons.get(result, "❓")
+    color   = colors.get(result, 0x757575)
+    missed  = round(actual - pick.get("line", 0), 2)
+    missed_str = f"{missed:+.1f}" if result != "push" else "exact"
+
+    embed = _embed(
+        title=f"{icon} Prop Result: {pick.get('subject')} {pick.get('stat')}",
+        description=f"**{pick.get('direction', '').upper()} {pick.get('line')}** → Actual: **{actual}** ({missed_str})",
+        color=color,
+        fields=[
+            {"name": "Result",  "value": result.upper()},
+            {"name": "Sport",   "value": pick.get("sport_key", "—").split("_")[-1].upper()},
+        ],
+    )
+    await _post({"embeds": [embed]})
+
+
 async def post_pick(pick: dict) -> None:
     rec = pick.get("recommendation", "PASS")
     color = 0x2E7D32 if rec == "BET" else 0x757575

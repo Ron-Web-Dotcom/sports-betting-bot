@@ -181,6 +181,50 @@ def generate_picks(self):
         raise self.retry(exc=exc)
 
 
+@app.task(bind=True, max_retries=2, default_retry_delay=60)
+def scan_and_pick_props(self):
+    """
+    Full PrizePicks prop pick cycle — runs every 30 min.
+
+    1. Pull live props from Redis cache (populated by scan_player_props)
+    2. AI analyses each prop: Over or Under?
+    3. Gate filters low-confidence / low-EV props
+    4. BET props posted to Discord
+    5. Results tracked in PropResult table for learning loop
+    """
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        import json, dataclasses
+
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = r.get("props:prizepicks")
+        if not raw:
+            logger.info("scan_and_pick_props: no PrizePicks data in cache yet")
+            return {"picks": 0}
+
+        props = json.loads(raw)
+        if not props:
+            return {"picks": 0}
+
+        # Only analyse props with a game coming up (status not empty / not already started)
+        props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
+
+        from src.engines.prop_engine import score_props
+        picks = score_props(props)
+
+        if picks:
+            from src.workers.alert_worker import send_prop_pick_alerts
+            send_prop_pick_alerts.delay([dataclasses.asdict(p) for p in picks])
+            logger.info("Prop picks: %d recommendations posted to Discord", len(picks))
+
+        return {"props_analysed": len(props), "picks": len(picks)}
+
+    except Exception as exc:
+        logger.error("scan_and_pick_props failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task
 def generate_parlays():
     """Build and alert top parlay opportunities from today's BET picks."""

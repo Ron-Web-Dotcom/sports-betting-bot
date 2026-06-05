@@ -62,6 +62,11 @@ app.conf.beat_schedule = {
         "task": "src.workers.picks_worker.generate_picks",
         "schedule": 600,
     },
+    # PrizePicks prop picks — every 30 min (reads from props cache)
+    "prop-picks-every-30min": {
+        "task": "src.workers.picks_worker.scan_and_pick_props",
+        "schedule": 1800,
+    },
     # Pre-game alerts — every minute
     "pregame-alerts-every-min": {
         "task": "src.workers.alert_worker.send_pregame_alerts",
