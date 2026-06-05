@@ -16,6 +16,28 @@ from src.db.models import Game
 logger = logging.getLogger(__name__)
 
 
+def _post_parlay_bundles(pick_dicts: list[dict], pp_task, hr_task) -> None:
+    """
+    Bundle picks into PP (max 6) and HardRock (max 4) parlay cards.
+    PP picks: prop picks (Over/Under)
+    HardRock picks: game picks with american_odds
+    Fires one card per bundle — only if 2+ picks available.
+    """
+    # PP entry: sort by confidence*ev desc, take top 6
+    pp_picks = sorted(pick_dicts, key=lambda p: (p.get("confidence", 0) * p.get("ev_pct", 0)), reverse=True)
+    if len(pp_picks) >= 2:
+        # Post the best 2, 3, 4, 5, 6-leg combos as a single recommended entry
+        n = min(len(pp_picks), 6)
+        pp_task.delay(pp_picks[:n])
+
+    # HardRock: picks that have american_odds (game picks, not props)
+    hr_picks = [p for p in pick_dicts if p.get("american_odds") or p.get("odds")]
+    hr_picks = sorted(hr_picks, key=lambda p: p.get("confidence", 0), reverse=True)
+    if len(hr_picks) >= 2:
+        n = min(len(hr_picks), 4)
+        hr_task.delay(hr_picks[:n])
+
+
 def _is_sleep_time() -> bool:
     from datetime import datetime
     import zoneinfo
@@ -288,9 +310,13 @@ def morning_props_brief():
             ],
         ))
 
-        # Post individual pick alerts too
-        from src.workers.alert_worker import send_prop_pick_alerts
-        send_prop_pick_alerts.delay([dataclasses.asdict(p) for p in picks])
+        # Individual pick alerts + parlay bundles
+        from src.workers.alert_worker import (
+            send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
+        )
+        pick_dicts = [dataclasses.asdict(p) for p in picks]
+        send_prop_pick_alerts.delay(pick_dicts)
+        _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
 
     _run_async(_post({"embeds": embeds}))
     logger.info("Morning props brief sent: %d picks at 8 AM ET", len(picks))
@@ -333,9 +359,16 @@ def scan_and_pick_props(self):
         picks = score_props(props)
 
         if picks:
-            from src.workers.alert_worker import send_prop_pick_alerts
-            send_prop_pick_alerts.delay([dataclasses.asdict(p) for p in picks])
-            logger.info("Prop picks: %d recommendations posted to Discord", len(picks))
+            pick_dicts = [dataclasses.asdict(p) for p in picks]
+            from src.workers.alert_worker import (
+                send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
+            )
+            # Individual pick alerts
+            send_prop_pick_alerts.delay(pick_dicts)
+
+            # PP parlay — best 2 to 6 picks bundled
+            _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
+            logger.info("Prop picks: %d picks, parlays posted", len(picks))
 
         return {"props_analysed": len(props), "picks": len(picks)}
 

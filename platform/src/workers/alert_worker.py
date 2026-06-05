@@ -70,6 +70,24 @@ def send_lineup_alerts(alerts: list[dict]):
 
 
 @app.task
+def send_pp_parlay_alert(picks: list[dict]):
+    from src.discord_bot.bot import post_pp_parlay
+    try:
+        _run_async(post_pp_parlay(picks))
+    except Exception as e:
+        logger.error("Failed to send PP parlay alert: %s", e)
+
+
+@app.task
+def send_hardrock_parlay_alert(picks: list[dict]):
+    from src.discord_bot.bot import post_hardrock_parlay
+    try:
+        _run_async(post_hardrock_parlay(picks))
+    except Exception as e:
+        logger.error("Failed to send HardRock parlay alert: %s", e)
+
+
+@app.task
 def send_prop_pick_alerts(picks: list[dict]):
     from src.discord_bot.bot import post_prop_pick
     for pick in picks:

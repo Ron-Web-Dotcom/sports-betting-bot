@@ -176,6 +176,111 @@ async def post_prop_result(pick: dict, result: str, actual: float) -> None:
     await _post({"embeds": [embed]})
 
 
+# ── PP payout multipliers (Power Play — all legs must hit) ────────────────────
+_PP_MULTIPLIERS = {2: 3, 3: 5, 4: 10, 5: 20, 6: 40}
+
+_SPORT_LABELS_SHORT = {
+    "soccer_fifa_world_cup":          "WORLD CUP",
+    "basketball_nba":                 "NBA",
+    "americanfootball_nfl":           "NFL",
+    "baseball_mlb":                   "MLB",
+    "icehockey_nhl":                  "NHL",
+    "soccer_epl":                     "EPL",
+    "soccer_usa_mls":                 "MLS",
+    "basketball_ncaab":               "NCAAB",
+    "americanfootball_ncaaf":         "NCAAF",
+    "mma_mixed_martial_arts":         "UFC",
+    "tennis_atp_french_open":         "TENNIS",
+    "golf_masters_tournament_winner": "GOLF",
+}
+
+
+async def post_pp_parlay(picks: list[dict]) -> None:
+    """PrizePicks multi-pick entry card — 2 to 6 legs, shows multiplier."""
+    if not picks:
+        return
+    n        = min(len(picks), 6)
+    picks    = picks[:n]
+    mult     = _PP_MULTIPLIERS.get(n, 40)
+    avg_conf = round(sum((p.get("confidence") or 0) for p in picks) / n * 100)
+
+    leg_lines = []
+    for i, p in enumerate(picks, 1):
+        arrow   = "↑" if (p.get("direction") or "over").lower() == "over" else "↓"
+        sport   = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), "")
+        subject = p.get("subject", "?")
+        stat    = p.get("stat", "")
+        line    = p.get("line", "?")
+        conf    = round((p.get("confidence") or 0) * 100)
+        leg_lines.append(
+            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}%"
+        )
+
+    fields = [
+        {"name": "Legs",       "value": str(n),         "inline": True},
+        {"name": "Multiplier", "value": f"**{mult}x**", "inline": True},
+        {"name": "Avg Conf",   "value": f"{avg_conf}%", "inline": True},
+        {
+            "name":  "Entry Types",
+            "value": "**Power Play** — all must hit → full multiplier\n**Flex Play** — 1 miss allowed → reduced payout",
+            "inline": False,
+        },
+        {"name": "⚠️", "value": "Place manually on PrizePicks. Max 6 picks.", "inline": False},
+    ]
+    await _post({"embeds": [_embed(
+        title=f"🏆 PrizePicks Entry — {n} Picks  ·  {mult}x Payout",
+        description="\n".join(leg_lines),
+        color=0x1565C0,
+        fields=fields,
+    )]})
+
+
+async def post_hardrock_parlay(picks: list[dict]) -> None:
+    """HardRock parlay card — 2 to 4 legs, combined odds + example payout."""
+    if not picks:
+        return
+    n     = min(len(picks), 4)
+    picks = picks[:n]
+
+    combined_decimal = 1.0
+    for p in picks:
+        odds = p.get("american_odds") or p.get("odds") or -110
+        try:
+            dec = (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
+        except Exception:
+            dec = 1.91
+        combined_decimal *= dec
+
+    if combined_decimal >= 2.0:
+        combined_american = int((combined_decimal - 1) * 100)
+    else:
+        combined_american = int(-100 / (combined_decimal - 1))
+
+    odds_str       = f"+{combined_american}" if combined_american > 0 else str(combined_american)
+    example_payout = round(10 * combined_decimal, 2)
+
+    leg_lines = []
+    for i, p in enumerate(picks, 1):
+        sport    = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), p.get("sport", ""))
+        bet      = p.get("bet") or p.get("selection") or p.get("subject", "?")
+        leg_odds = p.get("american_odds") or p.get("odds", "?")
+        lo_str   = f"+{leg_odds}" if isinstance(leg_odds, int) and leg_odds > 0 else str(leg_odds)
+        leg_lines.append(f"`{i}.` **{bet}**  ·  {lo_str}  ·  {sport}")
+
+    fields = [
+        {"name": "Legs",          "value": str(n),               "inline": True},
+        {"name": "Combined Odds", "value": odds_str,             "inline": True},
+        {"name": "Payout on $10", "value": f"${example_payout}", "inline": True},
+        {"name": "⚠️", "value": "Place manually on HardRock Bet. Max 4 legs.", "inline": False},
+    ]
+    await _post({"embeds": [_embed(
+        title=f"🎰 HardRock Parlay — {n} Legs  ·  {odds_str}",
+        description="\n".join(leg_lines),
+        color=0x6A1B9A,
+        fields=fields,
+    )]})
+
+
 async def post_pick(pick: dict) -> None:
     rec = pick.get("recommendation", "PASS")
     color = 0x2E7D32 if rec == "BET" else 0x757575
