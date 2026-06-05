@@ -46,6 +46,15 @@ def send_line_movement_alerts(movements: list[dict]):
 
 
 @app.task
+def send_prop_change_alerts(changes: list[dict]):
+    from src.discord_bot.bot import post_prop_changes
+    try:
+        _run_async(post_prop_changes(changes))
+    except Exception as e:
+        logger.error("Failed to send prop change alerts: %s", e)
+
+
+@app.task
 def send_result_alert(pick: dict, result: str):
     from src.discord_bot.bot import post_result
     try:

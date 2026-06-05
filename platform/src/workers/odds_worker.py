@@ -72,6 +72,56 @@ def scan_and_save_odds(self):
         raise self.retry(exc=exc)
 
 
+def _prop_key(prop: dict) -> str:
+    """Unique key for a prop: subject + stat + sport."""
+    return f"{prop.get('subject', '')}|{prop.get('stat', '')}|{prop.get('sport_key', '')}"
+
+
+def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> list[dict]:
+    """Compare two prop snapshots and return a list of change dicts."""
+    prev_map = {_prop_key(p): p for p in prev}
+    curr_map = {_prop_key(p): p for p in curr}
+
+    changes = []
+
+    for key, new_prop in curr_map.items():
+        old_prop = prev_map.get(key)
+        if old_prop is None:
+            changes.append({
+                "change_type": "added",
+                "source":      source,
+                "subject":     new_prop.get("subject"),
+                "stat":        new_prop.get("stat"),
+                "sport_key":   new_prop.get("sport_key"),
+                "new_line":    new_prop.get("line"),
+                "old_line":    None,
+            })
+        elif old_prop.get("line") != new_prop.get("line"):
+            changes.append({
+                "change_type": "moved",
+                "source":      source,
+                "subject":     new_prop.get("subject"),
+                "stat":        new_prop.get("stat"),
+                "sport_key":   new_prop.get("sport_key"),
+                "old_line":    old_prop.get("line"),
+                "new_line":    new_prop.get("line"),
+            })
+
+    for key, old_prop in prev_map.items():
+        if key not in curr_map:
+            changes.append({
+                "change_type": "removed",
+                "source":      source,
+                "subject":     old_prop.get("subject"),
+                "stat":        old_prop.get("stat"),
+                "sport_key":   old_prop.get("sport_key"),
+                "old_line":    old_prop.get("line"),
+                "new_line":    None,
+            })
+
+    return changes
+
+
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scan_player_props(self):
     """
@@ -116,13 +166,29 @@ def scan_player_props(self):
             all_props.extend(items or [])
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+        # ── Detect changes vs previous snapshot ───────────────────────────────
+        all_changes: list[dict] = []
+        for source_name, new_items in results.items():
+            prev_raw = r.get(f"props:{source_name}")
+            prev_items: list[dict] = json.loads(prev_raw) if prev_raw else []
+            changes = _detect_prop_changes(prev_items, new_items or [], source_name)
+            all_changes.extend(changes)
+
+        # Cache new snapshots
         for name, items in results.items():
             r.setex(f"props:{name}", 900, json.dumps(items or []))
         r.setex("props:all", 900, json.dumps(all_props))
 
+        # Fire Discord alerts if anything changed
+        if all_changes:
+            from src.workers.alert_worker import send_prop_change_alerts
+            send_prop_change_alerts.delay(all_changes)
+            logger.info("Props changed: %d updates detected", len(all_changes))
+
         counts = {k: len(v or []) for k, v in results.items()}
         logger.info("Props scan complete: %s | total=%d", counts, len(all_props))
-        return {**counts, "total": len(all_props)}
+        return {**counts, "total": len(all_props), "changes": len(all_changes)}
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)

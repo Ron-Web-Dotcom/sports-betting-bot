@@ -107,6 +107,52 @@ async def post_result(pick: dict, result: str) -> None:
     await _post({"embeds": [embed]})
 
 
+async def post_prop_changes(changes: list[dict]) -> None:
+    """Send a Discord alert for prop line changes (moved, added, removed)."""
+    if not changes:
+        return
+
+    ICONS = {"moved": "📊", "added": "🆕", "removed": "❌"}
+    COLORS = {"moved": 0xFDD835, "added": 0x43A047, "removed": 0xE53935}
+
+    # Group by source so one embed per source (max 10 changes shown per source)
+    from collections import defaultdict
+    by_source: dict[str, list[dict]] = defaultdict(list)
+    for c in changes:
+        by_source[c.get("source", "props")].append(c)
+
+    embeds = []
+    for source, items in by_source.items():
+        lines = []
+        for c in items[:10]:
+            icon    = ICONS.get(c["change_type"], "•")
+            subject = c.get("subject", "Unknown")
+            stat    = c.get("stat", "")
+            sport   = c.get("sport_key", "").split("_")[-1].upper()
+            if c["change_type"] == "moved":
+                lines.append(
+                    f"{icon} **{subject}** {stat} `{c['old_line']} → {c['new_line']}` ({sport})"
+                )
+            elif c["change_type"] == "added":
+                lines.append(f"{icon} **{subject}** {stat} `{c['new_line']}` ({sport})")
+            else:
+                lines.append(f"{icon} **{subject}** {stat} `{c['old_line']}` removed ({sport})")
+
+        if len(items) > 10:
+            lines.append(f"*… and {len(items) - 10} more*")
+
+        dominant = max(set(c["change_type"] for c in items), key=lambda t: sum(1 for x in items if x["change_type"] == t))
+        embeds.append(_embed(
+            title=f"{source.title()} Props Update",
+            description="\n".join(lines),
+            color=COLORS.get(dominant, 0xFDD835),
+        ))
+
+    # Discord allows max 10 embeds per message
+    for i in range(0, len(embeds), 10):
+        await _post({"embeds": embeds[i:i + 10]})
+
+
 async def post_line_movement(movement: dict) -> None:
     embed = _embed(
         title=f"Line Movement: {movement.get('game', '')}",

@@ -288,3 +288,50 @@ class TestDataHub:
         from src.apis.data_hub import _score_completeness
         score = _score_completeness({})
         assert score == 0.0
+
+
+# ── Prop change detection ──────────────────────────────────────────────────────
+
+class TestPropChangeDetection:
+    _PROP = {
+        "subject": "LeBron James", "stat": "Points", "sport_key": "basketball_nba",
+        "line": 25.5, "source": "prizepicks",
+    }
+
+    def test_moved_line_detected(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        prev = [{**self._PROP, "line": 25.5}]
+        curr = [{**self._PROP, "line": 27.5}]
+        changes = _detect_prop_changes(prev, curr, "prizepicks")
+        assert len(changes) == 1
+        assert changes[0]["change_type"] == "moved"
+        assert changes[0]["old_line"] == 25.5
+        assert changes[0]["new_line"] == 27.5
+
+    def test_added_prop_detected(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        changes = _detect_prop_changes([], [self._PROP], "prizepicks")
+        assert len(changes) == 1
+        assert changes[0]["change_type"] == "added"
+        assert changes[0]["new_line"] == 25.5
+
+    def test_removed_prop_detected(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        changes = _detect_prop_changes([self._PROP], [], "prizepicks")
+        assert len(changes) == 1
+        assert changes[0]["change_type"] == "removed"
+        assert changes[0]["old_line"] == 25.5
+
+    def test_unchanged_prop_not_reported(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        changes = _detect_prop_changes([self._PROP], [self._PROP], "prizepicks")
+        assert changes == []
+
+    def test_multiple_sources_tracked_independently(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        prev = [{**self._PROP, "line": 25.5}]
+        curr = [{**self._PROP, "line": 26.5}]
+        pp = _detect_prop_changes(prev, curr, "prizepicks")
+        ud = _detect_prop_changes(prev, curr, "underdog")
+        assert pp[0]["source"] == "prizepicks"
+        assert ud[0]["source"] == "underdog"
