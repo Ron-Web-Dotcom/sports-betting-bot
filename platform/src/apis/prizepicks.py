@@ -1,15 +1,20 @@
 """
 PrizePicks adapter.
 
-PrizePicks is a player props platform offering Over/Under lines across
+PrizePicks offers Over/Under lines for both players AND teams across
 NFL, NBA, MLB, NHL, Soccer, Tennis, UFC, Golf, NCAAB, NCAAF, Esports, and more.
+
+Player props:  Points, Rebounds, Assists, Passing Yards, Rushing Yards, etc.
+Team props:    Total Points, Total Touchdowns, First Half Score,
+               Team Rushing Yards, Team Passing Yards, etc.
 
 Public API — no key required.
 Base: https://api.prizepicks.com
 
 Key endpoints:
-  GET /projections?league_id={id}&per_page=250   — all active props for a league
-  GET /leagues                                    — all available leagues + IDs
+  GET /projections?league_id={id}&per_page=250               — player + team props
+  GET /projections?league_id={id}&is_team_prop=true          — team props only
+  GET /leagues                                               — all leagues + IDs
 """
 import logging
 from src.apis.base import get_json
@@ -66,74 +71,102 @@ def get_leagues() -> list[dict]:
     ]
 
 
-def get_projections(sport_key: str) -> list[dict]:
-    """
-    Fetch all active player prop projections for a sport.
-    Returns normalised list with player, stat, line, and team.
-    """
-    league_id = _LEAGUE_IDS.get(sport_key)
-    if not league_id:
-        # Try all leagues for unmapped sports
-        logger.debug("PrizePicks: no league_id mapped for %s", sport_key)
-        return []
-
-    data = _get("/projections", {"league_id": league_id, "per_page": 250, "single_stat": True})
-    if not data:
-        return []
-
-    # PrizePicks returns JSON:API format — data + included
-    raw_projections = data.get("data", []) if isinstance(data, dict) else []
+def _parse_projections(data: dict, sport_key: int, is_team: bool) -> list[dict]:
+    """Parse PrizePicks JSON:API response into normalised prop dicts."""
+    raw = data.get("data", []) if isinstance(data, dict) else []
     included = {
         item["id"]: item
-        for item in data.get("included", [])
-        if isinstance(data, dict)
+        for item in (data.get("included", []) if isinstance(data, dict) else [])
     }
 
     out = []
-    for proj in raw_projections:
-        attrs = proj.get("attributes", {})
+    for proj in raw:
+        attrs         = proj.get("attributes", {})
         relationships = proj.get("relationships", {})
-
-        # Resolve player from included
-        player_rel = relationships.get("new_player", {}).get("data", {})
-        player_id = player_rel.get("id")
-        player_obj = included.get(player_id, {})
-        player_attrs = player_obj.get("attributes", {})
-
-        player_name = (
-            attrs.get("name")
-            or player_attrs.get("name", "Unknown")
-        )
-        team = player_attrs.get("team", "") or attrs.get("team", "")
 
         line = attrs.get("line_score")
         stat = attrs.get("stat_type", "")
-        game_time = attrs.get("start_time", "")
-        opponent = attrs.get("opponent_name", "")
-        status = attrs.get("status", "")
-
         if line is None or not stat:
             continue
 
+        if is_team:
+            # Team prop — subject is the team, not a player
+            team_rel  = relationships.get("new_player", {}).get("data", {})
+            team_obj  = included.get(team_rel.get("id", ""), {})
+            team_attrs = team_obj.get("attributes", {})
+            subject   = attrs.get("name") or team_attrs.get("name", "Unknown Team")
+            team      = subject
+            player    = None
+        else:
+            # Player prop
+            player_rel  = relationships.get("new_player", {}).get("data", {})
+            player_obj  = included.get(player_rel.get("id", ""), {})
+            player_attrs = player_obj.get("attributes", {})
+            player      = attrs.get("name") or player_attrs.get("name", "Unknown")
+            team        = player_attrs.get("team", "") or attrs.get("team", "")
+            subject     = player
+
         out.append({
-            "player":      player_name,
+            "subject":     subject,
+            "player":      player,       # None for team props
             "team":        team,
-            "opponent":    opponent,
+            "opponent":    attrs.get("opponent_name", ""),
             "stat":        stat,
             "line":        float(line),
-            "game_time":   game_time,
-            "status":      status,
+            "game_time":   attrs.get("start_time", ""),
+            "status":      attrs.get("status", ""),
+            "is_team_prop": is_team,
             "sport_key":   sport_key,
-            "league_id":   league_id,
             "source":      "prizepicks",
         })
-
-    logger.info("PrizePicks: %d projections for %s", len(out), sport_key)
     return out
 
 
+def get_projections(sport_key: str) -> list[dict]:
+    """
+    Fetch ALL active projections for a sport — both player props and team props.
+    Returns a combined normalised list. is_team_prop=True marks team props.
+    """
+    league_id = _LEAGUE_IDS.get(sport_key)
+    if not league_id:
+        logger.debug("PrizePicks: no league_id mapped for %s", sport_key)
+        return []
+
+    base_params = {"league_id": league_id, "per_page": 250, "single_stat": True}
+
+    # Fetch player props and team props in parallel
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_player = pool.submit(_get, "/projections", base_params)
+        f_team   = pool.submit(_get, "/projections", {**base_params, "is_team_prop": "true"})
+        player_data = f_player.result()
+        team_data   = f_team.result()
+
+    out = []
+    if player_data:
+        out.extend(_parse_projections(player_data, sport_key, is_team=False))
+    if team_data:
+        out.extend(_parse_projections(team_data, sport_key, is_team=True))
+
+    player_count = sum(1 for p in out if not p["is_team_prop"])
+    team_count   = sum(1 for p in out if p["is_team_prop"])
+    logger.info("PrizePicks: %d player + %d team props for %s",
+                player_count, team_count, sport_key)
+    return out
+
+
+def get_team_props(sport_key: str) -> list[dict]:
+    """Fetch only team props for a sport."""
+    return [p for p in get_projections(sport_key) if p["is_team_prop"]]
+
+
+def get_player_props(sport_key: str) -> list[dict]:
+    """Fetch only player props for a sport."""
+    return [p for p in get_projections(sport_key) if not p["is_team_prop"]]
+
+
 def get_all_projections() -> list[dict]:
-    """Fetch projections for every mapped sport in parallel."""
+    """Fetch all player + team projections for every mapped sport in parallel."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results = []
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -141,7 +174,7 @@ def get_all_projections() -> list[dict]:
             pool.submit(get_projections, sport_key): sport_key
             for sport_key in _LEAGUE_IDS
         }
-        for future in as_completed(futures, timeout=20):
+        for future in as_completed(futures, timeout=30):
             try:
                 results.extend(future.result())
             except Exception as e:
@@ -149,12 +182,12 @@ def get_all_projections() -> list[dict]:
     return results
 
 
-def find_prop(sport_key: str, player_name: str, stat: str) -> dict | None:
-    """Find a specific player prop by name and stat type."""
-    name_lower = player_name.lower()
+def find_prop(sport_key: str, name: str, stat: str) -> dict | None:
+    """Find a player or team prop by name and stat type."""
+    name_lower = name.lower()
     stat_lower = stat.lower()
     for proj in get_projections(sport_key):
-        if (name_lower in proj["player"].lower()
+        if (name_lower in (proj["subject"] or "").lower()
                 and stat_lower in proj["stat"].lower()):
             return proj
     return None
