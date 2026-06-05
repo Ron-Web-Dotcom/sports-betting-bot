@@ -42,12 +42,13 @@ app.conf.update(
 )
 
 app.conf.beat_schedule = {
-    # Odds (ML/spread/totals) — every 5 min 24/7
+    # ── Live scanning — skips automatically during sleep window (3 AM–5 AM ET) ──
+    # Odds (ML/spread/totals) — every 5 min
     "scan-odds-every-5min": {
         "task": "src.workers.odds_worker.scan_and_save_odds",
         "schedule": 300,
     },
-    # Player props (PrizePicks + Underdog) — every 10 min 24/7
+    # Player props (PrizePicks + Underdog + Kalshi) — every 10 min
     "scan-props-every-10min": {
         "task": "src.workers.odds_worker.scan_player_props",
         "schedule": 600,
@@ -72,6 +73,25 @@ app.conf.beat_schedule = {
         "task": "src.workers.alert_worker.send_pregame_alerts",
         "schedule": 60,
     },
+
+    # ── Sleep / wake cycle (Eastern time) ──────────────────────────────────────
+    # 3:00 AM ET — enter sleep mode
+    "sleep-mode-3am": {
+        "task": "src.workers.analytics_worker.enter_sleep_mode",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    # 5:00 AM ET — wake up + today's games brief
+    "wake-up-5am": {
+        "task": "src.workers.analytics_worker.wake_up_brief",
+        "schedule": crontab(hour=5, minute=0),
+    },
+    # 8:00 AM ET — full props blast (PP / HardRock lines go live ~8 AM)
+    "morning-props-8am": {
+        "task": "src.workers.picks_worker.morning_props_brief",
+        "schedule": crontab(hour=8, minute=0),
+    },
+
+    # ── Settlement & analytics ─────────────────────────────────────────────────
     # Settlement — every 30 min
     "settle-picks-every-30min": {
         "task": "src.workers.settlement_worker.settle_completed_picks",
@@ -82,43 +102,42 @@ app.conf.beat_schedule = {
         "task": "src.workers.settlement_worker.record_closing_lines",
         "schedule": 3600,
     },
-    # Daily summary — 11 PM UTC
+    # Daily summary — 11 PM Eastern
     "daily-summary": {
         "task": "src.workers.analytics_worker.send_daily_summary",
         "schedule": crontab(hour=23, minute=0),
     },
-    # Weekly summary — Sunday midnight Eastern (week ends, results posted)
+    # Weekly summary — Sunday midnight Eastern
     "weekly-summary": {
         "task": "src.workers.analytics_worker.send_weekly_summary",
         "schedule": crontab(day_of_week=0, hour=0, minute=0),
     },
-    # Monday fresh start — 12:05 AM Eastern (new week begins)
+    # Monday fresh start — 12:05 AM Eastern
     "weekly-fresh-start": {
         "task": "src.workers.analytics_worker.send_weekly_fresh_start",
         "schedule": crontab(day_of_week=1, hour=0, minute=5),
     },
-    # Self-improvement — nightly 2 AM UTC
+    # Self-improvement — nightly 2 AM Eastern (runs during sleep window, no alert)
     "self-improvement-nightly": {
         "task": "src.workers.analytics_worker.run_self_improvement",
         "schedule": crontab(hour=2, minute=0),
     },
-    # Portfolio snapshot — midnight UTC
+    # Portfolio snapshot — midnight Eastern
     "portfolio-snapshot": {
         "task": "src.workers.analytics_worker.snapshot_portfolio",
         "schedule": crontab(hour=0, minute=5),
     },
-    # Monthly summary — 1st of month 12:01 AM UTC
+    # Monthly summary — 1st of month 12:01 AM Eastern
     "monthly-summary": {
         "task": "src.workers.analytics_worker.send_monthly_summary",
         "schedule": crontab(day_of_month=1, hour=0, minute=1),
     },
-    # OddsSnapshot cleanup — nightly 3 AM: delete snapshots older than 7 days
-    # Without this, ~6.9M rows/day accumulate and eventually kill the DB
+    # OddsSnapshot cleanup — 3 AM Eastern (fires just before sleep mode kicks in)
     "cleanup-old-snapshots": {
         "task": "src.workers.analytics_worker.cleanup_old_snapshots",
-        "schedule": crontab(hour=3, minute=0),
+        "schedule": crontab(hour=2, minute=55),
     },
-    # Parlay generation — daily at 9 AM after picks are in
+    # Parlay generation — daily 9 AM Eastern
     "generate-parlays-daily": {
         "task": "src.workers.picks_worker.generate_parlays",
         "schedule": crontab(hour=9, minute=0),

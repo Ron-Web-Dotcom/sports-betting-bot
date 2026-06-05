@@ -4,6 +4,15 @@ from src.workers.celery_app import app
 
 logger = logging.getLogger(__name__)
 
+# ── Sleep window: 3 AM – 5 AM Eastern ─────────────────────────────────────────
+
+def is_sleep_time() -> bool:
+    """Return True if current Eastern time is inside the 3 AM–5 AM sleep window."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 3 <= et.hour < 5
+
 
 @app.task
 def send_daily_summary():
@@ -131,6 +140,117 @@ def send_monthly_summary():
 
     logger.info("Monthly summary sent")
     return {"summary_length": len(summary), "stats": monthly}
+
+
+@app.task
+def enter_sleep_mode():
+    """3 AM Eastern — pause scanning, post goodnight message, run self-improvement."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from src.engines.self_improvement_engine import run_full_self_improvement
+    from datetime import datetime
+    import zoneinfo
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+    # Run self-improvement silently while sleeping
+    try:
+        run_full_self_improvement()
+        logger.info("Self-improvement ran during sleep window")
+    except Exception as e:
+        logger.warning("Self-improvement failed during sleep: %s", e)
+
+    embed = _embed(
+        title="🌙 Sleep Mode — Scanning Paused",
+        description=(
+            f"**{et.strftime('%-I:%M %p ET')}** — Going into sleep mode.\n\n"
+            "• All live scanning paused until **5:00 AM ET**\n"
+            "• Settlement and cleanup running in background\n"
+            "• Self-improvement cycle running on tonight's results\n\n"
+            "See you at 5 AM 👋"
+        ),
+        color=0x1A237E,
+    )
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
+    return {"sleep_entered": et.isoformat()}
+
+
+@app.task
+def wake_up_brief():
+    """5 AM Eastern — wake up, scan today's games, post morning brief."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from src.apis.espn import fetch_scoreboard, SPORT_MAP
+    from datetime import datetime
+    import zoneinfo
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+    _SPORT_LABELS = {
+        "basketball_nba":                 "🏀 NBA",
+        "americanfootball_nfl":           "🏈 NFL",
+        "baseball_mlb":                   "⚾ MLB",
+        "icehockey_nhl":                  "🏒 NHL",
+        "soccer_epl":                     "⚽ Premier League",
+        "soccer_uefa_champs_league":      "⚽ Champions League",
+        "soccer_usa_mls":                 "⚽ MLS",
+        "basketball_ncaab":               "🏀 NCAAB",
+        "americanfootball_ncaaf":         "🏈 NCAAF",
+        "mma":                            "🥊 UFC/MMA",
+        "tennis":                         "🎾 Tennis",
+        "golf_masters_tournament_winner": "⛳ Golf",
+    }
+
+    # Fetch all scoreboards in parallel
+    all_games: list[str] = []
+    sport_counts: dict[str, int] = {}
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = {pool.submit(fetch_scoreboard, sk): sk for sk in SPORT_MAP}
+        for future in as_completed(futures, timeout=20):
+            sk = futures[future]
+            try:
+                games = future.result() or []
+                active = [g for g in games if not g.get("completed")]
+                if active:
+                    label = _SPORT_LABELS.get(sk, sk)
+                    sport_counts[label] = len(active)
+                    for g in active[:3]:  # top 3 per sport in the brief
+                        all_games.append(
+                            f"{label}: {g.get('away_team','?')} @ {g.get('home_team','?')}"
+                        )
+            except Exception:
+                pass
+
+    total = sum(sport_counts.values())
+    if all_games:
+        games_text = "\n".join(f"• {g}" for g in all_games[:20])
+        if total > 20:
+            games_text += f"\n*… and {total - 20} more*"
+    else:
+        games_text = "*No games found yet — check back after 8 AM when lines open.*"
+
+    sports_on = ", ".join(
+        f"{label} ({n})" for label, n in sorted(sport_counts.items(), key=lambda x: -x[1])
+    ) or "None yet"
+
+    embed = _embed(
+        title=f"☀️ Good Morning — {et.strftime('%A, %B %-d')}",
+        description=(
+            f"**{total} games** on today across {len(sport_counts)} sports.\n\n"
+            f"{games_text}\n\n"
+            f"⏳ **Props lines open at 8 AM ET** — full pick recommendations coming then."
+        ),
+        color=0xF57F17,
+        fields=[
+            {"name": "Sports Active Today", "value": sports_on or "—", "inline": False},
+            {"name": "Next Update", "value": "8:00 AM ET — Full props picks brief", "inline": False},
+        ],
+    )
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Wake-up brief sent: %d games across %d sports", total, len(sport_counts))
+    return {"games_today": total, "sports": len(sport_counts)}
 
 
 @app.task

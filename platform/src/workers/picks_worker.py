@@ -16,8 +16,17 @@ from src.db.models import Game
 logger = logging.getLogger(__name__)
 
 
+def _is_sleep_time() -> bool:
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 3 <= et.hour < 5
+
+
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def generate_picks(self):
+    if _is_sleep_time():
+        return {"skipped": "sleep_mode"}
     try:
         # Idempotency guard — prevent duplicate runs within the same 10-min window.
         # Uses Redis SETNX so only the first concurrent invocation proceeds.
@@ -181,10 +190,117 @@ def generate_picks(self):
         raise self.retry(exc=exc)
 
 
+@app.task
+def morning_props_brief():
+    """
+    8 AM Eastern — PP and HardRock lines are now live.
+    Force-fetch fresh props, run AI picks, post a full morning brief:
+      • Today's games
+      • Which props to bet (Over/Under + reasoning)
+      • HardRock parlay suggestions from the Odds API
+    """
+    import json, dataclasses
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from datetime import datetime
+    import zoneinfo
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+    # ── 1. Force-refresh all props (lines just opened) ────────────────────────
+    try:
+        from src.apis.prizepicks import get_all_projections
+        from src.apis.underdog import get_all_lines
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        pp_props = get_all_projections()
+        ud_props = get_all_lines()
+        r.setex("props:prizepicks", 900, json.dumps(pp_props))
+        r.setex("props:underdog",   900, json.dumps(ud_props))
+        all_props = pp_props + ud_props
+    except Exception as e:
+        logger.warning("Morning props fetch failed: %s", e)
+        all_props = []
+
+    # ── 2. AI picks on fresh props ────────────────────────────────────────────
+    picks = []
+    if all_props:
+        try:
+            from src.engines.prop_engine import score_props
+            picks = score_props(all_props)
+        except Exception as e:
+            logger.warning("Morning prop scoring failed: %s", e)
+
+    # ── 3. HardRock parlay suggestions (top EV combos from Odds API) ──────────
+    parlay_lines: list[str] = []
+    try:
+        from src.engines.odds_engine import get_latest_snapshots_by_game
+        snaps = get_latest_snapshots_by_game()
+        top_games = []
+        for gid, snap_list in list(snaps.items())[:5]:
+            if snap_list:
+                s = snap_list[0]
+                top_games.append(
+                    f"{s.get('away_team','?')} @ {s.get('home_team','?')} "
+                    f"({s.get('sport_key','').split('_')[-1].upper()})"
+                )
+        parlay_lines = top_games
+    except Exception:
+        pass
+
+    # ── 4. Build Discord message ──────────────────────────────────────────────
+    embeds = []
+
+    # Morning overview
+    prop_summary = f"**{len(picks)} prop picks** ready" if picks else "No high-confidence props yet — lines may still be loading"
+    parlay_text  = "\n".join(f"• {g}" for g in parlay_lines) if parlay_lines else "—"
+
+    embeds.append(_embed(
+        title=f"🌅 8 AM Brief — {et.strftime('%A, %B %-d')}",
+        description=(
+            f"Lines are live. Here's your morning betting brief.\n\n"
+            f"📋 {prop_summary}\n"
+            f"🔗 HardRock parlay candidates:\n{parlay_text}"
+        ),
+        color=0x2E7D32,
+        fields=[
+            {"name": "Sources Checked", "value": "PrizePicks · Underdog · HardRock (via Odds API)", "inline": False},
+        ],
+    ))
+
+    # Top prop picks (max 10 in one message)
+    if picks:
+        pick_lines = []
+        for p in picks[:10]:
+            direction = "📈 OVER" if p.direction == "over" else "📉 UNDER"
+            sport = p.sport_key.split("_")[-1].upper()
+            pick_lines.append(
+                f"**{p.subject}** {p.stat} {p.line} → {direction} "
+                f"({sport} | {p.confidence*100:.0f}% conf | +{p.ev_pct*100:.1f}% edge)"
+            )
+        embeds.append(_embed(
+            title="🎯 Today's Prop Picks",
+            description="\n".join(pick_lines),
+            color=0x1565C0,
+            fields=[
+                {"name": "⚠️ Reminder", "value": "These are recommendations only. Bet responsibly.", "inline": False},
+            ],
+        ))
+
+        # Post individual pick alerts too
+        from src.workers.alert_worker import send_prop_pick_alerts
+        send_prop_pick_alerts.delay([dataclasses.asdict(p) for p in picks])
+
+    _run_async(_post({"embeds": embeds}))
+    logger.info("Morning props brief sent: %d picks at 8 AM ET", len(picks))
+    return {"picks": len(picks), "props_fetched": len(all_props)}
+
+
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scan_and_pick_props(self):
     """
-    Full PrizePicks prop pick cycle — runs every 30 min.
+    Full PrizePicks prop pick cycle — runs every 30 min (skips during sleep).
 
     1. Pull live props from Redis cache (populated by scan_player_props)
     2. AI analyses each prop: Over or Under?
@@ -196,6 +312,9 @@ def scan_and_pick_props(self):
         from src.core.config import REDIS_URL
         import redis as _redis
         import json, dataclasses
+
+        if _is_sleep_time():
+            return {"skipped": "sleep_mode"}
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw = r.get("props:prizepicks")

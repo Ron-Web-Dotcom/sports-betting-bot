@@ -6,8 +6,19 @@ from src.engines.odds_engine import run_full_odds_scan, get_latest_snapshots_by_
 logger = logging.getLogger(__name__)
 
 
+def _is_sleep_time() -> bool:
+    """True when Eastern time is between 3 AM and 5 AM (sleep window)."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 3 <= et.hour < 5
+
+
 @app.task(bind=True, max_retries=3, default_retry_delay=30)
 def scan_and_save_odds(self):
+    if _is_sleep_time():
+        logger.debug("scan_and_save_odds: sleep window active, skipping")
+        return {"skipped": "sleep_mode"}
     try:
         snapshots = run_full_odds_scan()
         logger.info("Odds scan complete: %d events", len(snapshots))
@@ -125,7 +136,7 @@ def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> lis
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scan_player_props(self):
     """
-    Scan betting apps for live odds, props, and markets every 10 min 24/7.
+    Scan betting apps for live odds, props, and markets every 10 min.
 
     Sources:
       PrizePicks  — player Over/Under props (public, no key)
@@ -135,6 +146,9 @@ def scan_player_props(self):
 
     Results cached in Redis (TTL 15 min) for picks_worker to read.
     """
+    if _is_sleep_time():
+        logger.debug("scan_player_props: sleep window active, skipping")
+        return {"skipped": "sleep_mode"}
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
