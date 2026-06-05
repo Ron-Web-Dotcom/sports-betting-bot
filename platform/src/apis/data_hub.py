@@ -58,9 +58,13 @@ def build_game_context(
         "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
         # SportsData.io — checks for its own API key, returns {} if unconfigured
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
-        # Player prop lines from PrizePicks and Underdog (public, no key needed)
+        # Player prop lines — PrizePicks and Underdog (public, no key needed)
         "prizepicks_props":    (_fetch_prizepicks_props,  (sport_key, home_team, away_team)),
         "underdog_props":      (_fetch_underdog_props,    (sport_key, home_team, away_team)),
+        # Exchange / prediction markets
+        "novig_odds":          (_fetch_novig_odds,        (sport_key, home_team, away_team)),
+        "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
+        "betr_odds":           (_fetch_betr_odds,         (sport_key, home_team, away_team)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -223,6 +227,32 @@ def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     result = enrich_game_context(sport_key, home_team, away_team)
     return result if result.get("available") else {}
 
+def _fetch_novig_odds(sport_key: str, home_team: str, away_team: str) -> list:
+    from src.apis.novig import get_markets
+    markets = get_markets(sport_key)
+    h, a = home_team.lower(), away_team.lower()
+    filtered = [
+        m for m in markets
+        if h in (m.get("event") or "").lower()
+        or a in (m.get("event") or "").lower()
+    ]
+    return filtered or markets
+
+def _fetch_kalshi_markets(sport_key: str) -> list:
+    from src.apis.kalshi import get_markets
+    return get_markets(sport_key, limit=50)
+
+def _fetch_betr_odds(sport_key: str, home_team: str, away_team: str) -> list:
+    from src.apis.betr import get_events
+    events = get_events(sport_key)
+    h, a = home_team.lower(), away_team.lower()
+    filtered = [
+        e for e in events
+        if h in (e.get("home_team") or "").lower()
+        or a in (e.get("away_team") or "").lower()
+    ]
+    return filtered or events
+
 def _fetch_prizepicks_props(sport_key: str, home_team: str, away_team: str) -> list:
     from src.apis.prizepicks import get_projections
     props = get_projections(sport_key)
@@ -285,10 +315,13 @@ def _score_completeness(context: dict) -> float:
         bool(context.get("news_espn")),
         bool(context.get("sofascore")),
     ]
-    # Bonus sources
+    # Bonus sources (each adds depth without penalising missing keys)
     bonus = 0.0
-    if context.get("sportsdataio"):    bonus += 0.10  # standings + injuries + team stats
-    if context.get("prizepicks_props"): bonus += 0.05  # live player prop lines
-    if context.get("underdog_props"):   bonus += 0.05  # additional prop lines
+    if context.get("sportsdataio"):     bonus += 0.10  # standings + injuries + team stats
+    if context.get("prizepicks_props"): bonus += 0.04  # PrizePicks prop lines
+    if context.get("underdog_props"):   bonus += 0.03  # Underdog prop lines
+    if context.get("novig_odds"):       bonus += 0.04  # no-vig sharp exchange odds
+    if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
+    if context.get("betr_odds"):        bonus += 0.02  # Betr micro-betting lines
     core_score = sum(core) / len(core)
     return min(1.0, round(core_score + bonus, 4))

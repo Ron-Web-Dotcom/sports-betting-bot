@@ -75,32 +75,60 @@ def scan_and_save_odds(self):
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scan_player_props(self):
     """
-    Scan PrizePicks and Underdog for all active player prop lines across
-    every sport. Runs every 10 minutes 24/7 to catch line moves and new props.
-    Results are stored in Redis for the pick engine to consume.
+    Scan all 5 betting apps for live odds, props, and markets every 10 min 24/7.
+
+    Sources:
+      PrizePicks  — player Over/Under props (public, no key)
+      Underdog    — player Over/Under props (public, no key)
+      HardRock    — ML/spread/totals via Odds API (already in scan_and_save_odds)
+      Novig       — no-vig exchange odds (NOVIG_API_KEY required)
+      Kalshi      — prediction market contracts (KALSHI_API_KEY_ID required)
+      Betr        — micro-betting / parlay lines (public, no key)
+
+    Results cached in Redis (TTL 15 min) for picks_worker to read.
     """
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
+        from src.apis.novig import get_all_markets as novig_markets
+        from src.apis.kalshi import get_sports_markets as kalshi_markets
+        from src.apis.betr import get_all_events as betr_events
         from src.core.config import REDIS_URL
         import redis as _redis
         import json
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        pp_props  = get_all_projections()
-        ud_props  = get_all_lines()
-        all_props = pp_props + ud_props
+        results: dict = {}
+        tasks = {
+            "prizepicks": get_all_projections,
+            "underdog":   get_all_lines,
+            "novig":      novig_markets,
+            "kalshi":     kalshi_markets,
+            "betr":       betr_events,
+        }
 
-        # Cache in Redis so picks_worker can read without re-fetching
-        r = _redis.from_url(REDIS_URL, decode_responses=True)
-        r.setex("props:prizepicks", 900, json.dumps(pp_props))   # TTL 15 min
-        r.setex("props:underdog",   900, json.dumps(ud_props))
-        r.setex("props:all",        900, json.dumps(all_props))
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = {pool.submit(fn): name for name, fn in tasks.items()}
+            for future in as_completed(futures, timeout=30):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    logger.warning("Props scan [%s] failed: %s", name, e)
+                    results[name] = []
 
-        logger.info(
-            "Props scan: %d PrizePicks + %d Underdog = %d total",
-            len(pp_props), len(ud_props), len(all_props),
-        )
-        return {"prizepicks": len(pp_props), "underdog": len(ud_props)}
+        all_props = []
+        for items in results.values():
+            all_props.extend(items or [])
+
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        for name, items in results.items():
+            r.setex(f"props:{name}", 900, json.dumps(items or []))
+        r.setex("props:all", 900, json.dumps(all_props))
+
+        counts = {k: len(v or []) for k, v in results.items()}
+        logger.info("Props scan complete: %s | total=%d", counts, len(all_props))
+        return {**counts, "total": len(all_props)}
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)

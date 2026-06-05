@@ -239,14 +239,30 @@ class TestActionNetwork:
 
 class TestDataHub:
     def test_build_game_context_structure(self):
-        with patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]), \
-             patch("src.apis.data_hub._fetch_news_espn", return_value=[{"headline": "Y"}]), \
-             patch("src.apis.data_hub._fetch_scoreboard_espn", return_value=[]), \
-             patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead 5-3"}), \
-             patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}), \
-             patch("src.apis.data_hub._fetch_sharp_action", return_value={}), \
-             patch("src.apis.data_hub._fetch_weather", return_value={}), \
-             patch("src.apis.data_hub._fetch_trending", return_value=[]):
+        _ALL = [
+            "src.apis.data_hub._fetch_scoreboard_espn",
+            "src.apis.data_hub._fetch_sharp_action",
+            "src.apis.data_hub._fetch_weather",
+            "src.apis.data_hub._fetch_trending",
+            "src.apis.data_hub._fetch_sofascore_game",
+            "src.apis.data_hub._fetch_sportsdataio",
+            "src.apis.data_hub._fetch_nba_stats",
+            "src.apis.data_hub._fetch_sleeper_injuries",
+            "src.apis.data_hub._fetch_rotowire_injuries",
+            "src.apis.data_hub._fetch_prizepicks_props",
+            "src.apis.data_hub._fetch_underdog_props",
+            "src.apis.data_hub._fetch_novig_odds",
+            "src.apis.data_hub._fetch_kalshi_markets",
+            "src.apis.data_hub._fetch_betr_odds",
+        ]
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            stack.enter_context(patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]))
+            stack.enter_context(patch("src.apis.data_hub._fetch_news_espn", return_value=[{"headline": "Y"}]))
+            stack.enter_context(patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead 5-3"}))
+            stack.enter_context(patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}))
+            for p in _ALL:
+                stack.enter_context(patch(p, return_value=[]))
             from src.apis.data_hub import build_game_context
             ctx = build_game_context("basketball_nba", "Lakers", "Celtics", "2024-01-15T20:00:00Z")
 

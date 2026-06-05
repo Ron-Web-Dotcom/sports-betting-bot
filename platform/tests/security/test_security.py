@@ -3,6 +3,7 @@ Security tests — input validation, injection resistance, boundary enforcement.
 All tests are fully mocked — no real DB, network, or Discord calls.
 """
 import pytest
+from contextlib import ExitStack
 from unittest.mock import patch, MagicMock
 from src.engines.ev_engine import american_to_decimal, compute_ev, assign_units, evaluate
 
@@ -123,17 +124,33 @@ def test_bankroll_examples_unit_size_zero_no_crash():
         assert v["stake"] == 0.0
 
 
+_ALL_HUB_FETCHERS = [
+    "src.apis.data_hub._fetch_injuries_espn",
+    "src.apis.data_hub._fetch_news_espn",
+    "src.apis.data_hub._fetch_scoreboard_espn",
+    "src.apis.data_hub._fetch_h2h_statmuse",
+    "src.apis.data_hub._fetch_team_form",
+    "src.apis.data_hub._fetch_sharp_action",
+    "src.apis.data_hub._fetch_weather",
+    "src.apis.data_hub._fetch_trending",
+    "src.apis.data_hub._fetch_sofascore_game",
+    "src.apis.data_hub._fetch_sportsdataio",
+    "src.apis.data_hub._fetch_nba_stats",
+    "src.apis.data_hub._fetch_sleeper_injuries",
+    "src.apis.data_hub._fetch_rotowire_injuries",
+    "src.apis.data_hub._fetch_prizepicks_props",
+    "src.apis.data_hub._fetch_underdog_props",
+    "src.apis.data_hub._fetch_novig_odds",
+    "src.apis.data_hub._fetch_kalshi_markets",
+    "src.apis.data_hub._fetch_betr_odds",
+]
+
 # ── Data hub: all sources fail → graceful degradation ─────────────────────────
 
 def test_data_hub_all_sources_fail_returns_minimal_context():
-    with patch("src.apis.data_hub._fetch_injuries_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_news_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_scoreboard_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_h2h_statmuse", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_team_form", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_sharp_action", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_weather", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_trending", side_effect=Exception("timeout")):
+    with ExitStack() as stack:
+        for p in _ALL_HUB_FETCHERS:
+            stack.enter_context(patch(p, side_effect=Exception("timeout")))
         from src.apis.data_hub import build_game_context
         ctx = build_game_context("basketball_nba", "Lakers", "Celtics", "2024-01-15T20:00:00Z")
 
@@ -144,14 +161,18 @@ def test_data_hub_all_sources_fail_returns_minimal_context():
 
 
 def test_data_hub_partial_failure_uses_available_sources():
-    with patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]), \
-         patch("src.apis.data_hub._fetch_news_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_scoreboard_espn", return_value=[]), \
-         patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead"}), \
-         patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}), \
-         patch("src.apis.data_hub._fetch_sharp_action", return_value={}), \
-         patch("src.apis.data_hub._fetch_weather", return_value={}), \
-         patch("src.apis.data_hub._fetch_trending", return_value=[]):
+    overrides = {
+        "src.apis.data_hub._fetch_injuries_espn": [{"player": "X"}],
+        "src.apis.data_hub._fetch_news_espn":     Exception("timeout"),
+        "src.apis.data_hub._fetch_h2h_statmuse":  {"summary": "Lakers lead"},
+    }
+    with ExitStack() as stack:
+        for p in _ALL_HUB_FETCHERS:
+            val = overrides.get(p, [])
+            if isinstance(val, Exception):
+                stack.enter_context(patch(p, side_effect=val))
+            else:
+                stack.enter_context(patch(p, return_value=val))
         from src.apis.data_hub import build_game_context
         ctx = build_game_context("basketball_nba", "Lakers", "Celtics", "2024-01-15T20:00:00Z")
 

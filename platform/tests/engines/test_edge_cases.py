@@ -2,6 +2,7 @@
 Edge case tests: missing odds, invalid odds, canceled games, API failures, duplicates.
 """
 import pytest
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 from src.engines.ev_engine import evaluate, american_to_decimal, compute_ev
 from src.engines.pick_gate import check as gate_check
@@ -76,16 +77,34 @@ def test_pnl_for_void_result():
 
 # ── API downtime simulation ───────────────────────────────────────────────────
 
+_ALL_FETCHER_PATCHES = [
+    "src.apis.data_hub._fetch_injuries_espn",
+    "src.apis.data_hub._fetch_news_espn",
+    "src.apis.data_hub._fetch_scoreboard_espn",
+    "src.apis.data_hub._fetch_h2h_statmuse",
+    "src.apis.data_hub._fetch_team_form",
+    "src.apis.data_hub._fetch_sharp_action",
+    "src.apis.data_hub._fetch_weather",
+    "src.apis.data_hub._fetch_trending",
+    "src.apis.data_hub._fetch_sofascore_game",
+    "src.apis.data_hub._fetch_sportsdataio",
+    "src.apis.data_hub._fetch_nba_stats",
+    "src.apis.data_hub._fetch_sleeper_injuries",
+    "src.apis.data_hub._fetch_rotowire_injuries",
+    "src.apis.data_hub._fetch_prizepicks_props",
+    "src.apis.data_hub._fetch_underdog_props",
+    "src.apis.data_hub._fetch_novig_odds",
+    "src.apis.data_hub._fetch_kalshi_markets",
+    "src.apis.data_hub._fetch_betr_odds",
+]
+
+
 def test_data_hub_all_sources_fail_returns_empty_context():
     """build_game_context should return partial/empty dict when all sources fail."""
-    with patch("src.apis.data_hub._fetch_injuries_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_news_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_scoreboard_espn", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_h2h_statmuse", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_team_form", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_sharp_action", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_weather", side_effect=Exception("timeout")), \
-         patch("src.apis.data_hub._fetch_trending", side_effect=Exception("timeout")):
+    patches = {p: patch(p, side_effect=Exception("timeout")) for p in _ALL_FETCHER_PATCHES}
+    with ExitStack() as stack:
+        for p in patches.values():
+            stack.enter_context(p)
         from src.apis.data_hub import build_game_context
         result = build_game_context("basketball_nba", "Lakers", "Celtics", "2026-06-02T19:00:00Z")
         assert isinstance(result, dict)
@@ -93,14 +112,13 @@ def test_data_hub_all_sources_fail_returns_empty_context():
 
 def test_data_hub_partial_source_failure_continues():
     """Even if one source fails, context building should continue with others."""
-    with patch("src.apis.data_hub._fetch_news_espn", side_effect=Exception("ESPN down")), \
-         patch("src.apis.data_hub._fetch_injuries_espn", return_value=[]), \
-         patch("src.apis.data_hub._fetch_scoreboard_espn", return_value=[]), \
-         patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={}), \
-         patch("src.apis.data_hub._fetch_team_form", return_value={}), \
-         patch("src.apis.data_hub._fetch_sharp_action", return_value={}), \
-         patch("src.apis.data_hub._fetch_weather", return_value={}), \
-         patch("src.apis.data_hub._fetch_trending", return_value=[]):
+    overrides = {
+        "src.apis.data_hub._fetch_news_espn": patch("src.apis.data_hub._fetch_news_espn", side_effect=Exception("ESPN down")),
+    }
+    defaults = {p: patch(p, return_value=[]) for p in _ALL_FETCHER_PATCHES if p not in overrides}
+    with ExitStack() as stack:
+        for p in {**defaults, **overrides}.values():
+            stack.enter_context(p)
         from src.apis.data_hub import build_game_context
         result = build_game_context("basketball_nba", "Lakers", "Celtics", "2026-06-02T19:00:00Z")
         assert isinstance(result, dict)
