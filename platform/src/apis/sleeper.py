@@ -94,9 +94,9 @@ def get_projections(sport_key: str, season: int | None = None, week: int | None 
     if sport == "nfl":
         params["position[]"] = ["QB", "RB", "WR", "TE", "K"]
 
-    raw: dict = get_json(url, params=params) or {}
-    if not raw:
-        logger.warning("Sleeper projections: empty response for %s wk%s", sport_key, week)
+    raw = get_json(url, params=params)
+    # Response must be a dict of {player_id: projection} — skip if list or empty
+    if not raw or not isinstance(raw, dict):
         return []
 
     # Fetch player roster once to resolve names + teams
