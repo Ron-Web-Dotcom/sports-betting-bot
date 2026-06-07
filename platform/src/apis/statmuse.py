@@ -7,8 +7,23 @@ StatMuse (statmuse.com) provides natural-language stat lookups for:
   - Head-to-head matchup history
   - Prop-relevant lines (last N games averages)
 
-No public API — we query their search endpoint and parse structured
-JSON embedded in the HTML response (they use Next.js __NEXT_DATA__).
+No public API — we use their /ask natural-language endpoint and parse
+structured JSON embedded in the HTML response (Next.js __NEXT_DATA__).
+
+IMPORTANT: Direct player URLs require a numeric ID suffix (e.g. /nba/player/lebron-james-1234)
+which we don't have at query time. All lookups go through /ask instead.
+
+Confirmed sport prefixes (statmuse.com):
+  nba   — NBA basketball
+  nfl   — NFL football
+  mlb   — MLB baseball
+  nhl   — NHL hockey
+  fc    — ALL soccer (EPL, MLS, La Liga, Bundesliga, World Cup, etc.)
+  wnba  — WNBA
+  cfb   — College football (NCAAF)
+  pga   — PGA Tour golf
+
+NOT covered by StatMuse: MMA/UFC, Tennis, NASCAR, Boxing, NCAAB, Esports
 """
 import json
 import logging
@@ -19,20 +34,37 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://www.statmuse.com"
 
-# StatMuse sport path prefixes
+# Confirmed sport prefixes — research verified June 2026
 _SPORT_PREFIX = {
     "basketball_nba":                 "nba",
-    "basketball_ncaab":               "nba",   # StatMuse uses nba prefix for college too
+    "basketball_ncaab":               "nba",    # NCAAB uses nba ask endpoint
     "americanfootball_nfl":           "nfl",
-    "americanfootball_ncaaf":         "nfl",
+    "americanfootball_ncaaf":         "cfb",    # College football has own prefix
     "baseball_mlb":                   "mlb",
     "icehockey_nhl":                  "nhl",
     "soccer_epl":                     "fc",
     "soccer_usa_mls":                 "fc",
     "soccer_fifa_world_cup":          "fc",
-    "mma_mixed_martial_arts":         "nfl",   # no MMA prefix — fallback to query()
-    "golf_masters_tournament_winner": "nfl",   # no golf prefix — fallback to query()
-    "tennis_atp_french_open":         "nfl",   # no tennis prefix — fallback to query()
+    "golf_masters_tournament_winner": "pga",
+    "mma_mixed_martial_arts":         None,     # Not covered
+    "tennis_atp_french_open":         None,     # Not covered
+    "boxing_boxing":                  None,     # Not covered
+    "motorsport_formula_1":           None,     # Not covered
+    "esports_lol":                    None,     # Not covered
+}
+
+# Human-readable sport label for query construction
+_SPORT_LABEL = {
+    "basketball_nba":                 "NBA",
+    "basketball_ncaab":               "college basketball",
+    "americanfootball_nfl":           "NFL",
+    "americanfootball_ncaaf":         "college football",
+    "baseball_mlb":                   "MLB",
+    "icehockey_nhl":                  "NHL",
+    "soccer_epl":                     "soccer",
+    "soccer_usa_mls":                 "MLS soccer",
+    "soccer_fifa_world_cup":          "World Cup soccer",
+    "golf_masters_tournament_winner": "PGA golf",
 }
 
 
@@ -50,14 +82,13 @@ def _extract_next_data(html: str) -> dict:
 def _parse_stat_table(next_data: dict) -> list[dict]:
     """Extract rows from a StatMuse stat table response."""
     try:
-        rows = (
+        return (
             next_data
             .get("props", {})
             .get("pageProps", {})
             .get("data", {})
             .get("players", [])
         )
-        return rows
     except (AttributeError, KeyError):
         return []
 
@@ -77,181 +108,139 @@ def _parse_visual_summary(next_data: dict) -> str:
         return ""
 
 
-# ── Player queries ─────────────────────────────────────────────────────────────
-
-def player_season_stats(player_name: str, sport_key: str, season: str = "") -> dict:
+def _ask(question: str, prefix: str) -> dict:
     """
-    Fetch a player's season averages from StatMuse.
-    Example: player_season_stats("LeBron James", "basketball_nba", "2023-24")
+    Core query function — sends natural language question to StatMuse /ask.
+    Returns {summary, rows, source}.
     """
-    prefix = _SPORT_PREFIX.get(sport_key, "nba")
-    slug   = player_name.lower().replace(" ", "-")
-    season_suffix = f"/{season}" if season else ""
-    url    = f"{_BASE}/{prefix}/player/{slug}/stats{season_suffix}"
-
-    html = get_html(url)
+    url = f"{_BASE}/{prefix}/ask"
+    # StatMuse /ask uses ?q= with + as space separator
+    params = {"q": question.replace(" ", "+")}
+    html = get_html(url, params=params)
     if not html:
-        return query(f"{player_name} stats this season", sport_key)
+        logger.warning("StatMuse ask failed: %s/%s q=%s", prefix, "ask", question)
+        return {"summary": "", "rows": [], "source": "statmuse"}
 
     next_data = _extract_next_data(html)
-    rows      = _parse_stat_table(next_data)
-    summary   = _parse_visual_summary(next_data)
+    return {
+        "summary": _parse_visual_summary(next_data),
+        "rows":    _parse_stat_table(next_data),
+        "source":  "statmuse",
+    }
 
-    if not rows and not summary:
-        return query(f"{player_name} stats this season", sport_key)
 
+# ── Public functions ───────────────────────────────────────────────────────────
+
+def player_last_n_games(player_name: str, sport_key: str, n: int = 5) -> dict:
+    """
+    Fetch a player's stats over their last N games via natural-language query.
+    Works for all StatMuse-covered sports across all seasons.
+    """
+    prefix = _SPORT_PREFIX.get(sport_key)
+    if not prefix:
+        logger.debug("StatMuse: sport %s not covered", sport_key)
+        return {"player": player_name, "games": [], "summary": "", "source": "statmuse"}
+
+    result = _ask(f"{player_name} last {n} games", prefix)
+    return {
+        "player":  player_name,
+        "sport":   sport_key,
+        "n_games": n,
+        "summary": result["summary"],
+        "games":   result["rows"][:n],
+        "source":  "statmuse",
+    }
+
+
+def player_season_stats(player_name: str, sport_key: str, season: str = "") -> dict:
+    """Fetch a player's season averages via natural-language query."""
+    prefix = _SPORT_PREFIX.get(sport_key)
+    if not prefix:
+        return {"player": player_name, "stats": {}, "summary": "", "source": "statmuse"}
+
+    season_str = f"{season} season" if season else "this season"
+    result = _ask(f"{player_name} stats {season_str}", prefix)
     stats = {}
-    if rows:
-        row = rows[0]
-        for k, v in row.items():
-            if isinstance(v, (int, float, str)):
-                stats[k] = v
+    if result["rows"]:
+        row = result["rows"][0]
+        stats = {k: v for k, v in row.items() if isinstance(v, (int, float, str))}
 
     return {
         "player":  player_name,
         "sport":   sport_key,
-        "summary": summary,
+        "summary": result["summary"],
         "stats":   stats,
         "source":  "statmuse",
     }
 
 
-def player_last_n_games(player_name: str, sport_key: str, n: int = 5) -> dict:
-    """
-    Fetch a player's stats over their last N games.
-    Critical for prop betting — recent form matters more than season average.
-    Falls back to natural-language query if direct URL returns 404.
-    """
-    prefix = _SPORT_PREFIX.get(sport_key, "nba")
-    slug   = player_name.lower().replace(" ", "-")
-    url    = f"{_BASE}/{prefix}/player/{slug}/game-log/last-{n}-games"
-
-    html = get_html(url)
-
-    # Fall back to natural-language query on 404 or empty response
-    if not html:
-        sport_label = sport_key.split("_")[-1].upper()
-        return query(f"{player_name} last {n} games stats", sport_key)
-
-    next_data = _extract_next_data(html)
-    rows      = _parse_stat_table(next_data)
-    summary   = _parse_visual_summary(next_data)
-
-    # If no structured data found, fall back to NL query
-    if not rows and not summary:
-        return query(f"{player_name} last {n} games stats", sport_key)
-
-    return {
-        "player":   player_name,
-        "sport":    sport_key,
-        "n_games":  n,
-        "summary":  summary,
-        "games":    rows[:n],
-        "source":   "statmuse",
-    }
-
-
 def player_vs_team(player_name: str, opponent: str, sport_key: str) -> dict:
     """Player's historical stats against a specific opponent."""
-    prefix = _SPORT_PREFIX.get(sport_key, "nba")
-    player_slug = player_name.lower().replace(" ", "-")
-    team_slug   = opponent.lower().replace(" ", "-")
-    url = f"{_BASE}/{prefix}/player/{player_slug}/stats/vs/{team_slug}"
-
-    html = get_html(url)
-    if not html:
+    prefix = _SPORT_PREFIX.get(sport_key)
+    if not prefix:
         return {"player": player_name, "vs": opponent, "stats": {}, "source": "statmuse"}
 
-    next_data = _extract_next_data(html)
-    summary   = _parse_visual_summary(next_data)
-    rows      = _parse_stat_table(next_data)
-
+    result = _ask(f"{player_name} stats vs {opponent}", prefix)
     return {
         "player":  player_name,
         "vs":      opponent,
         "sport":   sport_key,
-        "summary": summary,
-        "stats":   rows[0] if rows else {},
+        "summary": result["summary"],
+        "stats":   result["rows"][0] if result["rows"] else {},
         "source":  "statmuse",
     }
 
 
-# ── Team queries ───────────────────────────────────────────────────────────────
-
 def team_season_stats(team_name: str, sport_key: str, season: str = "") -> dict:
-    """Team's season stats including offensive/defensive ratings."""
-    prefix = _SPORT_PREFIX.get(sport_key, "nba")
-    slug   = team_name.lower().replace(" ", "-")
-    season_suffix = f"/{season}" if season else ""
-    url    = f"{_BASE}/{prefix}/team/{slug}/stats{season_suffix}"
+    """Team's season stats."""
+    prefix = _SPORT_PREFIX.get(sport_key)
+    if not prefix:
+        return {"team": team_name, "stats": {}, "source": "statmuse"}
 
-    html = get_html(url)
-    if not html:
-        return {"team": team_name, "sport": sport_key, "stats": {}, "source": "statmuse"}
-
-    next_data = _extract_next_data(html)
-    summary   = _parse_visual_summary(next_data)
-    rows      = _parse_stat_table(next_data)
-
+    season_str = f"{season} season" if season else "this season"
+    result = _ask(f"{team_name} stats {season_str}", prefix)
     return {
         "team":    team_name,
         "sport":   sport_key,
-        "summary": summary,
-        "stats":   rows[0] if rows else {},
+        "summary": result["summary"],
+        "stats":   result["rows"][0] if result["rows"] else {},
         "source":  "statmuse",
     }
 
 
 def team_last_n_games(team_name: str, sport_key: str, n: int = 5) -> dict:
-    """Team's recent form — W/L, scores, trends."""
-    prefix = _SPORT_PREFIX.get(sport_key, "nba")
-    slug   = team_name.lower().replace(" ", "-")
-    url    = f"{_BASE}/{prefix}/team/{slug}/game-log/last-{n}-games"
-
-    html = get_html(url)
-    if not html:
+    """Team's recent form."""
+    prefix = _SPORT_PREFIX.get(sport_key)
+    if not prefix:
         return {"team": team_name, "games": [], "source": "statmuse"}
 
-    next_data = _extract_next_data(html)
-    summary   = _parse_visual_summary(next_data)
-    rows      = _parse_stat_table(next_data)
-
+    result = _ask(f"{team_name} last {n} games", prefix)
     return {
         "team":    team_name,
         "sport":   sport_key,
         "n_games": n,
-        "summary": summary,
-        "games":   rows[:n],
+        "summary": result["summary"],
+        "games":   result["rows"][:n],
         "source":  "statmuse",
     }
 
 
 def head_to_head(home_team: str, away_team: str, sport_key: str) -> dict:
     """Historical head-to-head record between two teams."""
-    prefix     = _SPORT_PREFIX.get(sport_key, "nba")
-    home_slug  = home_team.lower().replace(" ", "-")
-    away_slug  = away_team.lower().replace(" ", "-")
-    url        = f"{_BASE}/{prefix}/team/{home_slug}/history/vs/{away_slug}"
-
-    html = get_html(url)
-    if not html:
+    prefix = _SPORT_PREFIX.get(sport_key)
+    if not prefix:
         return {"home": home_team, "away": away_team, "h2h": {}, "source": "statmuse"}
 
-    next_data = _extract_next_data(html)
-    summary   = _parse_visual_summary(next_data)
-    rows      = _parse_stat_table(next_data)
-
+    result = _ask(f"{home_team} vs {away_team} history", prefix)
     return {
         "home":    home_team,
         "away":    away_team,
         "sport":   sport_key,
-        "summary": summary,
-        "games":   rows[:10],
+        "summary": result["summary"],
+        "games":   result["rows"][:10],
         "source":  "statmuse",
     }
 
-
-# ── Natural-language query (versatile fallback) ────────────────────────────────
 
 def query(question: str, sport_key: str = "basketball_nba") -> dict:
     """
@@ -260,22 +249,16 @@ def query(question: str, sport_key: str = "basketball_nba") -> dict:
       "LeBron James points per game last 10 games"
       "Chiefs record against the spread 2024"
       "Yankees ERA at home this season"
+      "Messi goals in World Cup 2022"
     """
     prefix = _SPORT_PREFIX.get(sport_key, "nba")
-    params = {"q": question}
-    url    = f"{_BASE}/{prefix}/ask"
-
-    html = get_html(url, params=params)
-    if not html:
+    if not prefix:
         return {"query": question, "summary": "", "data": [], "source": "statmuse"}
 
-    next_data = _extract_next_data(html)
-    summary   = _parse_visual_summary(next_data)
-    rows      = _parse_stat_table(next_data)
-
+    result = _ask(question, prefix)
     return {
         "query":   question,
-        "summary": summary,
-        "data":    rows[:5],
+        "summary": result["summary"],
+        "data":    result["rows"][:5],
         "source":  "statmuse",
     }
