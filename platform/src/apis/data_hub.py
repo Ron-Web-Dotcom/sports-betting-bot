@@ -49,9 +49,7 @@ def build_game_context(
         "injuries_espn_home":  (_fetch_injuries_espn,   (sport_key,)),
         "news_espn":           (_fetch_news_espn,        (sport_key,)),
         "scoreboard":          (_fetch_scoreboard_espn,  (sport_key,)),
-        "h2h_statmuse":        (_fetch_h2h_statmuse,     (home_team, away_team, sport_key)),
-        "home_form_statmuse":  (_fetch_team_form,        (home_team, sport_key)),
-        "away_form_statmuse":  (_fetch_team_form,        (away_team, sport_key)),
+        # StatMuse disabled — VPS datacenter IPs return 403; OpenAI has built-in player knowledge
         "sharp_action":        (_fetch_sharp_action,     (sport_key, home_team, away_team)),
         "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
         "trending_players":    (_fetch_trending,          (sport_key,)),
@@ -169,13 +167,6 @@ def _fetch_scoreboard_espn(sport_key: str) -> list:
     from src.apis.espn import fetch_scoreboard
     return fetch_scoreboard(sport_key)
 
-def _fetch_h2h_statmuse(home: str, away: str, sport_key: str) -> dict:
-    from src.apis.statmuse import head_to_head
-    return head_to_head(home, away, sport_key)
-
-def _fetch_team_form(team: str, sport_key: str) -> dict:
-    from src.apis.statmuse import team_last_n_games
-    return team_last_n_games(team, sport_key, n=5)
 
 def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
     from src.apis.action_network import get_consensus, detect_sharp_action
@@ -254,17 +245,6 @@ def _fetch_underdog_props(sport_key: str, home_team: str, away_team: str) -> lis
         or a in (p.get("opponent") or "").lower()
     ] or props
 
-def _fetch_player_season(name: str, sport_key: str) -> dict:
-    from src.apis.statmuse import player_season_stats
-    return player_season_stats(name, sport_key)
-
-def _fetch_player_recent(name: str, sport_key: str, n: int) -> dict:
-    from src.apis.statmuse import player_last_n_games
-    return player_last_n_games(name, sport_key, n)
-
-def _fetch_player_vs_team(name: str, opponent: str, sport_key: str) -> dict:
-    from src.apis.statmuse import player_vs_team
-    return player_vs_team(name, opponent, sport_key)
 
 def _fetch_bdl_game_log(name: str) -> list:
     from src.apis.balldontlie import search_player, player_game_log
@@ -284,9 +264,6 @@ def _score_completeness(context: dict) -> float:
     """
     core = [
         bool(context.get("injuries_espn_home")),
-        bool(context.get("h2h_statmuse")),
-        bool(context.get("home_form_statmuse")),
-        bool(context.get("away_form_statmuse")),
         bool(context.get("sharp_action")),
         bool(context.get("news_espn")),
         bool(context.get("sofascore")),

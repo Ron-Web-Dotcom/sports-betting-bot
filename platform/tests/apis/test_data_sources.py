@@ -257,8 +257,6 @@ class TestDataHub:
         with ExitStack() as stack:
             stack.enter_context(patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]))
             stack.enter_context(patch("src.apis.data_hub._fetch_news_espn", return_value=[{"headline": "Y"}]))
-            stack.enter_context(patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead 5-3"}))
-            stack.enter_context(patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}))
             for p in _ALL:
                 stack.enter_context(patch(p, return_value=[]))
             from src.apis.data_hub import build_game_context
@@ -274,9 +272,6 @@ class TestDataHub:
         from src.apis.data_hub import _score_completeness
         context = {
             "injuries_espn_home": [{"player": "X"}],
-            "h2h_statmuse":       {"summary": "Y"},
-            "home_form_statmuse": {"games": []},
-            "away_form_statmuse": {"games": []},
             "sharp_action":       {"signals": []},
             "news_espn":          [{"headline": "Z"}],
             "sofascore":          {"available": True, "form": {"home": "WWW"}},

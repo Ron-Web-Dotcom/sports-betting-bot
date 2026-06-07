@@ -81,8 +81,6 @@ _ALL_FETCHER_PATCHES = [
     "src.apis.data_hub._fetch_injuries_espn",
     "src.apis.data_hub._fetch_news_espn",
     "src.apis.data_hub._fetch_scoreboard_espn",
-    "src.apis.data_hub._fetch_h2h_statmuse",
-    "src.apis.data_hub._fetch_team_form",
     "src.apis.data_hub._fetch_sharp_action",
     "src.apis.data_hub._fetch_weather",
     "src.apis.data_hub._fetch_trending",

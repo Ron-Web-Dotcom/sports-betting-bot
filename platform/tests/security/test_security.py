@@ -128,8 +128,6 @@ _ALL_HUB_FETCHERS = [
     "src.apis.data_hub._fetch_injuries_espn",
     "src.apis.data_hub._fetch_news_espn",
     "src.apis.data_hub._fetch_scoreboard_espn",
-    "src.apis.data_hub._fetch_h2h_statmuse",
-    "src.apis.data_hub._fetch_team_form",
     "src.apis.data_hub._fetch_sharp_action",
     "src.apis.data_hub._fetch_weather",
     "src.apis.data_hub._fetch_trending",
@@ -162,7 +160,6 @@ def test_data_hub_partial_failure_uses_available_sources():
     overrides = {
         "src.apis.data_hub._fetch_injuries_espn": [{"player": "X"}],
         "src.apis.data_hub._fetch_news_espn":     Exception("timeout"),
-        "src.apis.data_hub._fetch_h2h_statmuse":  {"summary": "Lakers lead"},
     }
     with ExitStack() as stack:
         for p in _ALL_HUB_FETCHERS:
