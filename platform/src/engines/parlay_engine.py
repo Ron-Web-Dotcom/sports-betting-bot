@@ -7,7 +7,7 @@ Builds standard parlays, SGPs, and round robins.
 """
 import logging
 from dataclasses import dataclass, field
-from itertools import combinations, permutations
+from itertools import combinations
 from src.engines.ev_engine import american_to_decimal, compute_ev
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,8 @@ class ParlayResult:
     @property
     def american_odds(self) -> int:
         dec = self.combined_decimal
+        if dec <= 1.0:
+            return -10000
         return int((dec-1)*100) if dec >= 2 else int(-100/(dec-1))
 
 

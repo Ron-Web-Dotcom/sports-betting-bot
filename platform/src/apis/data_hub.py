@@ -2,7 +2,12 @@
 Data Hub — single interface for all real-world data sources.
 
 Aggregates ESPN, StatMuse, Ball Don't Lie, Sleeper, Weather, Action Network,
-and RotoWire into one normalized context payload per game.
+RotoWire, SofaScore, SportsData.io, PrizePicks, and Underdog Fantasy into one
+normalized context payload.
+
+Free sources: ESPN, StatMuse, SofaScore, Action Network, Sleeper, RotoWire,
+              Ball Don't Lie, PrizePicks (public), Underdog (public)
+Premium (key required): SportsData.io (single universal key)
 
 This payload is what gets fed to the AI engine and pick gate.
 Richer context = better explanations = more trustworthy recommendations.
@@ -50,6 +55,14 @@ def build_game_context(
         "sharp_action":        (_fetch_sharp_action,     (sport_key, home_team, away_team)),
         "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
         "trending_players":    (_fetch_trending,          (sport_key,)),
+        "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
+        # SportsData.io — checks for its own API key, returns {} if unconfigured
+        "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
+        # Player prop lines — PrizePicks and Underdog (public, no key needed)
+        "prizepicks_props":    (_fetch_prizepicks_props,  (sport_key, home_team, away_team)),
+        "underdog_props":      (_fetch_underdog_props,    (sport_key, home_team, away_team)),
+        # Exchange / prediction markets
+        "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -62,18 +75,26 @@ def build_game_context(
         tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
     # Run all fetches in parallel with a 30s wall-clock budget
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=10) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
-        for future in as_completed(futures, timeout=30):
-            key = futures[future]
-            try:
-                result = future.result()
-                if result:
-                    context[key] = result
-                    context["sources_used"].append(key.split("_")[0])
-            except Exception as e:
-                logger.warning("Data hub fetch failed [%s]: %s", key, e)
-                context["sources_failed"].append(key)
+        try:
+            for future in as_completed(futures, timeout=30):
+                key = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        context[key] = result
+                        context["sources_used"].append(key.split("_")[0])
+                except Exception as e:
+                    logger.warning("Data hub fetch failed [%s]: %s", key, e)
+                    context["sources_failed"].append(key)
+        except TimeoutError:
+            logger.warning("Data hub timed out after 30s; cancelling remaining fetches")
+            for f in futures:
+                f.cancel()
+            context["sources_failed"].extend(
+                key for f, key in futures.items() if not f.done()
+            )
 
     context["sources_used"] = list(set(context["sources_used"]))
     context["data_completeness"] = _score_completeness(context)
@@ -115,15 +136,20 @@ def build_player_context(
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
-        for future in as_completed(futures, timeout=20):
-            key = futures[future]
-            try:
-                result = future.result()
-                if result:
-                    context[key] = result
-                    context["sources_used"].append(key.split("_")[0])
-            except Exception as e:
-                logger.warning("Player context fetch failed [%s]: %s", key, e)
+        try:
+            for future in as_completed(futures, timeout=20):
+                key = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        context[key] = result
+                        context["sources_used"].append(key.split("_")[0])
+                except Exception as e:
+                    logger.warning("Player context fetch failed [%s]: %s", key, e)
+        except TimeoutError:
+            logger.warning("Player context timed out after 20s; cancelling remaining fetches")
+            for f in futures:
+                f.cancel()
 
     context["sources_used"] = list(set(context["sources_used"]))
     return context
@@ -189,6 +215,45 @@ def _fetch_rotowire_injuries(sport_key: str) -> list:
     from src.apis.rotowire import fetch_injuries
     return fetch_injuries(sport_key)
 
+def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_time: str) -> dict:
+    from src.apis.sofascore import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team, game_time)
+    return result if result.get("available") else {}
+
+def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.sportsdataio import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team)
+    return result if result.get("available") else {}
+
+def _fetch_kalshi_markets(sport_key: str) -> list:
+    from src.apis.kalshi import get_markets
+    return get_markets(sport_key, limit=50)
+
+def _fetch_prizepicks_props(sport_key: str, home_team: str, away_team: str) -> list:
+    from src.apis.prizepicks import get_projections
+    props = get_projections(sport_key)
+    # Filter to players on either team in this game
+    h, a = home_team.lower(), away_team.lower()
+    return [
+        p for p in props
+        if h in (p.get("team") or "").lower()
+        or a in (p.get("team") or "").lower()
+        or h in (p.get("opponent") or "").lower()
+        or a in (p.get("opponent") or "").lower()
+    ] or props  # fallback: return all if no team match (team names may differ)
+
+def _fetch_underdog_props(sport_key: str, home_team: str, away_team: str) -> list:
+    from src.apis.underdog import get_over_under_lines
+    props = get_over_under_lines(sport_key)
+    h, a = home_team.lower(), away_team.lower()
+    return [
+        p for p in props
+        if h in (p.get("team") or "").lower()
+        or a in (p.get("team") or "").lower()
+        or h in (p.get("opponent") or "").lower()
+        or a in (p.get("opponent") or "").lower()
+    ] or props
+
 def _fetch_player_season(name: str, sport_key: str) -> dict:
     from src.apis.statmuse import player_season_stats
     return player_season_stats(name, sport_key)
@@ -208,18 +273,29 @@ def _fetch_bdl_game_log(name: str) -> list:
     if not players:
         return []
     pid = players[0].get("id")
-    season = datetime.utcnow().year if datetime.utcnow().month > 9 else datetime.utcnow().year - 1
     return player_game_log(pid, last_n=10)
 
 
 def _score_completeness(context: dict) -> float:
-    """Score how complete the data context is (0.0–1.0)."""
-    checks = [
+    """Score how complete the data context is (0.0–1.0).
+
+    Core sources (always expected) count double; premium sources (key-gated)
+    count as bonus so missing keys don't tank the score.
+    """
+    core = [
         bool(context.get("injuries_espn_home")),
         bool(context.get("h2h_statmuse")),
         bool(context.get("home_form_statmuse")),
         bool(context.get("away_form_statmuse")),
         bool(context.get("sharp_action")),
         bool(context.get("news_espn")),
+        bool(context.get("sofascore")),
     ]
-    return sum(checks) / len(checks)
+    # Bonus sources (each adds depth without penalising missing keys)
+    bonus = 0.0
+    if context.get("sportsdataio"):     bonus += 0.10  # standings + injuries + team stats
+    if context.get("prizepicks_props"): bonus += 0.04  # PrizePicks prop lines
+    if context.get("underdog_props"):   bonus += 0.03  # Underdog prop lines
+    if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
+    core_score = sum(core) / len(core)
+    return min(1.0, round(core_score + bonus, 4))

@@ -16,12 +16,56 @@ from src.db.models import Game
 logger = logging.getLogger(__name__)
 
 
+def _post_parlay_bundles(pick_dicts: list[dict], pp_task, hr_task) -> None:
+    """
+    Bundle picks into PP (max 6) and HardRock (max 4) parlay cards.
+    PP picks: prop picks (Over/Under)
+    HardRock picks: game picks with american_odds
+    Fires one card per bundle — only if 2+ picks available.
+    """
+    # PP entry: sort by confidence*ev desc, take top 6
+    pp_picks = sorted(pick_dicts, key=lambda p: (p.get("confidence", 0) * p.get("ev_pct", 0)), reverse=True)
+    if len(pp_picks) >= 2:
+        # Post the best 2, 3, 4, 5, 6-leg combos as a single recommended entry
+        n = min(len(pp_picks), 6)
+        pp_task.delay(pp_picks[:n])
+
+    # HardRock: picks that have american_odds (game picks, not props)
+    hr_picks = [p for p in pick_dicts if p.get("american_odds") or p.get("odds")]
+    hr_picks = sorted(hr_picks, key=lambda p: p.get("confidence", 0), reverse=True)
+    if len(hr_picks) >= 2:
+        n = min(len(hr_picks), 4)
+        hr_task.delay(hr_picks[:n])
+
+
+def _is_sleep_time() -> bool:
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 3 <= et.hour < 5
+
+
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def generate_picks(self):
+    if _is_sleep_time():
+        return {"skipped": "sleep_mode"}
+    try:
+        # Idempotency guard — prevent duplicate runs within the same 10-min window.
+        # Uses Redis SETNX so only the first concurrent invocation proceeds.
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        from datetime import datetime
+        _r = _redis.from_url(REDIS_URL, socket_connect_timeout=2, decode_responses=True)
+        _lock_key = f"pick_gen_lock:{datetime.utcnow().strftime('%Y%m%d%H')}"
+        if not _r.set(_lock_key, "1", nx=True, ex=650):
+            logger.info("generate_picks: another instance already running, skipping")
+            return {"skipped": True}
+    except Exception as _lock_exc:
+        logger.warning("Redis lock unavailable (%s) — proceeding without idempotency guard", _lock_exc)
+
     try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
         from src.engines.news_engine import get_recent_injuries
-        from src.engines.ev_engine import compute_ev, assign_units, EVResult
         from src.engines.confidence_engine import compute_confidence
         from src.engines.risk_engine import assess
         from src.engines.comparison_engine import compare_all_markets
@@ -68,13 +112,23 @@ def generate_picks(self):
 
             ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
             if not ai:
+                logger.warning("AI analysis returned None for game_id=%s — skipping", game_id)
                 continue
 
             from src.engines.ev_engine import american_to_decimal, implied_prob, remove_vig, evaluate
             best_odds = best_snap.get("best_odds", -110)
 
-            # Use the full evaluate() pipeline for a complete EVResult
-            opponent_odds = list(odds_by_book.values())[1] if len(odds_by_book) > 1 else None
+            # Use the full evaluate() pipeline for a complete EVResult.
+            # opponent_odds must be the OTHER side of the market (for vig removal),
+            # not a second book's price for the same selection.
+            # The AI returns the opposing side's implied probability; convert back to american.
+            opp_prob = ai.get("opponent_probability")
+            if opp_prob is not None and 0 < opp_prob < 1:
+                from src.engines.ev_engine import decimal_to_american
+                opp_decimal = 1.0 / opp_prob
+                opponent_odds = decimal_to_american(opp_decimal)
+            else:
+                opponent_odds = None
             ev_result = evaluate(
                 american_odds   = best_odds,
                 projected_prob  = ai.get("win_probability", 0.5),
@@ -85,7 +139,9 @@ def generate_picks(self):
                 ai_win_prob         = ai.get("win_probability", 0.5),
                 model_consensus     = ai.get("confidence", 0.5),
                 line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
-                news_impact_score   = min(len(game_context.get("news_espn", [])) / 5, 1.0),
+                news_impact_score   = game_context.get("news_impact_score", 0.5),
+                sport               = event["sport_key"],
+                market              = "h2h",
             )
 
             # Adjust confidence down when data is incomplete
@@ -103,12 +159,26 @@ def generate_picks(self):
                 injury_flags     = sum(1 for i in all_injuries if i.get("status") in ("out", "doubtful")),
             )
 
-            comparison = compare_all_markets(snap_list)
+            # compare_all_markets expects {markets: {market: {selection: [book_entries]}}}
+            # Build that structure from the flat snap_list
+            from src.engines.ev_engine import american_to_decimal, implied_prob as _ip  # noqa: F811
+            markets_dict: dict = {}
+            for s in snap_list:
+                mkt, sel, book = s.get("market","h2h"), s.get("selection",""), s.get("book","")
+                odds = s.get("best_odds", -110)
+                markets_dict.setdefault(mkt, {}).setdefault(sel, []).append({
+                    "book": book,
+                    "american_odds": odds,
+                    "decimal_odds": american_to_decimal(odds),
+                    "implied_prob": _ip(odds),
+                })
+            comparison = compare_all_markets({"markets": markets_dict})
 
             pick = build_recommendation(
                 sport=event["sport_key"],
                 game=f"{event['home_team']} vs {event['away_team']}",
                 bet=ai.get("selection", ""),
+                market=ai.get("market", best_snap.get("market", "h2h")),
                 ev_result=ev_result,
                 confidence=confidence,
                 risk=risk,
@@ -125,7 +195,8 @@ def generate_picks(self):
 
             # pick_id is None when the gate blocked the pick — do not alert
             if pick.recommendation == "BET" and pick_id is not None:
-                pick_dict = pick.__dict__.copy()
+                import dataclasses
+                pick_dict = dataclasses.asdict(pick)
                 pick_dict["id"] = pick_id
                 bet_picks.append(pick_dict)
 
@@ -142,6 +213,191 @@ def generate_picks(self):
 
 
 @app.task
+def morning_props_brief():
+    """
+    8 AM Eastern — PP and HardRock lines are now live.
+    Force-fetch fresh props, run AI picks, post a full morning brief:
+      • Today's games
+      • Which props to bet (Over/Under + reasoning)
+      • HardRock parlay suggestions from the Odds API
+    """
+    import json, dataclasses
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from datetime import datetime
+    import zoneinfo
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+    # ── 1. Force-refresh all props (lines just opened) ────────────────────────
+    try:
+        from src.apis.prizepicks import get_all_projections
+        from src.apis.underdog import get_all_lines
+        from src.apis.sleeper import get_all_projections as sleeper_projections
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+        _fetchers = {
+            "prizepicks": get_all_projections,
+            "underdog":   get_all_lines,
+            "sleeper":    sleeper_projections,
+        }
+        _results: dict = {}
+        with ThreadPoolExecutor(max_workers=3) as _pool:
+            _futs = {_pool.submit(fn): name for name, fn in _fetchers.items()}
+            for _fut in _as_completed(_futs, timeout=30):
+                _name = _futs[_fut]
+                try:
+                    _results[_name] = _fut.result()
+                except Exception as _e:
+                    logger.warning("Morning fetch [%s] failed: %s", _name, _e)
+                    _results[_name] = []
+
+        pp_props = _results.get("prizepicks", [])
+        ud_props = _results.get("underdog", [])
+        sl_props = _results.get("sleeper", [])
+        for _name, _items in _results.items():
+            r.setex(f"props:{_name}", 900, json.dumps(_items or []))
+        all_props = pp_props + ud_props + sl_props
+    except Exception as e:
+        logger.warning("Morning props fetch failed: %s", e)
+        all_props = []
+
+    # ── 2. AI picks on fresh props ────────────────────────────────────────────
+    picks = []
+    if all_props:
+        try:
+            from src.engines.prop_engine import score_props
+            picks = score_props(all_props)
+        except Exception as e:
+            logger.warning("Morning prop scoring failed: %s", e)
+
+    # ── 3. HardRock parlay suggestions (top EV combos from Odds API) ──────────
+    parlay_lines: list[str] = []
+    try:
+        from src.engines.odds_engine import get_latest_snapshots_by_game
+        snaps = get_latest_snapshots_by_game()
+        top_games = []
+        for gid, snap_list in list(snaps.items())[:5]:
+            if snap_list:
+                s = snap_list[0]
+                top_games.append(
+                    f"{s.get('away_team','?')} @ {s.get('home_team','?')} "
+                    f"({s.get('sport_key','').split('_')[-1].upper()})"
+                )
+        parlay_lines = top_games
+    except Exception:
+        pass
+
+    # ── 4. Build Discord message ──────────────────────────────────────────────
+    embeds = []
+
+    # Morning overview
+    prop_summary = f"**{len(picks)} prop picks** ready" if picks else "No high-confidence props yet — lines may still be loading"
+    parlay_text  = "\n".join(f"• {g}" for g in parlay_lines) if parlay_lines else "—"
+
+    embeds.append(_embed(
+        title=f"🌅 8 AM Brief — {et.strftime('%A, %B %-d')}",
+        description=(
+            f"Lines are live. Here's your morning betting brief.\n\n"
+            f"📋 {prop_summary}\n"
+            f"🔗 HardRock parlay candidates:\n{parlay_text}"
+        ),
+        color=0x2E7D32,
+        fields=[
+            {"name": "Sources Checked", "value": "PrizePicks · Underdog · HardRock (via Odds API)", "inline": False},
+        ],
+    ))
+
+    # Top prop picks (max 10 in one message)
+    if picks:
+        pick_lines = []
+        for p in picks[:10]:
+            direction = "📈 OVER" if p.direction == "over" else "📉 UNDER"
+            sport = p.sport_key.split("_")[-1].upper()
+            pick_lines.append(
+                f"**{p.subject}** {p.stat} {p.line} → {direction} "
+                f"({sport} | {p.confidence*100:.0f}% conf | +{p.ev_pct*100:.1f}% edge)"
+            )
+        embeds.append(_embed(
+            title="🎯 Today's Prop Picks",
+            description="\n".join(pick_lines),
+            color=0x1565C0,
+            fields=[
+                {"name": "⚠️ Reminder", "value": "These are recommendations only. Bet responsibly.", "inline": False},
+            ],
+        ))
+
+        # Individual pick alerts + parlay bundles
+        from src.workers.alert_worker import (
+            send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
+        )
+        pick_dicts = [dataclasses.asdict(p) for p in picks]
+        send_prop_pick_alerts.delay(pick_dicts)
+        _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
+
+    _run_async(_post({"embeds": embeds}))
+    logger.info("Morning props brief sent: %d picks at 8 AM ET", len(picks))
+    return {"picks": len(picks), "props_fetched": len(all_props)}
+
+
+@app.task(bind=True, max_retries=2, default_retry_delay=60)
+def scan_and_pick_props(self):
+    """
+    Full PrizePicks prop pick cycle — runs every 30 min (skips during sleep).
+
+    1. Pull live props from Redis cache (populated by scan_player_props)
+    2. AI analyses each prop: Over or Under?
+    3. Gate filters low-confidence / low-EV props
+    4. BET props posted to Discord
+    5. Results tracked in PropResult table for learning loop
+    """
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        import json, dataclasses
+
+        if _is_sleep_time():
+            return {"skipped": "sleep_mode"}
+
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = r.get("props:prizepicks")
+        if not raw:
+            logger.info("scan_and_pick_props: no PrizePicks data in cache yet")
+            return {"picks": 0}
+
+        props = json.loads(raw)
+        if not props:
+            return {"picks": 0}
+
+        # Only analyse props with a game coming up (status not empty / not already started)
+        props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
+
+        from src.engines.prop_engine import score_props
+        picks = score_props(props)
+
+        if picks:
+            pick_dicts = [dataclasses.asdict(p) for p in picks]
+            from src.workers.alert_worker import (
+                send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
+            )
+            # Individual pick alerts
+            send_prop_pick_alerts.delay(pick_dicts)
+
+            # PP parlay — best 2 to 6 picks bundled
+            _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
+            logger.info("Prop picks: %d picks, parlays posted", len(picks))
+
+        return {"props_analysed": len(props), "picks": len(picks)}
+
+    except Exception as exc:
+        logger.error("scan_and_pick_props failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task
 def generate_parlays():
     """Build and alert top parlay opportunities from today's BET picks."""
     try:
@@ -150,28 +406,42 @@ def generate_parlays():
         from src.db.models import Pick
         from datetime import datetime, timedelta
 
+        # Extract plain values inside session — avoids DetachedInstanceError after close
         with get_db() as db:
-            today_picks = db.query(Pick).filter(
+            rows = db.query(
+                Pick.id, Pick.game_id, Pick.selection, Pick.sport,
+                Pick.market, Pick.best_book, Pick.american_odds_at_gen,
+                Pick.confidence_pct, Pick.ev_pct,
+            ).filter(
                 Pick.generated_at >= datetime.utcnow() - timedelta(hours=12),
                 Pick.recommendation == "BET",
             ).all()
 
-        if len(today_picks) < 2:
+        if len(rows) < 2:
             return {"parlays": 0}
 
-        picks_dicts = [
-            {
-                "id": p.id, "bet": p.selection, "sport": p.sport,
-                "odds": p.american_odds_at_gen, "ev_pct": p.ev_pct,
-                "confidence_pct": p.confidence_pct,
-            }
-            for p in today_picks
+        from src.engines.parlay_engine import ParlayLeg
+        parlay_legs = [
+            ParlayLeg(
+                event_id       = str(game_id or pid),
+                event_name     = selection or "",
+                sport          = sport or "",
+                market         = market or "h2h",
+                selection      = selection or "",
+                book           = best_book or "",
+                american_odds  = american_odds or -110,
+                win_probability= (confidence_pct or 50) / 100.0,
+                ev_pct         = ev_pct or 0.0,
+                confidence     = (confidence_pct or 50) / 100.0,
+            )
+            for pid, game_id, selection, sport, market, best_book, american_odds, confidence_pct, ev_pct in rows
         ]
-        parlays = find_best_parlays(picks_dicts, max_legs=4, top_n=3)
+        parlays = find_best_parlays(parlay_legs, max_legs=4, top_n=3)
 
         if parlays:
             from src.workers.alert_worker import send_parlay_alerts
-            send_parlay_alerts.delay([p.__dict__ for p in parlays])
+            import dataclasses
+            send_parlay_alerts.delay([dataclasses.asdict(p) for p in parlays])
 
         return {"parlays": len(parlays)}
 

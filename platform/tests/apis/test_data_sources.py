@@ -239,14 +239,28 @@ class TestActionNetwork:
 
 class TestDataHub:
     def test_build_game_context_structure(self):
-        with patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]), \
-             patch("src.apis.data_hub._fetch_news_espn", return_value=[{"headline": "Y"}]), \
-             patch("src.apis.data_hub._fetch_scoreboard_espn", return_value=[]), \
-             patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead 5-3"}), \
-             patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}), \
-             patch("src.apis.data_hub._fetch_sharp_action", return_value={}), \
-             patch("src.apis.data_hub._fetch_weather", return_value={}), \
-             patch("src.apis.data_hub._fetch_trending", return_value=[]):
+        _ALL = [
+            "src.apis.data_hub._fetch_scoreboard_espn",
+            "src.apis.data_hub._fetch_sharp_action",
+            "src.apis.data_hub._fetch_weather",
+            "src.apis.data_hub._fetch_trending",
+            "src.apis.data_hub._fetch_sofascore_game",
+            "src.apis.data_hub._fetch_sportsdataio",
+            "src.apis.data_hub._fetch_nba_stats",
+            "src.apis.data_hub._fetch_sleeper_injuries",
+            "src.apis.data_hub._fetch_rotowire_injuries",
+            "src.apis.data_hub._fetch_prizepicks_props",
+            "src.apis.data_hub._fetch_underdog_props",
+            "src.apis.data_hub._fetch_kalshi_markets",
+        ]
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            stack.enter_context(patch("src.apis.data_hub._fetch_injuries_espn", return_value=[{"player": "X"}]))
+            stack.enter_context(patch("src.apis.data_hub._fetch_news_espn", return_value=[{"headline": "Y"}]))
+            stack.enter_context(patch("src.apis.data_hub._fetch_h2h_statmuse", return_value={"summary": "Lakers lead 5-3"}))
+            stack.enter_context(patch("src.apis.data_hub._fetch_team_form", return_value={"games": []}))
+            for p in _ALL:
+                stack.enter_context(patch(p, return_value=[]))
             from src.apis.data_hub import build_game_context
             ctx = build_game_context("basketball_nba", "Lakers", "Celtics", "2024-01-15T20:00:00Z")
 
@@ -265,6 +279,7 @@ class TestDataHub:
             "away_form_statmuse": {"games": []},
             "sharp_action":       {"signals": []},
             "news_espn":          [{"headline": "Z"}],
+            "sofascore":          {"available": True, "form": {"home": "WWW"}},
         }
         score = _score_completeness(context)
         assert score == 1.0
@@ -273,3 +288,100 @@ class TestDataHub:
         from src.apis.data_hub import _score_completeness
         score = _score_completeness({})
         assert score == 0.0
+
+
+# ── Prop change detection ──────────────────────────────────────────────────────
+
+class TestPropChangeDetection:
+    _PROP = {
+        "subject": "LeBron James", "stat": "Points", "sport_key": "basketball_nba",
+        "line": 25.5, "source": "prizepicks",
+    }
+
+    def test_moved_line_detected(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        prev = [{**self._PROP, "line": 25.5}]
+        curr = [{**self._PROP, "line": 27.5}]
+        changes = _detect_prop_changes(prev, curr, "prizepicks")
+        assert len(changes) == 1
+        assert changes[0]["change_type"] == "moved"
+        assert changes[0]["old_line"] == 25.5
+        assert changes[0]["new_line"] == 27.5
+
+    def test_added_prop_detected(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        changes = _detect_prop_changes([], [self._PROP], "prizepicks")
+        assert len(changes) == 1
+        assert changes[0]["change_type"] == "added"
+        assert changes[0]["new_line"] == 25.5
+
+    def test_removed_prop_detected(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        changes = _detect_prop_changes([self._PROP], [], "prizepicks")
+        assert len(changes) == 1
+        assert changes[0]["change_type"] == "removed"
+        assert changes[0]["old_line"] == 25.5
+
+    def test_unchanged_prop_not_reported(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        changes = _detect_prop_changes([self._PROP], [self._PROP], "prizepicks")
+        assert changes == []
+
+    def test_multiple_sources_tracked_independently(self):
+        from src.workers.odds_worker import _detect_prop_changes
+        prev = [{**self._PROP, "line": 25.5}]
+        curr = [{**self._PROP, "line": 26.5}]
+        pp = _detect_prop_changes(prev, curr, "prizepicks")
+        ud = _detect_prop_changes(prev, curr, "underdog")
+        assert pp[0]["source"] == "prizepicks"
+        assert ud[0]["source"] == "underdog"
+
+
+# ── Prop engine ────────────────────────────────────────────────────────────────
+
+class TestPropEngine:
+    _PROP = {
+        "subject": "LeBron James", "stat": "Points", "sport_key": "basketball_nba",
+        "line": 25.5, "source": "prizepicks", "is_team_prop": False,
+        "opponent": "Celtics", "team": "Lakers", "game_time": "2026-06-10T00:00:00Z",
+    }
+
+    def test_record_prop_result_over_win(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("LeBron James", "Points", "basketball_nba", "over", 25.5, 28.0)
+        assert result == "won"
+
+    def test_record_prop_result_over_loss(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("LeBron James", "Points", "basketball_nba", "over", 25.5, 22.0)
+        assert result == "lost"
+
+    def test_record_prop_result_push(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("LeBron James", "Points", "basketball_nba", "under", 25.5, 25.5)
+        assert result == "push"
+
+    def test_under_win(self):
+        from unittest.mock import patch, MagicMock
+        with patch("src.db.session.get_db") as mock_db:
+            ctx = MagicMock()
+            mock_db.return_value.__enter__ = lambda s: ctx
+            mock_db.return_value.__exit__ = MagicMock(return_value=False)
+            from src.engines.prop_engine import record_prop_result
+            result = record_prop_result("Patrick Mahomes", "Pass Yards", "americanfootball_nfl", "under", 287.5, 241.0)
+        assert result == "won"

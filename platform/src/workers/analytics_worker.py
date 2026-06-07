@@ -4,6 +4,15 @@ from src.workers.celery_app import app
 
 logger = logging.getLogger(__name__)
 
+# ── Sleep window: 3 AM – 5 AM Eastern ─────────────────────────────────────────
+
+def is_sleep_time() -> bool:
+    """Return True if current Eastern time is inside the 3 AM–5 AM sleep window."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 3 <= et.hour < 5
+
 
 @app.task
 def send_daily_summary():
@@ -13,8 +22,34 @@ def send_daily_summary():
 
     daily = get_daily_summary()
     clv_stats = aggregate_clv("daily")
-    picks_dicts = []
-    results_dicts = []
+
+    # Fetch actual picks and results from DB for the summary
+    from src.db.session import get_db
+    from src.db.models import Pick
+    from datetime import datetime, timedelta
+    with get_db() as db:
+        today_picks = db.query(
+            Pick.selection, Pick.sport, Pick.american_odds_at_gen,
+            Pick.ev_pct, Pick.units, Pick.recommendation,
+        ).filter(
+            Pick.generated_at >= datetime.utcnow() - timedelta(hours=24),
+            Pick.recommendation == "BET",
+        ).limit(20).all()
+        settled = db.query(
+            Pick.selection, Pick.sport, Pick.result, Pick.actual_pnl_units,
+        ).filter(
+            Pick.settled_at >= datetime.utcnow() - timedelta(hours=24),
+            Pick.result.isnot(None),
+        ).limit(20).all()
+
+    picks_dicts = [
+        {"bet": sel, "sport": sp, "odds": odds, "ev": ev, "units": u}
+        for sel, sp, odds, ev, u, _ in today_picks
+    ]
+    results_dicts = [
+        {"bet": sel, "sport": sp, "result": res, "pnl": pnl}
+        for sel, sp, res, pnl in settled
+    ]
     summary = write_daily_summary(picks_dicts, results_dicts, clv_stats, bankroll=daily.get("net_units", 0))
 
     from src.workers.alert_worker import _run_async
@@ -27,11 +62,30 @@ def send_daily_summary():
 
 @app.task
 def send_weekly_summary():
+    """Fires Sunday midnight Eastern — full week recap including prop W/L ratio."""
     from src.engines.summary_engine import get_weekly_summary
     from src.engines.ai_engine import write_weekly_summary
 
     weekly = get_weekly_summary()
-    summary = write_weekly_summary(weekly)
+    props  = weekly.get("props", {})
+
+    # Build prop section to append to the AI summary
+    prop_section = ""
+    if props.get("total", 0) > 0:
+        hit  = props["hit_rate"] * 100
+        record = f"{props['wins']}W - {props['losses']}L"
+        if props.get("pushes"):
+            record += f" - {props['pushes']}P"
+        prop_section = (
+            f"\n\n**PrizePicks Props:** {record} ({hit:.1f}% hit rate)"
+        )
+        if props.get("best_sport"):
+            sport = props["best_sport"].split("_")[-1].upper()
+            prop_section += f" | Best sport: {sport}"
+        if props.get("best_stat"):
+            prop_section += f" | Best stat: {props['best_stat']}"
+
+    summary = write_weekly_summary(weekly) + prop_section
 
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import post_weekly_summary
@@ -39,6 +93,28 @@ def send_weekly_summary():
 
     logger.info("Weekly summary sent")
     return {"summary_length": len(summary), "stats": weekly}
+
+
+@app.task
+def send_weekly_fresh_start():
+    """Fires Monday 12:05 AM Eastern — signals start of new betting week."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from datetime import datetime
+
+    week_num = datetime.now().isocalendar()[1]
+    embed = _embed(
+        title="🟢 New Week — Fresh Start",
+        description=(
+            f"**Week {week_num}** is now live.\n\n"
+            "Props scanning restarts. Picks engine is active.\n"
+            "All sports monitored 24/7. Good luck this week! 🎯"
+        ),
+        color=0x1565C0,
+    )
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Weekly fresh-start alert sent")
+    return {"week": week_num}
 
 
 @app.task
@@ -67,6 +143,117 @@ def send_monthly_summary():
 
 
 @app.task
+def enter_sleep_mode():
+    """3 AM Eastern — pause scanning, post goodnight message, run self-improvement."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from src.engines.self_improvement_engine import run_full_self_improvement
+    from datetime import datetime
+    import zoneinfo
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+    # Run self-improvement silently while sleeping
+    try:
+        run_full_self_improvement()
+        logger.info("Self-improvement ran during sleep window")
+    except Exception as e:
+        logger.warning("Self-improvement failed during sleep: %s", e)
+
+    embed = _embed(
+        title="🌙 Sleep Mode — Scanning Paused",
+        description=(
+            f"**{et.strftime('%-I:%M %p ET')}** — Going into sleep mode.\n\n"
+            "• All live scanning paused until **5:00 AM ET**\n"
+            "• Settlement and cleanup running in background\n"
+            "• Self-improvement cycle running on tonight's results\n\n"
+            "See you at 5 AM 👋"
+        ),
+        color=0x1A237E,
+    )
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
+    return {"sleep_entered": et.isoformat()}
+
+
+@app.task
+def wake_up_brief():
+    """5 AM Eastern — wake up, scan today's games, post morning brief."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post, _embed
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from src.apis.espn import fetch_scoreboard, SPORT_MAP
+    from datetime import datetime
+    import zoneinfo
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+
+    _SPORT_LABELS = {
+        "basketball_nba":                 "🏀 NBA",
+        "americanfootball_nfl":           "🏈 NFL",
+        "baseball_mlb":                   "⚾ MLB",
+        "icehockey_nhl":                  "🏒 NHL",
+        "soccer_epl":                     "⚽ Premier League",
+        "soccer_uefa_champs_league":      "⚽ Champions League",
+        "soccer_usa_mls":                 "⚽ MLS",
+        "basketball_ncaab":               "🏀 NCAAB",
+        "americanfootball_ncaaf":         "🏈 NCAAF",
+        "mma":                            "🥊 UFC/MMA",
+        "tennis":                         "🎾 Tennis",
+        "golf_masters_tournament_winner": "⛳ Golf",
+    }
+
+    # Fetch all scoreboards in parallel
+    all_games: list[str] = []
+    sport_counts: dict[str, int] = {}
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = {pool.submit(fetch_scoreboard, sk): sk for sk in SPORT_MAP}
+        for future in as_completed(futures, timeout=20):
+            sk = futures[future]
+            try:
+                games = future.result() or []
+                active = [g for g in games if not g.get("completed")]
+                if active:
+                    label = _SPORT_LABELS.get(sk, sk)
+                    sport_counts[label] = len(active)
+                    for g in active[:3]:  # top 3 per sport in the brief
+                        all_games.append(
+                            f"{label}: {g.get('away_team','?')} @ {g.get('home_team','?')}"
+                        )
+            except Exception:
+                pass
+
+    total = sum(sport_counts.values())
+    if all_games:
+        games_text = "\n".join(f"• {g}" for g in all_games[:20])
+        if total > 20:
+            games_text += f"\n*… and {total - 20} more*"
+    else:
+        games_text = "*No games found yet — check back after 8 AM when lines open.*"
+
+    sports_on = ", ".join(
+        f"{label} ({n})" for label, n in sorted(sport_counts.items(), key=lambda x: -x[1])
+    ) or "None yet"
+
+    embed = _embed(
+        title=f"☀️ Good Morning — {et.strftime('%A, %B %-d')}",
+        description=(
+            f"**{total} games** on today across {len(sport_counts)} sports.\n\n"
+            f"{games_text}\n\n"
+            f"⏳ **Props lines open at 8 AM ET** — full pick recommendations coming then."
+        ),
+        color=0xF57F17,
+        fields=[
+            {"name": "Sports Active Today", "value": sports_on or "—", "inline": False},
+            {"name": "Next Update", "value": "8:00 AM ET — Full props picks brief", "inline": False},
+        ],
+    )
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Wake-up brief sent: %d games across %d sports", total, len(sport_counts))
+    return {"games_today": total, "sports": len(sport_counts)}
+
+
+@app.task
 def run_self_improvement():
     from src.engines.self_improvement_engine import run_full_self_improvement
     result = run_full_self_improvement()
@@ -82,12 +269,42 @@ def snapshot_portfolio():
     from datetime import datetime
 
     stats = get_performance_stats("lifetime")
+    daily_stats = get_performance_stats("daily")
     with get_db() as db:
         db.add(BankrollSnapshot(
-            snapshot_date=datetime.utcnow().date(),
-            bankroll=stats.get("net_units", 0),
-            daily_pnl=get_performance_stats("daily").get("net_units", 0),
-            notes="auto",
+            recorded_at  = datetime.utcnow(),
+            balance      = stats.get("net_units", 0),
+            units_total  = daily_stats.get("net_units", 0),
+            note         = "auto",
         ))
     logger.info("Portfolio snapshot saved")
     return stats
+
+
+@app.task
+def cleanup_old_snapshots():
+    """Delete OddsSnapshots older than 7 days — prevents unbounded table growth.
+
+    Without cleanup: ~6.9M rows/day accumulate and eventually kill query performance.
+    """
+    from src.db.session import get_db
+    from src.db.models import OddsSnapshot, LineMovement, AlertRecord
+    from datetime import datetime, timedelta
+
+    cutoff_snapshots = datetime.utcnow() - timedelta(days=7)
+    cutoff_alerts    = datetime.utcnow() - timedelta(days=30)
+
+    with get_db() as db:
+        deleted_snaps = db.query(OddsSnapshot).filter(
+            OddsSnapshot.captured_at < cutoff_snapshots
+        ).delete(synchronize_session=False)
+
+        deleted_alerts = db.query(AlertRecord).filter(
+            AlertRecord.sent_at < cutoff_alerts
+        ).delete(synchronize_session=False)
+
+    logger.info(
+        "Cleanup: deleted %d old snapshots, %d old alert records",
+        deleted_snaps, deleted_alerts,
+    )
+    return {"snapshots_deleted": deleted_snaps, "alerts_deleted": deleted_alerts}

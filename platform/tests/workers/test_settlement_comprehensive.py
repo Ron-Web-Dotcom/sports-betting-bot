@@ -125,3 +125,113 @@ def test_calculate_pnl_none_odds_defaults_to_minus110():
     pnl = _calculate_pnl(pick, "won")
     dec = 100 / 110 + 1
     assert pnl == pytest.approx(dec - 1, rel=1e-3)
+
+
+# ── _extract_score_details ────────────────────────────────────────────────────
+
+from src.workers.settlement_worker import _extract_score_details, _extract_winner
+
+
+def test_extract_score_details_home_away():
+    item = {
+        "home_team": "Los Angeles Lakers",
+        "scores": [
+            {"name": "Los Angeles Lakers", "score": "112"},
+            {"name": "Boston Celtics",     "score": "108"},
+        ],
+    }
+    d = _extract_score_details(item)
+    assert d["home_score"] == 112.0
+    assert d["away_score"] == 108.0
+    assert d["total_scored"] == 220.0
+    assert d["home_team"] == "Los Angeles Lakers"
+
+
+def test_extract_score_details_no_scores():
+    d = _extract_score_details({"home_team": "Lakers", "scores": []})
+    assert d["home_score"] is None
+    assert d["away_score"] is None
+    assert d["total_scored"] is None
+
+
+def test_extract_score_details_invalid_score_value():
+    item = {
+        "home_team": "Lakers",
+        "scores": [
+            {"name": "Lakers",  "score": "N/A"},
+            {"name": "Celtics", "score": "108"},
+        ],
+    }
+    d = _extract_score_details(item)
+    # N/A scores to 0.0, Celtics away_score is 108
+    assert d["away_score"] == 108.0
+
+
+# ── Totals settlement (Over/Under) ────────────────────────────────────────────
+
+def test_totals_over_wins():
+    pick = _make_pick(selection="Over 221.5")
+    pick.market = "totals"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": None, "total_scored": 225.0,
+             "home_score": 115.0, "away_score": 110.0, "home_team": "Lakers"}
+    assert _determine_result(pick, None, score) == "won"
+
+
+def test_totals_under_wins():
+    pick = _make_pick(selection="Under 221.5")
+    pick.market = "totals"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": None, "total_scored": 210.0,
+             "home_score": 105.0, "away_score": 105.0, "home_team": "Lakers"}
+    assert _determine_result(pick, None, score) == "won"
+
+
+def test_totals_push():
+    pick = _make_pick(selection="Over 221.5")
+    pick.market = "totals"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": None, "total_scored": 221.5,
+             "home_score": 110.75, "away_score": 110.75, "home_team": "Lakers"}
+    assert _determine_result(pick, None, score) == "push"
+
+
+def test_totals_missing_total_scored_returns_none():
+    pick = _make_pick(selection="Over 221.5")
+    pick.market = "totals"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": None, "total_scored": None,
+             "home_score": None, "away_score": None, "home_team": ""}
+    assert _determine_result(pick, None, score) is None
+
+
+# ── Spreads settlement ────────────────────────────────────────────────────────
+
+def test_spreads_home_covers():
+    pick = _make_pick(selection="Lakers -5.5")
+    pick.market = "spreads"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": "Lakers", "home_score": 115.0, "away_score": 105.0,
+             "home_team": "Lakers", "total_scored": 220.0}
+    # Lakers win by 10, cover -5.5
+    assert _determine_result(pick, "Lakers", score) == "won"
+
+
+def test_spreads_home_fails_to_cover():
+    pick = _make_pick(selection="Lakers -5.5")
+    pick.market = "spreads"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": "Celtics", "home_score": 108.0, "away_score": 105.0,
+             "home_team": "Lakers", "total_scored": 213.0}
+    # Lakers win by 3, don't cover -5.5
+    assert _determine_result(pick, "Celtics", score) == "lost"
+
+
+def test_spreads_push():
+    pick = _make_pick(selection="Lakers -5.0")
+    pick.market = "spreads"
+    score = {"completed": True, "status": "", "push": False,
+             "winner": "Lakers", "home_score": 110.0, "away_score": 105.0,
+             "home_team": "Lakers", "total_scored": 215.0}
+    # Lakers win by exactly 5.0 — push
+    assert _determine_result(pick, "Lakers", score) == "push"

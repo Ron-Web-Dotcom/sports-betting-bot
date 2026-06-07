@@ -1,401 +1,481 @@
 """
-Discord Bot — Sports Intelligence Platform.
+Discord integration — webhook-only.
 
-Manages 20 channels, 10 slash commands, alert routing, and AI discussion mode.
+All alerts are sent as HTTP POST to DISCORD_WEBHOOK_URL.
+No bot token, no slash commands, no discord.py bot process needed.
 """
+import json
 import logging
-import discord
-from discord.ext import commands
-from src.core.config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, DISCORD_CHANNELS
+import httpx
+from src.core.config import DISCORD_WEBHOOK_URL
 
 logger = logging.getLogger(__name__)
 
-CHANNEL_NAMES = list(DISCORD_CHANNELS.keys())
-
-intents = discord.Intents.default()
-intents.message_content = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
+_TIMEOUT = 10  # seconds
 
 
-# ── Startup ────────────────────────────────────────────────────────────────────
+# ── Core send ──────────────────────────────────────────────────────────────────
 
-@bot.event
-async def on_ready():
-    logger.info("Discord bot logged in as %s (ID: %s)", bot.user, bot.user.id)
-    try:
-        synced = await bot.tree.sync()
-        logger.info("Synced %d slash commands", len(synced))
-    except Exception as e:
-        logger.error("Failed to sync slash commands: %s", e)
-
-
-# ── Helper ─────────────────────────────────────────────────────────────────────
-
-async def get_channel(name: str) -> discord.TextChannel | None:
-    """Resolve a channel by configured name."""
-    channel_id = DISCORD_CHANNELS.get(name)
-    if channel_id:
-        return bot.get_channel(channel_id)
-    guild = bot.get_guild(DISCORD_GUILD_ID)
-    if not guild:
-        return None
-    return discord.utils.get(guild.text_channels, name=name.lstrip("#"))
-
-
-async def send_to_channel(channel_name: str, content: str = "", embed: discord.Embed | None = None) -> bool:
-    """Send a message or embed to a named channel."""
-    ch = await get_channel(channel_name)
-    if not ch:
-        logger.warning("Channel not found: %s", channel_name)
+async def _post(payload: dict) -> bool:
+    """POST payload to the webhook URL. Returns True on success."""
+    if not DISCORD_WEBHOOK_URL:
+        logger.warning("DISCORD_WEBHOOK_URL not set — alert suppressed")
         return False
     try:
-        if embed:
-            await ch.send(content=content or None, embed=embed)
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                DISCORD_WEBHOOK_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            if resp.status_code == 204:
+                return True
+            logger.error("Webhook POST failed: %s %s", resp.status_code, resp.text[:200])
+            return False
+    except httpx.HTTPError as e:
+        logger.error("Webhook HTTP error: %s", e)
+        return False
+
+
+def _embed(title: str, description: str, color: int, fields: list[dict] | None = None) -> dict:
+    """Build a Discord embed dict."""
+    embed: dict = {"title": title[:256], "description": description[:4096], "color": color}
+    if fields:
+        embed["fields"] = [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", True)}
+            for f in fields[:25]
+        ]
+    return embed
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
+async def post_prop_pick(pick: dict) -> None:
+    """Discord prop pick card — mirrors the PrizePicks card layout."""
+    direction  = (pick.get("direction") or "over").upper()
+    arrow      = "↑" if direction == "OVER" else "↓"
+    color      = 0x1B5E20 if direction == "OVER" else 0xB71C1C
+    conf_pct   = round((pick.get("confidence") or 0) * 100)
+    ev_pct     = round((pick.get("ev_pct") or 0) * 100, 1)
+    line       = pick.get("line", "—")
+    stat       = pick.get("stat", "")
+    subject    = pick.get("subject", "Unknown")
+    team       = pick.get("team", "")
+    opponent   = pick.get("opponent", "")
+    game_time  = pick.get("game_time", "")
+    is_team    = pick.get("is_team_prop", False)
+
+    # Sport label — match PP style (WORLD CUP, NBA, NFL, etc.)
+    sport_key  = pick.get("sport_key", "")
+    _SPORT_LABELS = {
+        "soccer_fifa_world_cup":          "WORLD CUP",
+        "basketball_nba":                 "NBA",
+        "americanfootball_nfl":           "NFL",
+        "baseball_mlb":                   "MLB",
+        "icehockey_nhl":                  "NHL",
+        "soccer_epl":                     "PREMIER LEAGUE",
+        "soccer_usa_mls":                 "MLS",
+        "basketball_ncaab":               "NCAAB",
+        "americanfootball_ncaaf":         "NCAAF",
+        "mma_mixed_martial_arts":         "UFC/MMA",
+        "tennis_atp_french_open":         "TENNIS",
+        "golf_masters_tournament_winner": "GOLF",
+    }
+    sport_label = _SPORT_LABELS.get(sport_key, sport_key.split("_")[-1].upper())
+
+    # Matchup line (e.g. "United States vs England")
+    matchup = f"{team} vs {opponent}" if team and opponent else (team or opponent or "—")
+
+    # Card-style title: arrow + line + stat (mirrors PP card)
+    title = f"{arrow} {line} {stat}  ·  {subject}"
+
+    # Subtitle row: sport • matchup • time
+    time_str = ""
+    if game_time:
+        try:
+            from datetime import datetime
+            import zoneinfo
+            dt = datetime.fromisoformat(game_time.replace("Z", "+00:00"))
+            dt_et = dt.astimezone(zoneinfo.ZoneInfo("America/New_York"))
+            time_str = dt_et.strftime("%-I:%M %p ET")
+        except Exception:
+            time_str = game_time[:16]
+
+    desc_parts = [f"**{sport_label}**"]
+    if matchup and matchup != "—":
+        desc_parts.append(matchup)
+    if time_str:
+        desc_parts.append(time_str)
+    description = "  ·  ".join(desc_parts)
+
+    # Fields — clean, compact
+    fields = [
+        {"name": "Direction",   "value": f"**{arrow} {direction}**",    "inline": True},
+        {"name": "Line",        "value": f"**{line}** {stat}",          "inline": True},
+        {"name": "Confidence",  "value": f"{conf_pct}%",                "inline": True},
+        {"name": "Edge",        "value": f"+{ev_pct}%",                 "inline": True},
+        {"name": "Type",        "value": "Team Prop" if is_team else "Player Prop", "inline": True},
+        {"name": "Source",      "value": (pick.get("source") or "prizepicks").title(), "inline": True},
+    ]
+
+    factors = pick.get("key_factors") or []
+    if factors:
+        fields.append({
+            "name": "Why",
+            "value": "\n".join(f"• {f}" for f in factors[:3]),
+            "inline": False,
+        })
+
+    reasoning = (pick.get("reasoning") or "")[:400]
+    if reasoning:
+        fields.append({"name": "Analysis", "value": reasoning, "inline": False})
+
+    embed = _embed(title=title, description=description, color=color, fields=fields)
+    await _post({"embeds": [embed]})
+
+
+async def post_prop_result(pick: dict, result: str, actual: float) -> None:
+    """Discord notification when a prop pick is settled — fires for wins, losses, and pushes."""
+    icons   = {"won": "✅", "lost": "❌", "push": "➖"}
+    colors  = {"won": 0x2E7D32, "lost": 0xC62828, "push": 0x757575}
+    icon    = icons.get(result, "❓")
+    color   = colors.get(result, 0x757575)
+    line    = pick.get("line", 0)
+    missed  = round(actual - line, 2)
+    sport   = pick.get("sport_key", "—").split("_")[-1].upper()
+    direction = pick.get("direction", "").upper()
+
+    if result == "push":
+        diff_str = "exact"
+    elif result == "won":
+        diff_str = f"{missed:+.1f} ({'over' if actual > line else 'under'} by {abs(missed)})"
+    else:
+        diff_str = f"{missed:+.1f} — missed by {abs(missed)}"
+
+    fields = [
+        {"name": "Result",    "value": f"{icon} {result.upper()}"},
+        {"name": "Sport",     "value": sport},
+        {"name": "Picked",    "value": f"{direction} {line}"},
+        {"name": "Actual",    "value": str(actual)},
+        {"name": "Difference","value": diff_str},
+    ]
+
+    if result == "lost":
+        fields.append({
+            "name":  "📚 Learning",
+            "value": "This loss has been logged. The AI will use it as context next time it analyses this player/stat.",
+            "inline": False,
+        })
+
+    embed = _embed(
+        title=f"{icon} Prop Result: {pick.get('subject')} {pick.get('stat')}",
+        description=f"**{direction} {line}** → Actual: **{actual}** ({diff_str})",
+        color=color,
+        fields=fields,
+    )
+    await _post({"embeds": [embed]})
+
+
+# ── PP payout multipliers (Power Play — all legs must hit) ────────────────────
+_PP_MULTIPLIERS = {2: 3, 3: 5, 4: 10, 5: 20, 6: 40}
+
+_SPORT_LABELS_SHORT = {
+    "soccer_fifa_world_cup":          "WORLD CUP",
+    "basketball_nba":                 "NBA",
+    "americanfootball_nfl":           "NFL",
+    "baseball_mlb":                   "MLB",
+    "icehockey_nhl":                  "NHL",
+    "soccer_epl":                     "EPL",
+    "soccer_usa_mls":                 "MLS",
+    "basketball_ncaab":               "NCAAB",
+    "americanfootball_ncaaf":         "NCAAF",
+    "mma_mixed_martial_arts":         "UFC",
+    "tennis_atp_french_open":         "TENNIS",
+    "golf_masters_tournament_winner": "GOLF",
+}
+
+
+async def post_pp_parlay(picks: list[dict]) -> None:
+    """PrizePicks multi-pick entry card — 2 to 6 legs, with per-leg reasoning."""
+    if not picks:
+        return
+    n        = min(len(picks), 6)
+    picks    = picks[:n]
+    mult     = _PP_MULTIPLIERS.get(n, 40)
+    avg_conf = round(sum((p.get("confidence") or 0) for p in picks) / n * 100)
+
+    # Build one block per leg: header line + top reason + top key factor
+    leg_blocks = []
+    for i, p in enumerate(picks, 1):
+        arrow   = "↑" if (p.get("direction") or "over").lower() == "over" else "↓"
+        sport   = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), "")
+        subject = p.get("subject", "?")
+        stat    = p.get("stat", "")
+        line    = p.get("line", "?")
+        conf    = round((p.get("confidence") or 0) * 100)
+        ev      = round((p.get("ev_pct") or 0) * 100, 1)
+
+        # Pull top key factor (first one) as the quick reason
+        factors   = p.get("key_factors") or []
+        reasoning = (p.get("reasoning") or "").strip()
+        # Use first key factor if available, else first sentence of reasoning
+        if factors:
+            top_reason = factors[0]
+        elif reasoning:
+            top_reason = reasoning.split(".")[0].strip()
         else:
-            await ch.send(content)
-        return True
-    except discord.DiscordException as e:
-        logger.error("Failed to send to %s: %s", channel_name, e)
-        return False
+            top_reason = "—"
 
-
-# ── Slash Commands ─────────────────────────────────────────────────────────────
-
-MAX_ANALYZE_CHARS = 500
-
-
-@bot.tree.command(name="analyze", description="Analyse a betting situation or game")
-async def cmd_analyze(interaction: discord.Interaction, query: str):
-    await interaction.response.defer()
-    # Truncate to prevent token abuse
-    query = query[:MAX_ANALYZE_CHARS]
-    from src.engines.ai_engine import handle_command
-    result = handle_command("analyze", query)
-    embed = discord.Embed(title="Analysis", description=result, color=0x1E88E5)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="player", description="Player stats, props, and injury analysis")
-async def cmd_player(interaction: discord.Interaction, player: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("player", player)
-    embed = discord.Embed(title=f"Player: {player}", description=result, color=0x43A047)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="team", description="Team form, trends, and matchup analysis")
-async def cmd_team(interaction: discord.Interaction, team: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("team", team)
-    embed = discord.Embed(title=f"Team: {team}", description=result, color=0x8E24AA)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="parlay", description="Evaluate a parlay for value and correlation")
-async def cmd_parlay(interaction: discord.Interaction, legs: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("parlay", legs)
-    embed = discord.Embed(title="Parlay Evaluation", description=result, color=0xFDD835)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="explain", description="Explain a betting concept in plain English")
-async def cmd_explain(interaction: discord.Interaction, concept: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("explain", concept)
-    embed = discord.Embed(title=f"Explained: {concept}", description=result, color=0x00ACC1)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="why", description="Why was a bet recommended or why did it win/lose?")
-async def cmd_why(interaction: discord.Interaction, bet: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("why", bet)
-    embed = discord.Embed(title="Why?", description=result, color=0xFF7043)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="odds", description="Explain odds and calculate EV")
-async def cmd_odds(interaction: discord.Interaction, odds: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("odds", odds)
-    embed = discord.Embed(title="Odds Analysis", description=result, color=0x6D4C41)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="results", description="View recent betting results")
-async def cmd_results(interaction: discord.Interaction, period: str = "weekly"):
-    await interaction.response.defer()
-    from src.engines.portfolio_engine import get_performance_stats
-    stats = get_performance_stats(period)
-    desc = (
-        f"**Period:** {period.title()}\n"
-        f"**Record:** {stats['wins']}W - {stats['losses']}L\n"
-        f"**Net Units:** {stats['net_units']:+.2f}u\n"
-        f"**ROI:** {stats['roi']:.1%}\n"
-        f"**Hit Rate:** {stats['hit_rate']:.1%}\n"
-        f"**Profit Factor:** {stats.get('profit_factor', 0):.2f}"
-    )
-    embed = discord.Embed(title=f"Results ({period.title()})", description=desc, color=0x2E7D32 if stats['net_units'] >= 0 else 0xC62828)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="bankroll", description="Bankroll management advice")
-async def cmd_bankroll(interaction: discord.Interaction, situation: str):
-    await interaction.response.defer()
-    from src.engines.ai_engine import handle_command
-    result = handle_command("bankroll", situation)
-    embed = discord.Embed(title="Bankroll Advice", description=result, color=0x00897B)
-    await interaction.followup.send(embed=embed)
-
-
-MAX_BANKROLL = 10_000_000.0
-
-
-@bot.tree.command(name="setbankroll", description="Set your bankroll amount")
-async def cmd_setbankroll(interaction: discord.Interaction, amount: float):
-    await interaction.response.defer(ephemeral=True)
-    if amount <= 0:
-        await interaction.followup.send(
-            "Invalid bankroll: amount must be greater than $0.", ephemeral=True
+        leg_blocks.append(
+            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}% conf  ·  +{ev}% edge\n"
+            f"     └ {top_reason}"
         )
+
+    fields = [
+        {"name": "Legs",       "value": str(n),         "inline": True},
+        {"name": "Multiplier", "value": f"**{mult}x**", "inline": True},
+        {"name": "Avg Conf",   "value": f"{avg_conf}%", "inline": True},
+        {
+            "name":  "Entry Types",
+            "value": "**Power Play** — all must hit → full multiplier\n**Flex Play** — 1 miss allowed → reduced payout",
+            "inline": False,
+        },
+        {"name": "⚠️", "value": "Place manually on PrizePicks. Max 6 picks.", "inline": False},
+    ]
+    await _post({"embeds": [_embed(
+        title=f"🏆 PrizePicks Entry — {n} Picks  ·  {mult}x Payout",
+        description="\n".join(leg_blocks),
+        color=0x1565C0,
+        fields=fields,
+    )]})
+
+
+async def post_hardrock_parlay(picks: list[dict]) -> None:
+    """HardRock parlay card — 2 to 4 legs, combined odds + per-leg reasoning."""
+    if not picks:
         return
-    if amount > MAX_BANKROLL:
-        await interaction.followup.send(
-            f"Invalid bankroll: amount must not exceed ${MAX_BANKROLL:,.0f}.", ephemeral=True
+    n     = min(len(picks), 4)
+    picks = picks[:n]
+
+    combined_decimal = 1.0
+    for p in picks:
+        odds = p.get("american_odds") or p.get("odds") or -110
+        try:
+            dec = (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
+        except Exception:
+            dec = 1.91
+        combined_decimal *= dec
+
+    if combined_decimal >= 2.0:
+        combined_american = int((combined_decimal - 1) * 100)
+    else:
+        combined_american = int(-100 / (combined_decimal - 1))
+
+    odds_str       = f"+{combined_american}" if combined_american > 0 else str(combined_american)
+    example_payout = round(10 * combined_decimal, 2)
+
+    leg_blocks = []
+    for i, p in enumerate(picks, 1):
+        sport    = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), p.get("sport", ""))
+        bet      = p.get("bet") or p.get("selection") or p.get("subject", "?")
+        leg_odds = p.get("american_odds") or p.get("odds", "?")
+        lo_str   = f"+{leg_odds}" if isinstance(leg_odds, int) and leg_odds > 0 else str(leg_odds)
+        conf     = round((p.get("confidence_pct") or p.get("confidence") or 0) * (1 if (p.get("confidence") or 0) <= 1 else 0.01))
+
+        # Per-leg reason
+        factors   = p.get("key_factors") or []
+        reasoning = (p.get("reasoning") or p.get("ai_reasoning") or "").strip()
+        if factors:
+            top_reason = factors[0]
+        elif reasoning:
+            top_reason = reasoning.split(".")[0].strip()
+        else:
+            top_reason = "—"
+
+        leg_blocks.append(
+            f"`{i}.` **{bet}**  ·  {lo_str}  ·  {sport}  ·  {conf}% conf\n"
+            f"     └ {top_reason}"
         )
-        return
-    from src.engines.personalization_engine import get_profile, save_profile
-    profile = get_profile(str(interaction.user.id))
-    profile.bankroll = amount
-    save_profile(profile)
-    await interaction.followup.send(f"Bankroll set to **${amount:,.2f}**", ephemeral=True)
+
+    fields = [
+        {"name": "Legs",          "value": str(n),               "inline": True},
+        {"name": "Combined Odds", "value": odds_str,             "inline": True},
+        {"name": "Payout on $10", "value": f"${example_payout}", "inline": True},
+        {"name": "⚠️", "value": "Place manually on HardRock Bet. Max 4 legs.", "inline": False},
+    ]
+    await _post({"embeds": [_embed(
+        title=f"🎰 HardRock Parlay — {n} Legs  ·  {odds_str}",
+        description="\n".join(leg_blocks),
+        color=0x6A1B9A,
+        fields=fields,
+    )]})
 
 
-@bot.tree.command(name="setsports", description="Set your sports (comma-separated)")
-async def cmd_setsports(interaction: discord.Interaction, sports: str):
-    await interaction.response.defer(ephemeral=True)
-    from src.engines.personalization_engine import get_profile, save_profile
-    profile = get_profile(str(interaction.user.id))
-    profile.sports = [s.strip() for s in sports.split(",") if s.strip()]
-    save_profile(profile)
-    await interaction.followup.send(f"Sports set to: **{', '.join(profile.sports)}**", ephemeral=True)
-
-
-@bot.tree.command(name="setrisk", description="Set risk profile: conservative, balanced, or aggressive")
-async def cmd_setrisk(interaction: discord.Interaction, profile: str):
-    await interaction.response.defer(ephemeral=True)
-    from src.engines.personalization_engine import get_profile, save_profile, RISK_PROFILES
-    if profile not in RISK_PROFILES:
-        await interaction.followup.send("Invalid profile. Choose: conservative, balanced, aggressive", ephemeral=True)
-        return
-    user_profile = get_profile(str(interaction.user.id))
-    user_profile.risk_profile = profile
-    user_profile.max_units = RISK_PROFILES[profile]["max_units"]
-    user_profile.min_ev = RISK_PROFILES[profile]["min_ev"]
-    save_profile(user_profile)
-    await interaction.followup.send(f"Risk profile set to **{profile}**", ephemeral=True)
-
-
-@bot.tree.command(name="profile", description="Show your current settings")
-async def cmd_profile(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    from src.engines.personalization_engine import get_profile
-    p = get_profile(str(interaction.user.id))
-    desc = (
-        f"**Bankroll:** ${p.bankroll:,.2f}\n"
-        f"**Risk Profile:** {p.risk_profile}\n"
-        f"**Max Units:** {p.max_units}\n"
-        f"**Min EV:** {p.min_ev:.1%}\n"
-        f"**Sports:** {', '.join(p.sports) if p.sports else 'All'}"
-    )
-    embed = discord.Embed(title="Your Profile", description=desc, color=0x00897B)
-    await interaction.followup.send(embed=embed, ephemeral=True)
-
-
-@bot.tree.command(name="rate", description="Rate a pick: /rate <pick_id> <helpful|not_helpful>")
-async def cmd_rate(interaction: discord.Interaction, pick_id: int, rating: str):
-    await interaction.response.defer(ephemeral=True)
-    from src.engines.feedback_engine import submit_feedback, PickFeedback
-    if rating not in ("helpful", "not_helpful"):
-        await interaction.followup.send("Rating must be 'helpful' or 'not_helpful'", ephemeral=True)
-        return
-    fb = PickFeedback(pick_id=pick_id, user_id=str(interaction.user.id), rating=rating, explanation_rating=3)
-    submit_feedback(fb)
-    await interaction.followup.send(f"Feedback submitted for pick #{pick_id}: **{rating}**", ephemeral=True)
-
-
-@bot.tree.command(name="health", description="Show system health dashboard")
-async def cmd_health(interaction: discord.Interaction):
-    await interaction.response.defer()
-    from src.engines.health_engine import get_system_health, format_health_report
-    health = get_system_health()
-    report = format_health_report(health)
-    color = {"ok": 0x2E7D32, "degraded": 0xF57F17, "down": 0xC62828}.get(health.overall, 0x757575)
-    embed = discord.Embed(title="System Health", description=report, color=color)
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="top-picks", description="Best picks available right now")
-async def cmd_top_picks(interaction: discord.Interaction):
-    await interaction.response.defer()
-    from src.engines.self_improvement_engine import get_top_performing_categories
-    from src.engines.ai_engine import handle_command
-    top = get_top_performing_categories(limit=5)
-    context = {"top_performing": top}
-    result = handle_command("top-picks", "today's top opportunities", context=context)
-    embed = discord.Embed(title="Top Picks", description=result, color=0xE53935)
-    await interaction.followup.send(embed=embed)
-
-
-# ── Alert Embeds ───────────────────────────────────────────────────────────────
-
-def _pick_embed(pick: dict) -> discord.Embed:
+async def post_pick(pick: dict) -> None:
     rec = pick.get("recommendation", "PASS")
     color = 0x2E7D32 if rec == "BET" else 0x757575
-    units = pick.get("units", 0)
+    units = min(max(int(pick.get("units", 0)), 0), 5)
     unit_bar = "█" * units + "░" * (5 - units)
 
-    embed = discord.Embed(
+    fields = [
+        {"name": "Game",       "value": pick.get("game", "—")},
+        {"name": "Sport",      "value": pick.get("sport", "—")},
+        {"name": "Odds",       "value": f"{pick.get('odds', 0):+d}"},
+        {"name": "Units",      "value": f"{unit_bar} ({units}/5)"},
+        {"name": "EV",         "value": f"{pick.get('ev_pct', 0):.1%}"},
+        {"name": "Confidence", "value": f"{pick.get('confidence_pct', 0):.0f}%"},
+        {"name": "Best Book",  "value": pick.get("best_book", "—")},
+    ]
+    key_factors = pick.get("key_factors", [])
+    if key_factors:
+        fields.append({"name": "Key Factors",
+                        "value": "\n".join(f"• {f}" for f in key_factors[:3]),
+                        "inline": False})
+    risk_flags = pick.get("risk_flags", [])
+    if risk_flags:
+        fields.append({"name": "Risk Flags",
+                        "value": "\n".join(f"• {f}" for f in risk_flags[:3]),
+                        "inline": False})
+
+    embed = _embed(
         title=f"[{rec}] {pick.get('bet', 'Unknown')}",
         description=pick.get("reasoning", ""),
         color=color,
+        fields=fields,
     )
-    embed.add_field(name="Game", value=pick.get("game", "—"), inline=True)
-    embed.add_field(name="Sport", value=pick.get("sport", "—"), inline=True)
-    embed.add_field(name="Odds", value=f"{pick.get('odds', 0):+d}", inline=True)
-    embed.add_field(name="Units", value=f"{unit_bar} ({units}/5)", inline=True)
-    embed.add_field(name="EV", value=f"{pick.get('ev_pct', 0):.1%}", inline=True)
-    embed.add_field(name="Confidence", value=f"{pick.get('confidence_pct', 0):.0f}%", inline=True)
-    embed.add_field(name="Best Book", value=pick.get("best_book", "—"), inline=True)
-    embed.add_field(name="CLV Potential", value=f"{pick.get('clv_potential', 0):.1%}", inline=True)
-
-    br = pick.get("bankroll_examples", {})
-    if br:
-        br_text = "\n".join(
-            f"${k}: stake ${v.get('stake',0):.0f} → win ${v.get('profit',0):.0f}"
-            for k, v in sorted(br.items())
-        )
-        embed.add_field(name="Bankroll Examples", value=br_text, inline=False)
-
-    key_factors = pick.get("key_factors", [])
-    if key_factors:
-        embed.add_field(name="Key Factors", value="\n".join(f"• {f}" for f in key_factors[:3]), inline=False)
-
-    risk_flags = pick.get("risk_flags", [])
-    if risk_flags:
-        embed.add_field(name="Risk Flags", value="\n".join(f"• {f}" for f in risk_flags[:3]), inline=False)
-
-    embed.set_footer(text=pick.get("unit_reason", ""))
-    return embed
-
-
-def _result_embed(pick: dict, result: str) -> discord.Embed:
-    colors = {"won": 0x2E7D32, "lost": 0xC62828, "push": 0xF57F17}
-    labels = {"won": "WIN", "lost": "LOSS", "push": "PUSH"}
-    pnl = pick.get("actual_pnl_units", 0)
-    embed = discord.Embed(
-        title=f"[{labels.get(result, result.upper())}] {pick.get('bet', 'Unknown')}",
-        description=f"P&L: **{pnl:+.2f}u**",
-        color=colors.get(result, 0x757575),
-    )
-    embed.add_field(name="Game", value=pick.get("game", "—"), inline=True)
-    embed.add_field(name="Sport", value=pick.get("sport", "—"), inline=True)
-    embed.add_field(name="Odds", value=f"{pick.get('odds', 0):+d}", inline=True)
-    clv = pick.get("clv_pct")
-    if clv is not None:
-        embed.add_field(name="CLV", value=f"{clv:+.2%}", inline=True)
-    return embed
-
-
-# ── Public API used by alert router ───────────────────────────────────────────
-
-async def post_pick(pick: dict) -> None:
-    sport = pick.get("sport", "").lower()
-    channel = SPORT_TO_CHANNEL.get(sport, "top-picks")
-    embed = _pick_embed(pick)
-    await send_to_channel("top-picks", embed=embed)
-    if channel != "top-picks":
-        await send_to_channel(channel, embed=embed)
+    await _post({"embeds": [embed]})
 
 
 async def post_result(pick: dict, result: str) -> None:
-    embed = _result_embed(pick, result)
-    await send_to_channel("results", embed=embed)
+    colors = {"won": 0x2E7D32, "lost": 0xC62828, "push": 0xF57F17}
+    labels = {"won": "WIN", "lost": "LOSS", "push": "PUSH"}
+    pnl = pick.get("actual_pnl_units", 0)
+    fields = [
+        {"name": "Game",  "value": pick.get("game", "—")},
+        {"name": "Sport", "value": pick.get("sport", "—")},
+        {"name": "Odds",  "value": f"{pick.get('odds', 0):+d}"},
+    ]
+    clv = pick.get("clv_pct")
+    if clv is not None:
+        fields.append({"name": "CLV", "value": f"{clv:+.2%}"})
+
+    embed = _embed(
+        title=f"[{labels.get(result, (result or 'UNKNOWN').upper())}] {pick.get('bet', 'Unknown')}",
+        description=f"P&L: **{(pnl or 0):+.2f}u**",
+        color=colors.get(result, 0x757575),
+        fields=fields,
+    )
+    await _post({"embeds": [embed]})
+
+
+async def post_prop_changes(changes: list[dict]) -> None:
+    """Send a Discord alert for prop line changes (moved, added, removed)."""
+    if not changes:
+        return
+
+    ICONS = {"moved": "📊", "added": "🆕", "removed": "❌"}
+    COLORS = {"moved": 0xFDD835, "added": 0x43A047, "removed": 0xE53935}
+
+    # Group by source so one embed per source (max 10 changes shown per source)
+    from collections import defaultdict
+    by_source: dict[str, list[dict]] = defaultdict(list)
+    for c in changes:
+        by_source[c.get("source", "props")].append(c)
+
+    embeds = []
+    for source, items in by_source.items():
+        lines = []
+        for c in items[:10]:
+            icon    = ICONS.get(c["change_type"], "•")
+            subject = c.get("subject", "Unknown")
+            stat    = c.get("stat", "")
+            sport   = c.get("sport_key", "").split("_")[-1].upper()
+            if c["change_type"] == "moved":
+                lines.append(
+                    f"{icon} **{subject}** {stat} `{c['old_line']} → {c['new_line']}` ({sport})"
+                )
+            elif c["change_type"] == "added":
+                lines.append(f"{icon} **{subject}** {stat} `{c['new_line']}` ({sport})")
+            else:
+                lines.append(f"{icon} **{subject}** {stat} `{c['old_line']}` removed ({sport})")
+
+        if len(items) > 10:
+            lines.append(f"*… and {len(items) - 10} more*")
+
+        dominant = max(set(c["change_type"] for c in items), key=lambda t: sum(1 for x in items if x["change_type"] == t))
+        embeds.append(_embed(
+            title=f"{source.title()} Props Update",
+            description="\n".join(lines),
+            color=COLORS.get(dominant, 0xFDD835),
+        ))
+
+    # Discord allows max 10 embeds per message
+    for i in range(0, len(embeds), 10):
+        await _post({"embeds": embeds[i:i + 10]})
 
 
 async def post_line_movement(movement: dict) -> None:
-    embed = discord.Embed(
+    embed = _embed(
         title=f"Line Movement: {movement.get('game', '')}",
         description=movement.get("description", ""),
         color=0xFDD835,
+        fields=[
+            {"name": "Type", "value": movement.get("move_type", "—")},
+            {"name": "Move", "value": f"{movement.get('move_size', 0):+.1f}"},
+        ],
     )
-    embed.add_field(name="Type", value=movement.get("move_type", "—"), inline=True)
-    embed.add_field(name="Move", value=f"{movement.get('move_size', 0):+.1f}", inline=True)
-    await send_to_channel("line-movement", embed=embed)
+    await _post({"embeds": [embed]})
 
 
 async def post_parlay(parlay: dict) -> None:
     legs = parlay.get("legs", [])
-    desc = "\n".join(f"• {l.get('bet', l)}" for l in legs)
-    embed = discord.Embed(
+    desc = "\n".join(f"• {l.get('bet', 'Unknown')}" for l in legs)
+    embed = _embed(
         title=f"Parlay ({len(legs)} legs) — {parlay.get('combined_odds', 0):+d}",
         description=desc,
         color=0xFDD835,
+        fields=[
+            {"name": "Combined EV", "value": f"{parlay.get('combined_ev', 0):.1%}"},
+            {"name": "Units",       "value": str(parlay.get("units", 0))},
+        ],
     )
-    embed.add_field(name="Combined EV", value=f"{parlay.get('combined_ev', 0):.1%}", inline=True)
-    embed.add_field(name="Units", value=str(parlay.get("units", 0)), inline=True)
-    await send_to_channel("parlays", embed=embed)
+    await _post({"embeds": [embed]})
 
 
 async def post_daily_summary(summary_text: str) -> None:
-    embed = discord.Embed(title="Daily Summary", description=summary_text, color=0x1565C0)
-    await send_to_channel("daily-summary", embed=embed)
+    embed = _embed(title="Daily Summary", description=summary_text, color=0x1565C0)
+    await _post({"embeds": [embed]})
 
 
 async def post_weekly_summary(summary_text: str) -> None:
-    embed = discord.Embed(title="Weekly Summary", description=summary_text, color=0x4A148C)
-    await send_to_channel("weekly-summary", embed=embed)
+    embed = _embed(title="Weekly Summary", description=summary_text, color=0x4A148C)
+    await _post({"embeds": [embed]})
 
 
 async def post_game_alert(event: dict, minutes_remaining: float) -> None:
-    urgency_colors = {"critical": 0xC62828, "high": 0xF57F17, "medium": 0xFDD835, "low": 0x1E88E5}
     from src.engines.timing_engine import get_urgency_level
     urgency = get_urgency_level(minutes_remaining)
-    embed = discord.Embed(
+    colors = {"critical": 0xC62828, "high": 0xF57F17, "medium": 0xFDD835, "low": 0x1E88E5}
+    embed = _embed(
         title=f"Game Alert: {event.get('home_team', '')} vs {event.get('away_team', '')}",
         description=f"Starting in **{int(minutes_remaining)} minutes**",
-        color=urgency_colors.get(urgency, 0x757575),
+        color=colors.get(urgency, 0x757575),
+        fields=[
+            {"name": "Sport",   "value": event.get("sport_key", "—")},
+            {"name": "Urgency", "value": urgency.upper()},
+        ],
     )
-    embed.add_field(name="Sport", value=event.get("sport", "—"), inline=True)
-    embed.add_field(name="Urgency", value=urgency.upper(), inline=True)
-    await send_to_channel("game-alerts", embed=embed)
+    await _post({"embeds": [embed]})
 
 
-SPORT_TO_CHANNEL = {
-    "basketball_nba": "nba",
-    "americanfootball_nfl": "nfl",
-    "baseball_mlb": "mlb",
-    "icehockey_nhl": "nhl",
-    "soccer_epl": "soccer",
-    "soccer_uefa_champs_league": "soccer",
-    "mma": "mma",
-    "tennis": "tennis",
-    "golf": "golf",
-    "esports": "esports",
-}
-
-
-def run_bot():
-    from src.core.config import DISCORD_BOT_TOKEN
-    if not DISCORD_BOT_TOKEN:
-        logger.error("DISCORD_BOT_TOKEN not set — bot will not start")
-        return
-    bot.run(DISCORD_BOT_TOKEN)
+async def send_to_channel(channel_name: str, content: str = "", **kwargs) -> bool:
+    """Compatibility shim — webhook has no channel routing, posts to configured URL."""
+    payload: dict = {}
+    if content:
+        payload["content"] = content[:2000]
+    embed = kwargs.get("embed")
+    if embed and isinstance(embed, dict):
+        payload["embeds"] = [embed]
+    if not payload:
+        return False
+    return await _post(payload)

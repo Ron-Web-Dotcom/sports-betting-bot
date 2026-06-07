@@ -1,6 +1,6 @@
-"""AI Discussion Mode endpoints — maps to the 10 slash commands."""
-from fastapi import APIRouter
-from pydantic import BaseModel
+"""AI Discussion Mode endpoints."""
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from src.engines.ai_engine import handle_command
 
 router = APIRouter()
@@ -12,15 +12,16 @@ VALID_COMMANDS = {
 
 
 class DiscussionRequest(BaseModel):
-    command: str
-    args: str
+    command: str = Field(max_length=50)
+    args: str = Field(default="", max_length=2000)
     context: dict | None = None
 
 
 @router.post("/")
 def discuss(req: DiscussionRequest):
     if req.command not in VALID_COMMANDS:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown command. Valid: {sorted(VALID_COMMANDS)}")
     result = handle_command(req.command, req.args, req.context)
+    if result is None:
+        raise HTTPException(status_code=503, detail="Analysis service temporarily unavailable")
     return {"command": req.command, "response": result}

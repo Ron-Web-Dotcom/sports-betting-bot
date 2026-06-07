@@ -41,7 +41,7 @@ def _daily_units_used(sport: str | None = None) -> float:
             if sport:
                 q = q.filter(Pick.sport == sport)
             picks = q.all()
-            return sum(p.units for p in picks)
+            return sum(p.units or 0 for p in picks)
     except Exception as e:
         logger.warning("daily_units_used lookup failed: %s", e)
         return 0.0
@@ -115,17 +115,12 @@ def assess(
     risk_score = _compute_risk_score(ev_pct, confidence, 1 - line_movement_volatility, data_quality, injury_flags, len(red_flags))
     fk = kelly_fraction(win_prob, decimal_odds)
 
-    # Hard caps
-    daily_used        = _daily_units_used()
-    daily_used_sport  = _daily_units_used(sport)
-    units             = min(requested_units, int(MAX_SINGLE_UNITS))
-
-    if daily_used + units > MAX_DAILY_UNITS:
-        remaining = max(0, int(MAX_DAILY_UNITS - daily_used))
-        if remaining == 0:
-            return RiskAssessment(risk_score=risk_score, approved=False, units_allowed=0,
-                                  rejection_reason="Daily unit limit reached (15u)", red_flags=red_flags, kelly_fraction=fk)
-        units = remaining
+    # Hard caps — use a Redis atomic increment to prevent concurrent workers
+    # from both reading 12u and both approving picks that push total to 18u.
+    units = min(requested_units, int(MAX_SINGLE_UNITS))
+    units = _atomic_daily_unit_check_and_reserve(units, sport, red_flags, risk_score, fk)
+    if isinstance(units, RiskAssessment):
+        return units  # limit hit or reservation failed
 
     # Downgrade if red flags
     if len(red_flags) >= 2:
@@ -142,3 +137,66 @@ def assess(
         red_flags     = red_flags,
         kelly_fraction= fk,
     )
+
+
+def _atomic_daily_unit_check_and_reserve(
+    units: int,
+    sport: str,
+    red_flags: list[str],
+    risk_score: float,
+    fk: float,
+) -> "int | RiskAssessment":
+    """
+    Atomically check and reserve daily units using Redis INCRBY.
+
+    Redis INCRBY is atomic — no two workers can both read-then-write
+    the same counter. If the increment would exceed the limit, we
+    decrement back and return a rejection.
+
+    Falls back to the DB-query approach if Redis is unavailable.
+    """
+    from datetime import date
+    try:
+        import redis as _redis
+        from src.core.config import REDIS_URL
+        r = _redis.from_url(REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
+        key = f"daily_units:{date.today().isoformat()}"
+        # Lua script: atomically reserve up to MAX_DAILY_UNITS units.
+        # Returns the number of units actually reserved (0 = fully exhausted).
+        lua = """
+local key    = KEYS[1]
+local req    = tonumber(ARGV[1])
+local limit  = tonumber(ARGV[2])
+local ttl    = tonumber(ARGV[3])
+local cur    = tonumber(redis.call('GET', key) or 0)
+local avail  = math.max(0, limit - cur)
+local grant  = math.min(req, avail)
+if grant > 0 then
+    redis.call('INCRBY', key, grant)
+    redis.call('EXPIRE', key, ttl)
+end
+return grant
+"""
+        granted = r.eval(lua, 1, key, units, MAX_DAILY_UNITS, 90_000)
+        granted = int(granted)
+        if granted == 0:
+            return RiskAssessment(
+                risk_score=risk_score, approved=False, units_allowed=0,
+                rejection_reason=f"Daily unit limit reached ({MAX_DAILY_UNITS}u)",
+                red_flags=red_flags, kelly_fraction=fk,
+            )
+        return granted
+    except Exception as e:
+        logger.warning("Redis unit reservation failed, falling back to DB check: %s", e)
+        # Fallback: read from DB (not atomic but better than nothing)
+        daily_used = _daily_units_used()
+        if daily_used + units > MAX_DAILY_UNITS:
+            remaining = max(0, int(MAX_DAILY_UNITS - daily_used))
+            if remaining == 0:
+                return RiskAssessment(
+                    risk_score=risk_score, approved=False, units_allowed=0,
+                    rejection_reason=f"Daily unit limit reached ({MAX_DAILY_UNITS}u)",
+                    red_flags=red_flags, kelly_fraction=fk,
+                )
+            return remaining
+        return units

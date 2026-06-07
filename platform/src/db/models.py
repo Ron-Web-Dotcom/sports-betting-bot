@@ -73,7 +73,7 @@ class Team(Base):
     abbrev      = Column(String(10))
     city        = Column(String(100))
     created_at  = Column(DateTime, default=datetime.utcnow)
-    Index("ix_teams_sport", "sport_id")
+    __table_args__ = (Index("ix_teams_sport", "sport_id"),)
 
 
 class Player(Base):
@@ -89,9 +89,11 @@ class Player(Base):
     external_id     = Column(String(100))  # ESPN / platform player ID
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    Index("ix_players_sport",  "sport_id")
-    Index("ix_players_team",   "team_id")
-    Index("ix_players_status", "status")
+    __table_args__ = (
+        Index("ix_players_sport",  "sport_id"),
+        Index("ix_players_team",   "team_id"),
+        Index("ix_players_status", "status"),
+    )
 
 
 class Game(Base):
@@ -198,6 +200,8 @@ class Pick(Base):
         Index("ix_picks_result",       "result"),
         Index("ix_picks_sport",        "sport"),
         Index("ix_picks_units",        "units"),
+        # Composite index for settlement query: result + recommendation + generated_at
+        Index("ix_picks_settlement", "result", "recommendation", "generated_at"),
     )
 
 
@@ -371,7 +375,7 @@ class UserProfile(Base):
     user_id      = Column(String(100), unique=True, nullable=False)
     bankroll     = Column(Float, default=1000.0)
     risk_profile = Column(String(20), default="balanced")
-    sports       = Column(JSON, default=list)
+    sports       = Column(JSON, default=lambda: [])
     max_units    = Column(Integer, default=3)
     min_ev       = Column(Float, default=0.02)
     created_at   = Column(DateTime, default=datetime.utcnow)
@@ -401,3 +405,24 @@ class AlertRecord(Base):
     message_id      = Column(String(100))  # Discord message ID
     delivered       = Column(Boolean, default=True)
     __table_args__ = (Index("ix_alerts_sent_at", "sent_at"),)
+
+
+class PropResult(Base):
+    """Tracks every graded prop pick for the learning loop."""
+    __tablename__ = "prop_results"
+    id           = Column(Integer, primary_key=True)
+    subject      = Column(String(200), nullable=False)   # player or team name
+    stat         = Column(String(100), nullable=False)   # "Points", "Rushing Yards", etc.
+    sport_key    = Column(String(100), nullable=False)
+    direction    = Column(String(10),  nullable=False)   # "over" | "under"
+    line         = Column(Float,       nullable=False)
+    actual_value = Column(Float,       nullable=True)    # filled in at settlement
+    result       = Column(String(10),  nullable=True)    # "won" | "lost" | "push"
+    game_time    = Column(String(50),  nullable=True)
+    settled_at   = Column(DateTime,    nullable=True)
+    created_at   = Column(DateTime,    default=datetime.utcnow)
+    __table_args__ = (
+        Index("ix_prop_results_subject_stat", "subject", "stat"),
+        Index("ix_prop_results_sport",        "sport_key"),
+        Index("ix_prop_results_settled",      "settled_at"),
+    )

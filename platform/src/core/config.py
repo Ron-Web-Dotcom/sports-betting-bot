@@ -13,14 +13,28 @@ PLATFORM_VERSION = "1.0.0"
 ENVIRONMENT      = os.getenv("ENVIRONMENT", "development")  # development | staging | production
 
 # ── API Keys ───────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY", "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")
-ODDS_API_KEY         = os.getenv("ODDS_API_KEY",       "2abd34975bfe02e0ce58cd8410450f79")
-DISCORD_BOT_TOKEN    = os.getenv("DISCORD_BOT_TOKEN",  "")
-DISCORD_GUILD_ID     = int(os.getenv("DISCORD_GUILD_ID", "0"))
-DISCORD_WEBHOOK_URL  = os.getenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1511150608185561118/CfcL7QAa7zwDuxIQ3U0xG-oamLypdx2yYkE_xhFQrFS9mWO_KySrItLb1nzVLpgVG-sx")
+def _require(name: str) -> str:
+    """Fail loudly at startup if a required secret is missing — never use a hardcoded default."""
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"Required environment variable '{name}' is not set. "
+            "Add it to your .env file or deployment secrets manager."
+        )
+    return value
+
+def _optional(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+# Keys that are always required (no fallback — fail fast rather than silently use wrong key)
+OPENAI_API_KEY      = _require("OPENAI_API_KEY")
+ODDS_API_KEY        = _require("ODDS_API_KEY")
+
+# Discord — webhook URL only; no bot token or guild ID needed
+DISCORD_WEBHOOK_URL = _optional("DISCORD_WEBHOOK_URL")
 
 # ── Database ───────────────────────────────────────────────────────────────────
-DATABASE_URL    = os.getenv("DATABASE_URL",    "postgresql://sip:sip_pass@localhost:5432/sip_db")
+DATABASE_URL    = os.getenv("DATABASE_URL", "")
 REDIS_URL       = os.getenv("REDIS_URL",       "redis://localhost:6379/0")
 CELERY_BROKER   = os.getenv("CELERY_BROKER",   "redis://localhost:6379/1")
 CELERY_BACKEND  = os.getenv("CELERY_BACKEND",  "redis://localhost:6379/2")
@@ -29,6 +43,20 @@ CELERY_BACKEND  = os.getenv("CELERY_BACKEND",  "redis://localhost:6379/2")
 SQLITE_URL = f"sqlite:///{BASE_DIR}/data/sip.db"
 USE_SQLITE = os.getenv("USE_SQLITE", "true").lower() == "true"
 EFFECTIVE_DB_URL = SQLITE_URL if USE_SQLITE else DATABASE_URL
+
+# SQLite does not support concurrent writes — it will corrupt data under load.
+# Refuse to start with SQLite in production.
+if USE_SQLITE and ENVIRONMENT == "production":
+    raise RuntimeError(
+        "USE_SQLITE=true is not allowed in ENVIRONMENT=production. "
+        "Set USE_SQLITE=false and configure DATABASE_URL to a PostgreSQL instance."
+    )
+
+if not USE_SQLITE and not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL must be set when USE_SQLITE=false. "
+        "Add DATABASE_URL=postgresql://user:pass@host:5432/dbname to your .env file."
+    )
 
 # ── External API bases ─────────────────────────────────────────────────────────
 ODDS_API_BASE        = "https://api.the-odds-api.com/v4"
@@ -71,6 +99,8 @@ SPORTS = {
     "mlb":      "baseball_mlb",
     "nhl":      "icehockey_nhl",
     "soccer":   "soccer_epl",
+    "worldcup": "soccer_fifa_world_cup",
+    "wc":       "soccer_fifa_world_cup",
     "tennis":   "tennis_atp_french_open",
     "ufc":      "mma_mixed_martial_arts",
     "mma":      "mma_mixed_martial_arts",
@@ -85,31 +115,12 @@ SPORTS = {
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
 
-# ── Claude ─────────────────────────────────────────────────────────────────────
-CLAUDE_MODEL      = "claude-opus-4-8"
-CLAUDE_MAX_TOKENS = 2048
+# ── Betting apps (optional — platform degrades gracefully if not set) ──────────
+KALSHI_API_KEY_ID  = _optional("KALSHI_API_KEY_ID")
+KALSHI_PRIVATE_KEY = _optional("KALSHI_PRIVATE_KEY")
+# PrizePicks, Underdog, HardRock — no key required
 
-# ── Discord channel names ──────────────────────────────────────────────────────
-DISCORD_CHANNELS = {
-    "top_picks":      "top-picks",
-    "new_odds":       "new-odds",
-    "line_movement":  "line-movement",
-    "player_props":   "player-props",
-    "parlays":        "parlays",
-    "soccer":         "soccer",
-    "nba":            "nba",
-    "nfl":            "nfl",
-    "mlb":            "mlb",
-    "nhl":            "nhl",
-    "mma":            "mma",
-    "tennis":         "tennis",
-    "golf":           "golf",
-    "esports":        "esports",
-    "live_tracker":   "live-tracker",
-    "game_alerts":    "game-alerts",
-    "results":        "results",
-    "daily_summary":  "daily-summary",
-    "weekly_summary": "weekly-summary",
-    "monthly_summary":"monthly-summary",
-    "discussion":     "discussion",
-}
+# ── OpenAI ─────────────────────────────────────────────────────────────────────
+OPENAI_MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_MAX_TOKENS = 2048
+
