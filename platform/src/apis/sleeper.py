@@ -187,10 +187,77 @@ def get_trending_players(sport_key: str = "americanfootball_nfl",
     ]
 
 
+def get_sport_state(sport_key: str) -> dict:
+    """Returns current season/week metadata for any supported sport."""
+    sport = SPORT_MAP.get(sport_key, "nfl")
+    return get_json(f"{_BASE}/state/{sport}") or {}
+
+
 def get_nfl_state() -> dict:
     """Returns current NFL season, week, and season type."""
-    data = get_json(f"{_BASE}/state/nfl")
-    return data or {}
+    return get_sport_state("americanfootball_nfl")
+
+
+def get_injured_players(sport_key: str) -> list[dict]:
+    """
+    Return all players with a non-active injury status for a sport.
+    Used to enrich ESPN injury data and catch updates ESPN misses.
+
+    Sleeper injury_status values: "Out", "Doubtful", "Questionable",
+    "Injured_Reserve", "PUP", "NFI", "Suspended", "GTD", "Day-To-Day"
+    """
+    all_players = get_all_players(sport_key)
+    injured = []
+    for pid, p in all_players.items():
+        inj_status = (p.get("injury_status") or "").strip()
+        status     = (p.get("status") or "Active").strip()
+
+        # Skip fully active / practice squad / undrafted etc.
+        if not inj_status and status == "Active":
+            continue
+        if status in {"Inactive", "Practice Squad", ""}:
+            continue
+
+        name = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
+        if not name:
+            continue
+
+        injured.append({
+            "player_name":   name,
+            "player_id":     pid,
+            "team":          p.get("team", ""),
+            "position":      p.get("position", ""),
+            "status":        status,
+            "injury_status": inj_status,
+            "injury_notes":  p.get("injury_notes", ""),
+            "sport":         sport_key,
+            "source":        "sleeper",
+        })
+
+    logger.info("Sleeper injured players: %d for %s", len(injured), sport_key)
+    return injured
+
+
+def get_all_injured_players() -> list[dict]:
+    """Return injured players across all Sleeper-supported sports (NFL/NBA/MLB)."""
+    out: list[dict] = []
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(get_injured_players, sk): sk for sk in SPORT_MAP}
+        for fut in as_completed(futures, timeout=20):
+            try:
+                out.extend(fut.result())
+            except Exception as e:
+                logger.warning("Sleeper injured fetch failed [%s]: %s", futures[fut], e)
+    return out
+
+
+def get_trending_drops(sport_key: str = "americanfootball_nfl", limit: int = 25) -> list[dict]:
+    """
+    Players being dropped from rosters — strong signal for injury or benching.
+    Complements get_injured_players() by catching news before official reports.
+    """
+    return get_trending_players(sport_key, trend_type="drop", limit=limit)
 
 
 def get_player_info(player_id: str, sport_key: str = "americanfootball_nfl") -> dict:

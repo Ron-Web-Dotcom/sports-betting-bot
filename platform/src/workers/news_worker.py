@@ -1,7 +1,8 @@
-"""News/injury worker — fetches ESPN data, detects status changes, alerts on prop impact."""
+"""News/injury worker — fetches ESPN + Sleeper data, detects status changes, alerts on prop impact."""
 import logging
 from src.workers.celery_app import app
 from src.engines.news_engine import fetch_all_injuries, save_injuries
+from src.apis.sleeper import get_all_injured_players
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,38 @@ def _build_injury_alert(change: dict, affected_props: list[dict]) -> dict | None
     }
 
 
+def _merge_injury_sources(espn_injuries: list[dict], sleeper_injuries: list[dict]) -> list[dict]:
+    """
+    Merge ESPN + Sleeper injury reports into one deduplicated list.
+    ESPN is primary (richer detail); Sleeper fills gaps ESPN misses.
+    Deduplication is by player_name — ESPN entry wins on collision.
+    """
+    merged: dict[str, dict] = {}
+
+    # Normalize Sleeper entries to the same shape as ESPN entries
+    for s in sleeper_injuries:
+        name = s.get("player_name", "")
+        if not name:
+            continue
+        inj = (s.get("injury_status") or s.get("status") or "").lower()
+        merged[name.lower()] = {
+            "player_name": name,
+            "team":        s.get("team", ""),
+            "sport":       s.get("sport", ""),
+            "status":      inj,
+            "detail":      s.get("injury_notes", ""),
+            "source":      "sleeper",
+        }
+
+    # ESPN entries overwrite Sleeper on name collision (ESPN has more detail)
+    for e in espn_injuries:
+        name = e.get("player_name", "")
+        if name:
+            merged[name.lower()] = {**e, "source": "espn"}
+
+    return list(merged.values())
+
+
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
 def fetch_and_save_news(self):
     if _is_sleep_time():
@@ -196,13 +229,49 @@ def fetch_and_save_news(self):
         import redis as _redis
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-        injuries_by_sport = fetch_all_injuries()
-        flat_injuries = [inj for lst in injuries_by_sport.values() for inj in lst]
-        save_injuries(flat_injuries)
+        # ── Fetch injury data from both ESPN and Sleeper in parallel ──────────
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+        espn_result: dict  = {}
+        sleeper_result: list[dict] = []
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            espn_fut    = pool.submit(fetch_all_injuries)
+            sleeper_fut = pool.submit(get_all_injured_players)
+            for fut in _as_completed([espn_fut, sleeper_fut], timeout=30):
+                if fut is espn_fut:
+                    try:
+                        espn_result = fut.result()
+                    except Exception as e:
+                        logger.warning("ESPN injury fetch failed: %s", e)
+                else:
+                    try:
+                        sleeper_result = fut.result()
+                    except Exception as e:
+                        logger.warning("Sleeper injury fetch failed: %s", e)
+
+        espn_flat = [inj for lst in espn_result.values() for inj in lst]
+
+        # Group Sleeper injuries by sport for per-sport change detection
+        sleeper_by_sport: dict[str, list[dict]] = {}
+        for inj in sleeper_result:
+            sk = inj.get("sport", "")
+            sleeper_by_sport.setdefault(sk, []).append(inj)
+
+        # Merge and save to DB
+        all_injuries = _merge_injury_sources(espn_flat, sleeper_result)
+        save_injuries(all_injuries)
 
         # ── Detect changes and alert on prop-impacting updates ────────────────
+        # Build combined per-sport view for change detection
+        combined_by_sport: dict[str, list[dict]] = {}
+        for sport_key, injuries in espn_result.items():
+            combined_by_sport.setdefault(sport_key, []).extend(injuries)
+        for sport_key, injuries in sleeper_by_sport.items():
+            if sport_key and sport_key not in combined_by_sport:
+                combined_by_sport[sport_key] = injuries  # Sleeper-only sport
+
         all_alerts = []
-        for sport_key, injuries in injuries_by_sport.items():
+        for sport_key, injuries in combined_by_sport.items():
             prev = _load_prev_injuries(r, sport_key)
             changes = _detect_changes(prev, injuries)
             _save_current_injuries(r, sport_key, injuries)
@@ -220,9 +289,14 @@ def fetch_and_save_news(self):
             send_lineup_alerts.delay(all_alerts)
             logger.info("Lineup alerts fired: %d changes affect active props", len(all_alerts))
 
-        logger.info("News worker: %d injuries, %d prop-impacting changes",
-                    len(flat_injuries), len(all_alerts))
-        return {"injuries": len(flat_injuries), "alerts": len(all_alerts)}
+        logger.info("News worker: %d injuries (ESPN:%d + Sleeper:%d), %d prop-impacting changes",
+                    len(all_injuries), len(espn_flat), len(sleeper_result), len(all_alerts))
+        return {
+            "injuries":       len(all_injuries),
+            "espn_injuries":  len(espn_flat),
+            "sleeper_injuries": len(sleeper_result),
+            "alerts":         len(all_alerts),
+        }
 
     except Exception as exc:
         logger.error("News fetch failed: %s", exc)
