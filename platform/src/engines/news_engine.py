@@ -37,6 +37,7 @@ def fetch_injuries(sport_key: str) -> list[dict]:
         "baseball_mlb":           ("baseball",   "mlb"),
         "icehockey_nhl":          ("hockey",     "nhl"),
         "soccer_epl":             ("soccer",     "eng.1"),
+        "soccer_fifa_world_cup":  ("soccer",     "fifa.world"),
     }
     mapping_entry = mapping.get(sport_key)
     if not mapping_entry:
@@ -132,4 +133,37 @@ def fetch_all_injuries() -> dict[str, list[dict]]:
         inj = fetch_injuries(sport_key)
         if inj:
             result[sport_key] = inj
+    return result
+
+
+def get_recent_injuries(hours: int = 24) -> list[dict]:
+    """Return recent injuries from DB as flat list — used by picks_worker."""
+    from src.db.session import get_db
+    from src.db.models import NewsEvent
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    with get_db() as db:
+        rows = db.query(NewsEvent).filter(
+            NewsEvent.category == "injury",
+            NewsEvent.fetched_at >= cutoff,
+        ).all()
+        result = []
+        for row in rows:
+            players = row.affected_players or []
+            teams = row.affected_teams or []
+            headline = row.headline or ""
+            # Extract actual status from saved headline "Player — status (team)"
+            status = "out"
+            for s in INJURY_CRITICAL_STATUSES:
+                if s in headline.lower():
+                    status = s
+                    break
+            result.append({
+                "sport": row.sport,
+                "player_name": players[0] if players else "",
+                "team": teams[0] if teams else "",
+                "status": status,
+                "detail": row.detail or "",
+            })
     return result

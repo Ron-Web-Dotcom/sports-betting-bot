@@ -38,7 +38,8 @@ def record_clv(pick_id: int, odds_at_pick: int, odds_at_close: int) -> None:
             pick.american_odds_close = odds_at_close
             pick.clv_pct             = clv
 
-        # Upsert CLV record — try INSERT, fall back to UPDATE on conflict
+        # Upsert CLV record using a savepoint so a conflict doesn't poison
+        # the outer session (db.rollback() would roll back the pick update too).
         existing = db.query(CLVRecord).filter_by(pick_id=pick_id).first()
         if existing:
             existing.odds_at_close    = odds_at_close
@@ -59,9 +60,11 @@ def record_clv(pick_id: int, odds_at_pick: int, odds_at_close: int) -> None:
             )
             db.add(rec)
             try:
-                db.flush()
+                # Use a savepoint: rollback only undoes the INSERT, not the
+                # preceding pick update, keeping the outer transaction intact.
+                with db.begin_nested():
+                    db.flush()
             except IntegrityError:
-                db.rollback()
                 # Race condition: another process inserted first — update instead
                 existing = db.query(CLVRecord).filter_by(pick_id=pick_id).first()
                 if existing:
@@ -93,11 +96,11 @@ def aggregate_clv(period: str = "daily", sport: str | None = None) -> dict:
         if sport:
             q = q.filter(CLVRecord.sport == sport)
         records = q.all()
+        clvs = [r.clv_pct for r in records]  # extract inside session
 
-    if not records:
-        return {"period": period, "sport": sport, "count": 0, "avg_clv": 0.0, "positive_pct": 0.0}
+    if not clvs:
+        return {"period": period, "sport": sport, "count": 0, "avg_clv": 0.0, "positive_pct": 0.0, "total_clv": 0.0}
 
-    clvs = [r.clv_pct for r in records]
     positive = sum(1 for c in clvs if c > 0)
     return {
         "period":       period,
@@ -124,9 +127,12 @@ def clv_by_dimension(dimension: str = "sport", period: str = "lifetime") -> dict
     }
     cutoff = cutoffs.get(period, cutoffs["lifetime"])
 
+    valid_dims = {"sport", "market", "book"}
+    dims = [dimension] if dimension in valid_dims else list(valid_dims)
+
     result: dict = {}
     with get_db() as db:
-        for dim in ["sport", "market", "book"]:
+        for dim in dims:
             col = getattr(CLVRecord, dim)
             q = db.query(col, func.avg(CLVRecord.clv_pct), func.count(CLVRecord.id))\
                   .filter(CLVRecord.recorded_at >= cutoff)\

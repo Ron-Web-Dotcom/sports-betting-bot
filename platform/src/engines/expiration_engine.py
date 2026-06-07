@@ -32,12 +32,14 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
                 diff = (ct - now).total_seconds() / 60
                 minutes_to_game = max(0.0, diff)
 
-    # game is imminent
-    if minutes_to_game < 60:
+    # game is imminent — also treat unknown start time (inf) as bet_now
+    if minutes_to_game < 60 or minutes_to_game == float("inf"):
+        # Cap infinite time to 60 min window; timedelta(minutes=inf) raises OverflowError
+        safe_minutes = min(minutes_to_game, 60) if minutes_to_game != float("inf") else 60
         return ExpirationWindow(
             current_odds=current_odds,
             expected_odds=current_odds,
-            bet_before=(now + timedelta(minutes=minutes_to_game)).isoformat(),
+            bet_before=(now + timedelta(minutes=safe_minutes)).isoformat(),
             urgency="bet_now",
             minutes_remaining=minutes_to_game,
             reasoning="Game starts in less than 60 minutes — bet now.",
@@ -58,7 +60,7 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
     deltas = []
     for mv in recent:
         before = mv.get("odds_before", 0)
-        after = mv.get("odds_after", mv.get("odds_after", 0))
+        after = mv.get("odds_after", 0)
         deltas.append(after - before)
 
     moving_against = all(d > 0 for d in deltas) if deltas else False  # positive = odds getting worse (higher for fav)

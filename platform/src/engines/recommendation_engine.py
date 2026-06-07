@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from src.engines.ev_engine import EVResult, bankroll_examples
+from src.engines.ev_engine import EVResult, bankroll_examples, american_to_decimal
 from src.engines.confidence_engine import ConfidenceResult
 from src.engines.risk_engine import RiskAssessment
 from src.engines.comparison_engine import BookComparison
@@ -23,6 +23,7 @@ class PickRecommendation:
     sport:          str
     game:           str
     bet:            str           # "Lakers ML" / "Over 224.5" / "LeBron 30+ pts"
+    market:         str           # h2h | spreads | totals | player_prop
     sportsbook:     str
     odds:           int
 
@@ -97,6 +98,7 @@ def build_recommendation(
     comparison:     BookComparison | None,
     ai_reasoning:   str,
     key_factors:    list[str],
+    market:         str = "h2h",
     statistical_score: float = 0.5,
     ml_score:          float = 0.5,
     market_score:      float = 0.5,
@@ -116,6 +118,7 @@ def build_recommendation(
         sport              = sport,
         game               = game,
         bet                = bet,
+        market             = market,
         sportsbook         = comparison.best_book if comparison else "",
         odds               = ev_result.american_odds,
         recommendation     = rec,
@@ -172,19 +175,19 @@ def persist_pick(
                         "reasons": gate.reasons,
                     },
                 ))
-        except Exception:
-            pass
+        except Exception as _audit_exc:
+            logger.error("Audit trail write failed for blocked pick '%s': %s", pick.bet, _audit_exc)
         return None
 
     with get_db() as db:
         p = Pick(
             game_id              = game_id,
             sport                = pick.sport,
-            market               = "h2h",
+            market               = pick.market,
             selection            = pick.bet,
             best_book            = pick.sportsbook,
             american_odds_at_gen = pick.odds,
-            decimal_odds_at_gen  = 1.0 / (pick.ev_pct + 0.5) if pick.ev_pct > -0.5 else 2.0,
+            decimal_odds_at_gen  = american_to_decimal(pick.odds) if pick.odds else 2.0,
             recommendation       = pick.recommendation,
             units                = pick.units,
             ev_pct               = pick.ev_pct,
@@ -197,7 +200,7 @@ def persist_pick(
             trend_score          = pick.trend_score,
             reasoning            = pick.reasoning,
             key_factors          = pick.key_factors,
-            risk_flags           = pick.risk_flags + gate.warnings,   # surface warnings in pick
+            risk_flags           = (pick.risk_flags or []) + (gate.warnings or []),
         )
         db.add(p)
         db.flush()

@@ -63,7 +63,10 @@ def normalise_event(event: dict, sport_key: str) -> dict:
             markets.setdefault(mk, {})
             for outcome in mkt.get("outcomes", []):
                 sel   = outcome["name"]
-                price = int(outcome.get("price", -110))
+                try:
+                    price = int(outcome.get("price", -110))
+                except (TypeError, ValueError):
+                    price = -110
                 line  = outcome.get("point")
                 markets[mk].setdefault(sel, [])
                 markets[mk][sel].append({
@@ -151,22 +154,34 @@ def run_full_odds_scan() -> list[dict]:
 
 
 def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
-    """Return {game_id: [snapshot_dicts]} for all open games."""
+    """Return {game_id: [snapshot_dicts]} for all open games.
+
+    Each dict includes game-level fields (sport_key, home_team, away_team,
+    commence_time) so callers don't need a separate Game lookup.
+    """
+    from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
     from datetime import datetime, timedelta
 
-    with get_db() as db:
-        recent = db.query(OddsSnapshot).filter(
-            OddsSnapshot.captured_at >= datetime.utcnow() - timedelta(hours=2)
-        ).all()
-
     result: dict[int, list[dict]] = {}
-    for snap in recent:
-        result.setdefault(snap.game_id, []).append({
-            "book": snap.book,
-            "market": snap.market,
-            "selection": snap.selection,
-            "best_odds": snap.american_odds,
-            "decimal_odds": snap.decimal_odds,
-        })
+    with get_db() as db:
+        rows = (
+            db.query(OddsSnapshot, Game)
+            .join(Game, Game.id == OddsSnapshot.game_id)
+            .filter(OddsSnapshot.captured_at >= datetime.utcnow() - timedelta(hours=2))
+            .all()
+        )
+        for snap, game in rows:
+            result.setdefault(snap.game_id, []).append({
+                "book":          snap.book,
+                "market":        snap.market,
+                "selection":     snap.selection,
+                "best_odds":     snap.american_odds,
+                "decimal_odds":  snap.decimal_odds,
+                # game-level fields needed by picks_worker
+                "sport_key":     game.sport,
+                "home_team":     game.home_team,
+                "away_team":     game.away_team,
+                "commence_time": str(game.commence_time or ""),
+            })
     return result

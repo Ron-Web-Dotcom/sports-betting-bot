@@ -38,28 +38,36 @@ def compute_roi_by_dimension(dimension: str, period: str = "lifetime") -> list[d
     col = col_map.get(dimension, Pick.sport)
 
     with get_db() as db:
-        picks = db.query(Pick).filter(
+        pick_rows = db.query(
+            Pick.result, Pick.actual_pnl_units, Pick.units, Pick.ev_pct,
+            Pick.confidence_pct, col,
+        ).filter(
             Pick.generated_at >= cutoff,
             Pick.result.in_(["won", "lost", "push"]),
             Pick.recommendation == "BET",
         ).all()
 
-    if not picks:
+    if not pick_rows:
         return []
 
-    # Group manually
+    # Group by dimension value (last column in each row)
     groups: dict = {}
-    for pick in picks:
-        key = str(getattr(pick, dimension, "unknown"))
-        groups.setdefault(key, []).append(pick)
+    for row in pick_rows:
+        result, pnl, units, ev, conf, dim_val = row
+        key = str(dim_val) if dim_val is not None else "unknown"
+        groups.setdefault(key, []).append(
+            {"result": result, "actual_pnl_units": pnl, "units": units,
+             "ev_pct": ev, "confidence_pct": conf}
+        )
 
     results = []
     for key, group in groups.items():
-        wins   = [p for p in group if p.result == "won"]
-        losses = [p for p in group if p.result == "lost"]
-        units_won  = sum(p.actual_pnl_units or 0 for p in wins)
-        units_lost = sum(abs(p.actual_pnl_units or 0) for p in losses)
+        wins   = [p for p in group if p["result"] == "won"]
+        losses = [p for p in group if p["result"] == "lost"]
+        units_won  = sum(p["actual_pnl_units"] or 0 for p in wins)
+        units_lost = sum(abs(p["actual_pnl_units"] or 0) for p in losses)
 
+        total_wagered = sum(p["units"] or 1 for p in group)
         results.append({
             "dimension":       dimension,
             "value":           key,
@@ -69,10 +77,11 @@ def compute_roi_by_dimension(dimension: str, period: str = "lifetime") -> list[d
             "units_won":       round(units_won, 2),
             "units_lost":      round(units_lost, 2),
             "net_units":       round(units_won - units_lost, 2),
+            "total_wagered":   round(total_wagered, 2),
             "hit_rate":        round(len(wins) / len(group), 4),
-            "roi":             round((units_won - units_lost) / max(units_lost, 0.01), 4),
-            "avg_ev":          round(sum(p.ev_pct or 0 for p in group) / len(group), 4),
-            "avg_confidence":  round(sum(p.confidence_pct or 0 for p in group) / len(group), 2),
+            "roi":             round((units_won - units_lost) / max(total_wagered, 0.01), 4),
+            "avg_ev":          round(sum(p["ev_pct"] or 0 for p in group) / len(group), 4),
+            "avg_confidence":  round(sum(p["confidence_pct"] or 0 for p in group) / len(group), 2),
         })
 
     results.sort(key=lambda x: x["roi"], reverse=True)

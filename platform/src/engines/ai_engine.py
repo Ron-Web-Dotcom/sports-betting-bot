@@ -1,7 +1,7 @@
 """
 Engine 14 — AI Discussion Engine.
 
-Wraps Claude for:
+Wraps OpenAI for:
 1. Single-leg analysis (statistical + market + injury context)
 2. Parlay approval
 3. Natural language Q&A (/analyze, /player, /team, /explain, /why, /odds)
@@ -9,11 +9,11 @@ Wraps Claude for:
 """
 import json
 import logging
-import anthropic
-from src.core.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MAX_TOKENS
+from openai import OpenAI, APIError
+from src.core.config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
-_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+_client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 # ── System prompts ─────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ def analyse_pick(
     ESPN, StatMuse, RotoWire, and Sleeper. The more context provided, the
     stronger and more traceable the reasoning will be.
 
-    Claude's role here is EXPLANATION only — it receives pre-computed EV and
+    The AI's role here is EXPLANATION only — it receives pre-computed EV and
     confidence scores and must justify them with specific, verifiable factors.
     It does not override the EV model.
     """
@@ -81,7 +81,6 @@ def analyse_pick(
     }
 
     if game_context:
-        # Include only the most signal-rich context keys to stay within token budget
         payload["head_to_head"]   = game_context.get("h2h_statmuse", {})
         payload["home_form"]      = game_context.get("home_form_statmuse", {})
         payload["away_form"]      = game_context.get("away_form_statmuse", {})
@@ -158,28 +157,46 @@ def write_weekly_summary(stats: dict) -> str:
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
 def _call_json(prompt: str, system: str) -> dict | None:
+    raw = ""
     try:
-        resp = _client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=CLAUDE_MAX_TOKENS, system=system,
-            messages=[{"role": "user", "content": prompt}],
+        resp = _client.chat.completions.create(
+            model=OPENAI_MODEL,
+            max_tokens=OPENAI_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": prompt},
+            ],
         )
-        raw = resp.content[0].text.strip()
+        raw = resp.choices[0].message.content.strip() if resp.choices else ""
+        if not raw:
+            logger.warning("OpenAI returned empty content")
+            return None
+        # Strip markdown code fences sometimes wrapping JSON
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.rsplit("```", 1)[0].strip()
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        logger.error("Claude JSON error: %s", e)
+        logger.error("OpenAI JSON parse error: %s | raw=%r", e, raw[:200])
         return None
-    except anthropic.APIError as e:
-        logger.error("Claude API error: %s", e)
+    except APIError as e:
+        logger.error("OpenAI API error: %s", e)
         return None
 
 
 def _call_text(prompt: str, system: str) -> str | None:
     try:
-        resp = _client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=CLAUDE_MAX_TOKENS, system=system,
-            messages=[{"role": "user", "content": prompt}],
+        resp = _client.chat.completions.create(
+            model=OPENAI_MODEL,
+            max_tokens=OPENAI_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": prompt},
+            ],
         )
-        return resp.content[0].text.strip()
-    except anthropic.APIError as e:
-        logger.error("Claude API error: %s", e)
+        return resp.choices[0].message.content.strip() if resp.choices else None
+    except APIError as e:
+        logger.error("OpenAI API error: %s", e)
         return None

@@ -7,15 +7,12 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run a coroutine from a sync Celery context."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+    """Run a coroutine from a sync Celery context.
+
+    asyncio.run() always creates a fresh event loop and tears it down
+    cleanly — safe to call from any Celery worker thread.
+    """
+    return asyncio.run(coro)
 
 
 @app.task
@@ -49,6 +46,76 @@ def send_line_movement_alerts(movements: list[dict]):
 
 
 @app.task
+def send_lineup_alerts(alerts: list[dict]):
+    """Fire Discord alerts for injury/lineup changes that affect active props."""
+    from src.discord_bot.bot import _post
+    try:
+        embeds = [
+            {
+                "title":       a["title"][:256],
+                "description": a["description"][:4096],
+                "color":       a["color"],
+                "fields": [
+                    {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", True)}
+                    for f in a.get("fields", [])[:25]
+                ],
+            }
+            for a in alerts[:10]
+        ]
+        import asyncio
+        asyncio.run(_post({"embeds": embeds}))
+        logger.info("Lineup alerts sent: %d", len(alerts))
+    except Exception as e:
+        logger.error("Failed to send lineup alerts: %s", e)
+
+
+@app.task
+def send_pp_parlay_alert(picks: list[dict]):
+    from src.discord_bot.bot import post_pp_parlay
+    try:
+        _run_async(post_pp_parlay(picks))
+    except Exception as e:
+        logger.error("Failed to send PP parlay alert: %s", e)
+
+
+@app.task
+def send_hardrock_parlay_alert(picks: list[dict]):
+    from src.discord_bot.bot import post_hardrock_parlay
+    try:
+        _run_async(post_hardrock_parlay(picks))
+    except Exception as e:
+        logger.error("Failed to send HardRock parlay alert: %s", e)
+
+
+@app.task
+def send_prop_pick_alerts(picks: list[dict]):
+    from src.discord_bot.bot import post_prop_pick
+    for pick in picks:
+        try:
+            _run_async(post_prop_pick(pick))
+        except Exception as e:
+            logger.error("Failed to send prop pick alert: %s", e)
+
+
+@app.task
+def send_prop_result_alert(pick: dict, result: str, actual: float):
+    from src.discord_bot.bot import post_prop_result
+    try:
+        _run_async(post_prop_result(pick, result, actual))
+    except Exception as e:
+        logger.error("Failed to send prop result alert: %s", e)
+
+
+@app.task
+def send_prop_change_alerts(changes: list[dict]):
+    from src.discord_bot.bot import post_prop_changes
+    try:
+        _run_async(post_prop_changes(changes))
+    except Exception as e:
+        logger.error("Failed to send prop change alerts: %s", e)
+
+
+@app.task
 def send_result_alert(pick: dict, result: str):
     from src.discord_bot.bot import post_result
     try:
@@ -65,18 +132,21 @@ def send_pregame_alerts():
     from src.db.models import Game, AlertRecord
     from datetime import datetime
 
+    # Extract plain values inside session — avoids DetachedInstanceError after close
     with get_db() as db:
-        upcoming = db.query(Game).filter(Game.commence_time >= datetime.utcnow()).all()
+        rows = db.query(
+            Game.id, Game.home_team, Game.away_team, Game.commence_time
+        ).filter(Game.commence_time >= datetime.utcnow()).all()
 
     events = [
         {
-            "id": str(g.id),
-            "sport_key": g.sport_key,
-            "home_team": g.home_team,
-            "away_team": g.away_team,
-            "commence_time": g.commence_time.isoformat(),
+            "id": str(gid),
+            "sport_key": "",   # not on Game model directly — resolved via Sport FK if needed
+            "home_team": home,
+            "away_team": away,
+            "commence_time": ct.isoformat() if ct else "",
         }
-        for g in upcoming
+        for gid, home, away, ct in rows
     ]
 
     windowed = upcoming_games_by_window(events)

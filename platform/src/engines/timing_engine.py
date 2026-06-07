@@ -19,6 +19,10 @@ def minutes_to_game(commence_time_str: str) -> float:
         else:
             from dateutil import parser
             game_time = parser.parse(commence_time_str)
+        # Strip timezone info so both sides are naive UTC — mixing aware and
+        # naive datetimes raises TypeError in Python 3.
+        if hasattr(game_time, "tzinfo") and game_time.tzinfo is not None:
+            game_time = game_time.replace(tzinfo=None)
         delta = game_time - datetime.utcnow()
         return delta.total_seconds() / 60
     except Exception:
@@ -29,9 +33,12 @@ def get_alert_window(minutes_remaining: float) -> int | None:
     """
     Return which pre-game alert window we're in, or None.
     Windows: 60, 30, 15, 10, 5, 0 minutes before game.
+
+    Iterates ascending so we return the SMALLEST window the game qualifies for.
+    e.g. 31 minutes → 30-min window (not 60-min window).
     """
-    for window in sorted(PREGAME_ALERT_WINDOWS, reverse=True):
-        if minutes_remaining <= window + 2:   # 2-min tolerance
+    for window in sorted(PREGAME_ALERT_WINDOWS):   # ascending: 0,5,10,15,30,60
+        if minutes_remaining <= window + 2:         # 2-min tolerance
             return window
     return None
 
