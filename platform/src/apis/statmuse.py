@@ -21,12 +21,18 @@ _BASE = "https://www.statmuse.com"
 
 # StatMuse sport path prefixes
 _SPORT_PREFIX = {
-    "basketball_nba":       "nba",
-    "americanfootball_nfl": "nfl",
-    "baseball_mlb":         "mlb",
-    "icehockey_nhl":        "nhl",
-    "soccer_epl":           "fc",
-    "soccer_usa_mls":       "fc",
+    "basketball_nba":                 "nba",
+    "basketball_ncaab":               "nba",   # StatMuse uses nba prefix for college too
+    "americanfootball_nfl":           "nfl",
+    "americanfootball_ncaaf":         "nfl",
+    "baseball_mlb":                   "mlb",
+    "icehockey_nhl":                  "nhl",
+    "soccer_epl":                     "fc",
+    "soccer_usa_mls":                 "fc",
+    "soccer_fifa_world_cup":          "fc",
+    "mma_mixed_martial_arts":         "nfl",   # no MMA prefix — fallback to query()
+    "golf_masters_tournament_winner": "nfl",   # no golf prefix — fallback to query()
+    "tennis_atp_french_open":         "nfl",   # no tennis prefix — fallback to query()
 }
 
 
@@ -85,11 +91,14 @@ def player_season_stats(player_name: str, sport_key: str, season: str = "") -> d
 
     html = get_html(url)
     if not html:
-        return {"player": player_name, "sport": sport_key, "stats": {}, "source": "statmuse"}
+        return query(f"{player_name} stats this season", sport_key)
 
     next_data = _extract_next_data(html)
     rows      = _parse_stat_table(next_data)
     summary   = _parse_visual_summary(next_data)
+
+    if not rows and not summary:
+        return query(f"{player_name} stats this season", sport_key)
 
     stats = {}
     if rows:
@@ -111,18 +120,26 @@ def player_last_n_games(player_name: str, sport_key: str, n: int = 5) -> dict:
     """
     Fetch a player's stats over their last N games.
     Critical for prop betting — recent form matters more than season average.
+    Falls back to natural-language query if direct URL returns 404.
     """
     prefix = _SPORT_PREFIX.get(sport_key, "nba")
     slug   = player_name.lower().replace(" ", "-")
     url    = f"{_BASE}/{prefix}/player/{slug}/game-log/last-{n}-games"
 
     html = get_html(url)
+
+    # Fall back to natural-language query on 404 or empty response
     if not html:
-        return {"player": player_name, "games": [], "averages": {}, "source": "statmuse"}
+        sport_label = sport_key.split("_")[-1].upper()
+        return query(f"{player_name} last {n} games stats", sport_key)
 
     next_data = _extract_next_data(html)
     rows      = _parse_stat_table(next_data)
     summary   = _parse_visual_summary(next_data)
+
+    # If no structured data found, fall back to NL query
+    if not rows and not summary:
+        return query(f"{player_name} last {n} games stats", sport_key)
 
     return {
         "player":   player_name,

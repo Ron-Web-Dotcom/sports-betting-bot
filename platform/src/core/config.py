@@ -121,6 +121,6 @@ KALSHI_PRIVATE_KEY = _optional("KALSHI_PRIVATE_KEY")
 # PrizePicks, Underdog, HardRock — no key required
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
-OPENAI_MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_MAX_TOKENS = 2048
 
