@@ -141,6 +141,7 @@ def scan_player_props(self):
     Sources:
       PrizePicks  — player Over/Under props (public, no key)
       Underdog    — player Over/Under props (public, no key)
+      Sleeper     — NFL/NBA/MLB weekly stat projections (public, no key)
       HardRock    — ML/spread/totals via Odds API (already in scan_and_save_odds)
       Kalshi      — prediction market contracts (KALSHI_API_KEY_ID required)
 
@@ -152,6 +153,7 @@ def scan_player_props(self):
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
+        from src.apis.sleeper import get_all_projections as sleeper_projections
         from src.apis.kalshi import get_sports_markets as kalshi_markets
         from src.core.config import REDIS_URL
         import redis as _redis
@@ -162,10 +164,11 @@ def scan_player_props(self):
         tasks = {
             "prizepicks": get_all_projections,
             "underdog":   get_all_lines,
+            "sleeper":    sleeper_projections,
             "kalshi":     kalshi_markets,
         }
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {pool.submit(fn): name for name, fn in tasks.items()}
             for future in as_completed(futures, timeout=30):
                 name = futures[future]

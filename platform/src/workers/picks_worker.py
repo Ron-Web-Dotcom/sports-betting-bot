@@ -233,14 +233,34 @@ def morning_props_brief():
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
+        from src.apis.sleeper import get_all_projections as sleeper_projections
         from src.core.config import REDIS_URL
         import redis as _redis
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        pp_props = get_all_projections()
-        ud_props = get_all_lines()
-        r.setex("props:prizepicks", 900, json.dumps(pp_props))
-        r.setex("props:underdog",   900, json.dumps(ud_props))
-        all_props = pp_props + ud_props
+
+        _fetchers = {
+            "prizepicks": get_all_projections,
+            "underdog":   get_all_lines,
+            "sleeper":    sleeper_projections,
+        }
+        _results: dict = {}
+        with ThreadPoolExecutor(max_workers=3) as _pool:
+            _futs = {_pool.submit(fn): name for name, fn in _fetchers.items()}
+            for _fut in _as_completed(_futs, timeout=30):
+                _name = _futs[_fut]
+                try:
+                    _results[_name] = _fut.result()
+                except Exception as _e:
+                    logger.warning("Morning fetch [%s] failed: %s", _name, _e)
+                    _results[_name] = []
+
+        pp_props = _results.get("prizepicks", [])
+        ud_props = _results.get("underdog", [])
+        sl_props = _results.get("sleeper", [])
+        for _name, _items in _results.items():
+            r.setex(f"props:{_name}", 900, json.dumps(_items or []))
+        all_props = pp_props + ud_props + sl_props
     except Exception as e:
         logger.warning("Morning props fetch failed: %s", e)
         all_props = []

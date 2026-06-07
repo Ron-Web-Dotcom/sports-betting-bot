@@ -1,22 +1,156 @@
 """
-Sleeper API adapter — free NFL/NBA/MLB player and roster data.
+Sleeper API adapter — free NFL/NBA/MLB player projections + roster data.
 
-No API key required. Real-time roster, injury, and news data.
-Particularly strong for NFL player projections and injury reports.
+No API key required. Public endpoints:
+  /projections/{sport}/{season}/{week}  — weekly stat projections (prop lines)
+  /v1/players/{sport}                   — full player roster + injury status
+  /v1/players/{sport}/trending/add|drop — trending adds/drops (injury signals)
+  /v1/state/{sport}                     — current season/week metadata
+
+Projections are used as prop-line equivalents (same underlying data
+that Sleeper's own Player Picks pick'em product surfaces).
 """
 import logging
+from datetime import datetime
 from src.apis.base import get_json
 
 logger = logging.getLogger(__name__)
 
-_BASE = "https://api.sleeper.app/v1"
+_BASE    = "https://api.sleeper.app/v1"
+_BASE_V2 = "https://api.sleeper.app"   # projections live here (no /v1/)
 
-# Sleeper sport identifiers
+# Maps our internal sport_key → Sleeper sport string
 SPORT_MAP = {
     "americanfootball_nfl": "nfl",
     "basketball_nba":       "nba",
     "baseball_mlb":         "mlb",
 }
+
+# Stat key → human display name + typical line context
+_STAT_DISPLAY: dict[str, str] = {
+    # NFL
+    "pass_yd":   "Passing Yards",
+    "pass_td":   "Passing TDs",
+    "pass_att":  "Pass Attempts",
+    "rush_yd":   "Rushing Yards",
+    "rush_att":  "Rush Attempts",
+    "rush_td":   "Rushing TDs",
+    "rec":       "Receptions",
+    "rec_yd":    "Receiving Yards",
+    "rec_td":    "Receiving TDs",
+    "rec_tgt":   "Targets",
+    # NBA
+    "pts":       "Points",
+    "reb":       "Rebounds",
+    "ast":       "Assists",
+    "stl":       "Steals",
+    "blk":       "Blocks",
+    "tov":       "Turnovers",
+    "fg3m":      "3-Pointers Made",
+    # MLB
+    "hit":       "Hits",
+    "hr":        "Home Runs",
+    "rbi":       "RBIs",
+    "r":         "Runs",
+    "sb":        "Stolen Bases",
+    "k":         "Strikeouts",
+    "ip":        "Innings Pitched",
+    "er":        "Earned Runs",
+}
+
+# Minimum projection value to surface as a prop line (filters noise)
+_MIN_THRESHOLDS: dict[str, float] = {
+    "pass_yd": 50, "rush_yd": 10, "rec_yd": 10,
+    "pts": 5,      "reb": 2,      "ast": 1,
+}
+
+
+def _current_season_week(sport: str) -> tuple[int, int]:
+    """Return (season_year, week) for the given sport using Sleeper state API."""
+    state = get_json(f"{_BASE}/state/{sport}") or {}
+    season = int(state.get("season", datetime.utcnow().year))
+    week   = int(state.get("week", 1))
+    return season, week
+
+
+def get_projections(sport_key: str, season: int | None = None, week: int | None = None) -> list[dict]:
+    """
+    Fetch weekly player stat projections from Sleeper and return them as
+    prop-line dicts compatible with the prop_engine / scan_player_props pipeline.
+
+    Each dict matches the shape expected by score_props():
+      source, sport_key, subject, stat, line, game_time, team, opponent
+    """
+    sport = SPORT_MAP.get(sport_key)
+    if not sport:
+        return []
+
+    if season is None or week is None:
+        season, week = _current_season_week(sport)
+
+    url = f"{_BASE_V2}/projections/{sport}/{season}/{week}"
+    params = {"season_type": "regular"}
+    # add position filters for NFL to keep payload manageable
+    if sport == "nfl":
+        params["position[]"] = ["QB", "RB", "WR", "TE", "K"]
+
+    raw: dict = get_json(url, params=params) or {}
+    if not raw:
+        logger.warning("Sleeper projections: empty response for %s wk%s", sport_key, week)
+        return []
+
+    # Fetch player roster once to resolve names + teams
+    all_players = get_all_players(sport_key)
+
+    props: list[dict] = []
+    for player_id, proj in raw.items():
+        p = all_players.get(player_id, {})
+        name = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
+        if not name:
+            continue
+        team = p.get("team", "")
+        stats: dict = proj.get("stats", proj)  # response varies by version
+
+        for stat_key, stat_label in _STAT_DISPLAY.items():
+            value = stats.get(stat_key)
+            if value is None:
+                continue
+            value = float(value)
+            # skip if below meaningful threshold
+            if value < _MIN_THRESHOLDS.get(stat_key, 0.5):
+                continue
+
+            props.append({
+                "source":    "sleeper",
+                "sport_key": sport_key,
+                "subject":   name,
+                "stat":      stat_label,
+                "line":      round(value, 1),
+                "team":      team,
+                "opponent":  "",   # Sleeper projections don't embed opponent
+                "game_time": "",
+            })
+
+    logger.info("Sleeper: %d prop lines for %s week %s", len(props), sport_key, week)
+    return props
+
+
+def get_all_projections() -> list[dict]:
+    """Fetch projections for all supported sports and return combined prop list."""
+    out: list[dict] = []
+    for sport_key in SPORT_MAP:
+        out.extend(get_projections(sport_key))
+    return out
+
+
+def get_player_props(sport_key: str) -> list[dict]:
+    """Alias used by prop_engine / odds_worker."""
+    return get_projections(sport_key)
+
+
+def get_all_props() -> list[dict]:
+    """Alias used by morning brief / change detection."""
+    return get_all_projections()
 
 
 def get_all_players(sport_key: str = "americanfootball_nfl") -> dict:
