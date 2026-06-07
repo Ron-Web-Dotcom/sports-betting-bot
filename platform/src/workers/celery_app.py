@@ -3,9 +3,16 @@ Celery application — Sports Intelligence Platform.
 
 6 queues: odds, news, picks, alerts, settlement, analytics.
 """
+import logging
 from celery import Celery
 from celery.schedules import crontab
 from src.core.config import CELERY_BROKER, CELERY_BACKEND
+
+# Silence noisy third-party loggers — 429/403 errors are handled at source level
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+logging.getLogger("tenacity").setLevel(logging.WARNING)
 
 app = Celery(
     "sports_intel",

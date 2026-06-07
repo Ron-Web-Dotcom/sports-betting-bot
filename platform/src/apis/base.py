@@ -59,7 +59,10 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None) 
     except _RetryOn5xx:
         raise
     except httpx.HTTPStatusError as e:
-        logger.warning("HTTP %s from %s", e.response.status_code, url)
+        code = e.response.status_code
+        # 429 = rate limit, 403 = blocked — debug only, not warnings (they spam logs)
+        level = logging.DEBUG if code in (429, 403) else logging.WARNING
+        logger.log(level, "HTTP %s from %s", code, url)
         return None
     except Exception as e:
         logger.error("GET %s failed: %s", url, e)
@@ -71,6 +74,11 @@ def get_html(url: str, params: dict | None = None) -> str | None:
         r = get_client().get(url, params=params)
         r.raise_for_status()
         return r.text
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        level = logging.DEBUG if code in (429, 403) else logging.WARNING
+        logger.log(level, "GET HTML %s failed: %s", code, url)
+        return None
     except Exception as e:
         logger.error("GET HTML %s failed: %s", url, e)
         return None
