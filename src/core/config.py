@@ -104,13 +104,7 @@ SPORTS = {
     "tennis":   "tennis_atp_french_open",
     "ufc":      "mma_mixed_martial_arts",
     "mma":      "mma_mixed_martial_arts",
-    "boxing":   "boxing_boxing",
     "golf":     "golf_masters_tournament_winner",
-    "f1":       "motorsport_formula_1",
-    "cricket":  "cricket_icc_world_cup",
-    "esports":  "esports_lol",
-    "ncaab":    "basketball_ncaab",
-    "ncaaf":    "americanfootball_ncaaf",
 }
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
