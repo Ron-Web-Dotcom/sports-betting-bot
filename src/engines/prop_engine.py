@@ -156,6 +156,7 @@ Only include props where confidence >= 0.55 and ev_pct >= 0.02.
 Consider: season averages vs line, recent form, matchup, injuries, pace."""
 
     picks: list[PropPick] = []
+    watchlist: list[PropPick] = []  # near-miss picks: 55–64% conf
 
     for sport_key, sport_props in by_sport.items():
         if not sport_props:
@@ -197,15 +198,15 @@ Consider: season averages vs line, recent form, matchup, injuries, pace."""
                 idx = item.get("index")
                 if idx is None or idx >= len(sport_props):
                     continue
-                prop      = sport_props[idx]
-                direction = item.get("direction", "pass").lower()
+                prop       = sport_props[idx]
+                direction  = item.get("direction", "pass").lower()
                 confidence = float(item.get("confidence", 0))
-                ev_pct    = float(item.get("ev_pct", 0))
+                ev_pct     = float(item.get("ev_pct", 0))
 
-                if direction == "pass" or confidence < MIN_PROP_CONFIDENCE or ev_pct < MIN_PROP_EV:
+                if direction == "pass":
                     continue
 
-                picks.append(PropPick(
+                pick = PropPick(
                     source       = prop.get("source", "prizepicks"),
                     sport_key    = sport_key,
                     subject      = prop.get("subject", ""),
@@ -220,13 +221,23 @@ Consider: season averages vs line, recent form, matchup, injuries, pace."""
                     game_time    = prop.get("game_time", ""),
                     opponent     = prop.get("opponent", ""),
                     team         = prop.get("team", ""),
-                ))
+                )
+
+                if confidence >= MIN_PROP_CONFIDENCE and ev_pct >= MIN_PROP_EV:
+                    picks.append(pick)
+                elif confidence >= 0.55 and ev_pct >= 0.02:
+                    # Near-miss — goes to watchlist, not picks
+                    watchlist.append(pick)
 
         except Exception as e:
             logger.warning("Batch prop scoring failed [%s]: %s", sport_key, e)
 
     picks.sort(key=lambda p: (p.ev_pct * p.confidence), reverse=True)
-    logger.info("Prop engine: %d props analysed → %d picks", len(props), len(picks))
+    watchlist.sort(key=lambda p: p.confidence, reverse=True)
+    logger.info("Prop engine: %d props analysed → %d picks, %d on watchlist", len(props), len(picks), len(watchlist))
+
+    # Store watchlist on the picks list as an attribute for picks_worker to access
+    picks._watchlist = watchlist  # type: ignore[attr-defined]
     return picks
 
 

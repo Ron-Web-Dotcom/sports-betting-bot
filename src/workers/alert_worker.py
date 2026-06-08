@@ -350,38 +350,112 @@ def send_prop_change_alerts(changes: list[dict]):
 
 @app.task
 def send_pick_line_update(changes: list[dict]):
-    """Alert only when one of our recommended picks moves line or goes off-board."""
+    """
+    🚨 ALERT ALERT — fires when any of our chosen picks moves line or goes off-board.
+    All changes batched into ONE summary embed.
+    """
     from src.discord_bot.bot import _post
     import asyncio
     if not changes:
         return
 
-    _type_emoji = {"moved": "📊", "removed": "❌"}
     lines = []
     for c in changes:
-        emoji = _type_emoji.get(c.get("change_type"), "ℹ️")
-        subject = c.get("subject", "")
-        stat = c.get("stat", "")
+        subject   = c.get("subject", "Unknown")
+        stat      = c.get("stat", "")
         direction = c.get("our_direction", "").upper()
+        sport     = c.get("sport_key", "").split("_")[-1].upper()
+
         if c.get("change_type") == "moved":
-            lines.append(f"{emoji} **{subject}** {stat} — line moved {c.get('old_line')} → **{c.get('new_line')}** (we picked {direction})")
+            old = c.get("old_line")
+            new = c.get("new_line")
+            arrow = "⬆️" if (new or 0) > (old or 0) else "⬇️"
+            favorable = (
+                (direction == "OVER"  and (new or 0) < (old or 0)) or
+                (direction == "UNDER" and (new or 0) > (old or 0))
+            )
+            favor_str = "✅ Favourable move" if favorable else "⚠️ Unfavourable move"
+            lines.append(
+                f"📊 **{subject}** — {stat} · {sport}\n"
+                f"  Line: ~~{old}~~ → **{new}** {arrow}  ·  Our pick: **{direction}**  ·  {favor_str}"
+            )
         elif c.get("change_type") == "removed":
-            lines.append(f"{emoji} **{subject}** {stat} — **OFF THE BOARD** (we picked {direction})")
+            lines.append(
+                f"❌ **{subject}** — {stat} · {sport}\n"
+                f"  **OFF THE BOARD** — our pick ({direction}) is no longer available"
+            )
 
     if not lines:
         return
 
     embed = {
-        "title": "⚠️ Pick Update",
-        "description": "\n".join(lines),
-        "color": 0xFF6F00,
-        "footer": {"text": "Line movement on your active picks"},
+        "title": "🚨 ALERT ALERT — Prop Updated",
+        "description": (
+            f"**{len(lines)} of your active picks have been updated.**\n\n"
+            + "\n\n".join(lines)
+        ),
+        "color": 0xFF0000,
+        "footer": {"text": "Review before placing — lines may have shifted"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
-        logger.info("Pick line update sent: %d changes", len(changes))
+        logger.info("Pick line ALERT sent: %d changes", len(changes))
     except Exception as e:
-        logger.error("Failed to send pick line update: %s", e)
+        logger.error("Failed to send pick line alert: %s", e)
+
+
+@app.task
+def send_watchlist_update(watchlist: list[dict]):
+    """
+    👁️ Props on Radar — near-miss picks (55–64% confidence).
+    Posted once per scan cycle alongside the main picks summary.
+    Lets you keep an eye on props that almost made the cut.
+    """
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not watchlist:
+        return
+
+    _emoji = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "soccer_fifa_world_cup": "⚽", "soccer_epl": "⚽",
+        "soccer_usa_mls": "⚽", "mma_mixed_martial_arts": "🥊", "tennis_atp_french_open": "🎾",
+    }
+    _sport_name = {
+        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
+        "icehockey_nhl": "NHL", "soccer_fifa_world_cup": "World Cup",
+        "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
+        "mma_mixed_martial_arts": "UFC/MMA", "tennis_atp_french_open": "Tennis",
+    }
+
+    lines = []
+    for p in watchlist[:8]:  # max 8 on radar
+        sport  = p.get("sport_key", "")
+        emoji  = _emoji.get(sport, "🎯")
+        label  = _sport_name.get(sport, sport.split("_")[-1].upper())
+        conf   = round(p.get("confidence", 0) * 100)
+        ev     = round(p.get("ev_pct", 0) * 100, 1)
+        arrow  = "⬆️" if p.get("direction", "").lower() == "over" else "⬇️"
+        lines.append(
+            f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}  "
+            f"`{conf}% conf | +{ev}% edge | {label}`"
+        )
+
+    embed = {
+        "title": "👁️ Props on Radar",
+        "description": (
+            "These props are close but didn't meet the confidence threshold. "
+            "Worth watching — they may cross the line by game time.\n\n"
+            + "\n".join(lines)
+        ),
+        "color": 0x607D8B,
+        "footer": {"text": "Near-miss picks · 55–64% confidence · Not a recommendation"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Watchlist posted: %d props on radar", len(watchlist))
+    except Exception as e:
+        logger.error("Failed to send watchlist: %s", e)
 
 
 @app.task

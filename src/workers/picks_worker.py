@@ -412,8 +412,17 @@ def scan_and_pick_props(self):
 
         from src.engines.prop_engine import score_props
         picks = score_props(props)
+        watchlist = getattr(picks, "_watchlist", [])
 
         if not picks:
+            # Still post watchlist if there are near-misses worth watching
+            if watchlist:
+                watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
+                watchlist_hash = hashlib.md5(json.dumps(watchlist_dicts, sort_keys=True).encode()).hexdigest()
+                if r.get("props:last_watchlist_hash") != watchlist_hash:
+                    r.setex("props:last_watchlist_hash", 3600, watchlist_hash)
+                    from src.workers.alert_worker import send_watchlist_update
+                    send_watchlist_update.delay(watchlist_dicts)
             return {"props_analysed": len(props), "picks": 0}
 
         # Top 5 only
@@ -423,50 +432,63 @@ def scan_and_pick_props(self):
         pick_dicts = [dataclasses.asdict(p) for p in picks]
         picks_hash = hashlib.md5(json.dumps(pick_dicts, sort_keys=True).encode()).hexdigest()
         last_hash = r.get("props:last_picks_hash")
-        if picks_hash == last_hash:
+        picks_changed = picks_hash != last_hash
+        if picks_changed:
+            r.setex("props:last_picks_hash", 3600, picks_hash)
+            # Store active picks so odds_worker can track line moves on them
+            r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
+
+            from src.workers.alert_worker import (
+                send_prop_summary, send_pp_parlay_alert,
+                send_hardrock_parlay_alert, send_underdog_entry,
+            )
+
+            # Post A: Top Prop Picks summary
+            send_prop_summary.delay(pick_dicts)
+
+            # Post B: PrizePicks Entry card
+            pp_picks = [p for p in pick_dicts if p.get("source") == "prizepicks"] or pick_dicts
+            if len(pp_picks) >= 2:
+                send_pp_parlay_alert.delay(pp_picks[:6])
+
+            # Post C: Underdog Entry card
+            ud_picks = [p for p in pick_dicts if p.get("source") == "underdog"]
+            if len(ud_picks) >= 2:
+                send_underdog_entry.delay(ud_picks[:6])
+
+            # Post D: HardRock Entry (game picks with odds only)
+            hr_picks = sorted(
+                [p for p in pick_dicts if p.get("american_odds") or p.get("odds")],
+                key=lambda p: p.get("confidence", 0), reverse=True,
+            )
+            if len(hr_picks) >= 2:
+                send_hardrock_parlay_alert.delay(hr_picks[:4])
+
+            # Post E: Kalshi Entry (from cache, only if markets exist)
+            try:
+                kalshi_raw = r.get("kalshi:markets")
+                if kalshi_raw:
+                    kalshi_markets = json.loads(kalshi_raw)
+                    if kalshi_markets:
+                        from src.workers.alert_worker import send_kalshi_entry
+                        send_kalshi_entry.delay(kalshi_markets)
+            except Exception as _ke:
+                logger.debug("Kalshi cache check failed: %s", _ke)
+
+            logger.info("Prop picks posted: %d picks", len(picks))
+        else:
             logger.info("Prop picks unchanged — skipping Discord post")
-            return {"props_analysed": len(props), "picks": len(picks), "posted": False}
-        r.setex("props:last_picks_hash", 3600, picks_hash)
-        # Store active picks so odds_worker can track line moves on them
-        r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
 
-        # Post A: Top Prop Picks summary (one embed, all picks)
-        from src.workers.alert_worker import send_prop_summary
-        send_prop_summary.delay(pick_dicts)
-        logger.info("Prop picks: %d picks posted as summary", len(picks))
+        # Post watchlist if it changed (independent of main picks)
+        if watchlist:
+            watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
+            watchlist_hash = hashlib.md5(json.dumps(watchlist_dicts, sort_keys=True).encode()).hexdigest()
+            if r.get("props:last_watchlist_hash") != watchlist_hash:
+                r.setex("props:last_watchlist_hash", 3600, watchlist_hash)
+                from src.workers.alert_worker import send_watchlist_update
+                send_watchlist_update.delay(watchlist_dicts)
 
-        # Post B: PrizePicks Entry card
-        from src.workers.alert_worker import send_pp_parlay_alert, send_hardrock_parlay_alert
-        pp_picks = [p for p in pick_dicts if p.get("source") == "prizepicks"]
-        if not pp_picks:
-            pp_picks = pick_dicts  # fallback: use all picks if no source tag
-        if len(pp_picks) >= 2:
-            send_pp_parlay_alert.delay(pp_picks[:6])
-
-        # Post C: Underdog Entry card
-        from src.workers.alert_worker import send_underdog_entry
-        ud_picks = [p for p in pick_dicts if p.get("source") == "underdog"]
-        if len(ud_picks) >= 2:
-            send_underdog_entry.delay(ud_picks[:6])
-
-        # Post D: HardRock Entry card (only if game picks with odds available)
-        hr_picks = [p for p in pick_dicts if p.get("american_odds") or p.get("odds")]
-        hr_picks = sorted(hr_picks, key=lambda p: p.get("confidence", 0), reverse=True)
-        if len(hr_picks) >= 2:
-            send_hardrock_parlay_alert.delay(hr_picks[:4])
-
-        # Post E: Kalshi Entry card (from Redis cache, only if markets exist)
-        try:
-            kalshi_raw = r.get("kalshi:markets")
-            if kalshi_raw:
-                kalshi_markets = json.loads(kalshi_raw)
-                if kalshi_markets:
-                    from src.workers.alert_worker import send_kalshi_entry
-                    send_kalshi_entry.delay(kalshi_markets)
-        except Exception as _ke:
-            logger.debug("Kalshi cache check failed: %s", _ke)
-
-        return {"props_analysed": len(props), "picks": len(picks), "posted": True}
+        return {"props_analysed": len(props), "picks": len(picks), "posted": picks_changed}
 
     except Exception as exc:
         logger.error("scan_and_pick_props failed: %s", exc)
