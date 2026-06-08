@@ -247,69 +247,144 @@ def _recommended_bet(confidence: float, ev_pct: float, bankroll: float = 1000.0)
     return f"Bet **${dollar:.0f}** ({units} units)"
 
 
-def _best_book_props(prop_picks: list[dict]) -> list[dict]:
+def _slip_ev(picks: list[dict], platform: str) -> tuple[float, float, int]:
     """
-    For props that appear on BOTH PrizePicks and Underdog, keep only the better-lined one.
-    - OVER: lower line = easier to hit = better
-    - UNDER: higher line = easier to hit = better
-    Props that appear on only one book are kept as-is.
-    Returns a flat list with 'best_book' key added.
-    """
-    from collections import defaultdict
-    by_key: dict[str, list[dict]] = defaultdict(list)
-    for p in prop_picks:
-        norm_name = (p.get("subject") or "").lower().strip()
-        norm_stat = (p.get("stat") or "").lower().strip()
-        by_key[f"{norm_name}|{norm_stat}"].append(p)
+    Calculate expected value of an entire slip.
+    Returns (ev, p_all_win, multiplier).
 
-    result = []
-    for picks in by_key.values():
-        if len(picks) == 1:
-            p = picks[0]
-            p["best_book"] = p.get("source", "").title()
-            result.append(p)
-        else:
-            # Multiple books — pick the best line per direction
-            direction = (picks[0].get("direction") or "over").lower()
-            if direction == "over":
-                winner = min(picks, key=lambda x: float(x.get("line") or 999))
-                loser  = max(picks, key=lambda x: float(x.get("line") or 999))
-            else:
-                winner = max(picks, key=lambda x: float(x.get("line") or 0))
-                loser  = min(picks, key=lambda x: float(x.get("line") or 0))
-            winner_line = float(winner.get("line") or 0)
-            loser_line  = float(loser.get("line") or 0)
-            gap = abs(winner_line - loser_line)
-            winner["best_book"] = winner.get("source", "").title()
-            winner["line_gap"]  = gap
-            winner["other_book"] = loser.get("source", "").title()
-            winner["other_line"] = loser.get("line")
-            result.append(winner)
-    result.sort(key=lambda p: p.get("ev_pct", 0) * p.get("confidence", 0), reverse=True)
-    return result
+    PP Power multipliers (all must win): 2=3x, 3=5x, 4=10x, 5=20x, 6=40x
+    PP Flex (3-6, 1 loss = reduced payout): discounted ~40% vs Power
+    Underdog: 2=3x, 3=6x, 4=10x, 5=20x, 6=40x
+    """
+    _PP_POWER = {2: 3, 3: 5, 4: 10, 5: 20, 6: 40}
+    _UD_MULT  = {2: 3, 3: 6, 4: 10, 5: 20, 6: 40}
+
+    n = min(len(picks), 6)
+    if n == 0:
+        return 0.0, 0.0, 0
+
+    # Probability all legs win (independence assumption)
+    p_all = 1.0
+    for p in picks[:n]:
+        p_all *= float(p.get("confidence") or 0.55)
+
+    if platform == "prizepicks":
+        mult = _PP_POWER.get(n, 40)
+    else:
+        mult = _UD_MULT.get(n, 40)
+
+    ev = p_all * mult - 1.0   # EV per $1 risked
+    return round(ev, 4), round(p_all, 4), mult
 
 
-def _best_prediction_market(kalshi: list[dict], polymarket: list[dict]) -> list[dict]:
+def _compare_slips(prop_picks: list[dict]) -> dict:
     """
-    For predictions that appear on both Kalshi and Polymarket, show the better-priced one.
-    Better price = lower yes_price if betting YES (cheaper to buy), higher if betting NO.
-    Unmatched predictions kept as-is.
-    Returns flat list with 'platform' key.
+    Compare entire PP slip vs entire UD slip.
+    Returns dict with: platform, picks, ev, p_all_win, multiplier, vs_ev, vs_platform.
+    Shows which slip gives better expected return and why.
     """
-    from collections import defaultdict
-    norm = lambda t: (t or "").lower().strip()[:60]
-    combined: list[dict] = []
+    pp = [p for p in prop_picks if p.get("source") == "prizepicks"][:6]
+    ud = [p for p in prop_picks if p.get("source") == "underdog"][:6]
+
+    pp_ev, pp_p, pp_mult = _slip_ev(pp, "prizepicks")
+    ud_ev, ud_p, ud_mult = _slip_ev(ud, "underdog")
+
+    if pp_ev >= ud_ev:
+        return {
+            "platform": "PrizePicks", "picks": pp,
+            "ev": pp_ev, "p_all_win": pp_p, "multiplier": pp_mult,
+            "vs_platform": "Underdog", "vs_ev": ud_ev,
+        }
+    else:
+        return {
+            "platform": "Underdog", "picks": ud,
+            "ev": ud_ev, "p_all_win": ud_p, "multiplier": ud_mult,
+            "vs_platform": "PrizePicks", "vs_ev": pp_ev,
+        }
+
+
+def _todays_game_predictions(kalshi: list[dict], polymarket: list[dict]) -> list[dict]:
+    """
+    Filter Kalshi + Polymarket markets to only predictions about TODAY's live/upcoming games.
+    Matches by team names pulled from Redis active picks + today's odds cache.
+    Then for each matched prediction, picks the better-priced platform (Kalshi vs Poly).
+    Returns flat list, best platform per prediction, sorted by confidence.
+    """
+    import json
+    from datetime import datetime
+    import zoneinfo
+    from src.core.config import REDIS_URL
+    import redis as _redis
+
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    et_tz = zoneinfo.ZoneInfo("America/New_York")
+    today = datetime.now(et_tz).strftime("%Y-%m-%d")
+
+    # Gather team/player keywords from today's active picks
+    keywords: set[str] = set()
+    for key in ("props:active_picks", "props:all"):
+        raw = r.get(key)
+        if not raw:
+            continue
+        try:
+            items = json.loads(raw)
+            for p in items:
+                for field in ("team", "opponent", "subject", "home_team", "away_team"):
+                    val = (p.get(field) or "").strip()
+                    if val and len(val) > 2:
+                        # Add full name and last word (surname / city shorthand)
+                        keywords.add(val.lower())
+                        keywords.add(val.split()[-1].lower())
+        except Exception:
+            continue
+
+    # Also pull from odds cache if available
+    for sport_key in ("basketball_nba", "baseball_mlb", "soccer_epl", "soccer_usa_mls",
+                      "americanfootball_nfl", "icehockey_nhl", "mma_mixed_martial_arts"):
+        raw = r.get(f"odds:{sport_key}")
+        if not raw:
+            continue
+        try:
+            for game in json.loads(raw):
+                for field in ("home_team", "away_team"):
+                    val = (game.get(field) or "").strip()
+                    if val:
+                        keywords.add(val.lower())
+                        keywords.add(val.split()[-1].lower())
+        except Exception:
+            continue
+
+    def _matches_today(market: dict) -> bool:
+        title = (market.get("title") or market.get("question") or "").lower()
+        if not keywords:
+            return True   # no game data — show all
+        return any(kw in title for kw in keywords if len(kw) > 3)
+
+    # Tag and filter
+    matched: list[dict] = []
     for m in kalshi:
-        m["platform"] = "Kalshi"
-        combined.append(m)
+        if _matches_today(m):
+            m["platform"] = "Kalshi"
+            matched.append(m)
     for m in polymarket:
-        m["platform"] = "Polymarket"
-        combined.append(m)
+        if _matches_today(m):
+            m["platform"] = "Polymarket"
+            matched.append(m)
 
+    if not matched:
+        # Fallback: show all AI-scored markets if no game data in Redis
+        for m in kalshi:
+            m["platform"] = "Kalshi"
+        for m in polymarket:
+            m["platform"] = "Polymarket"
+        matched = list(kalshi) + list(polymarket)
+
+    # Deduplicate: for same prediction on both platforms, keep better-priced one
+    from collections import defaultdict
+    norm = lambda t: (t or "").lower().strip()[:80]
     by_title: dict[str, list[dict]] = defaultdict(list)
-    for m in combined:
-        key = norm(m.get("title") or m.get("question") or "")
-        by_title[key].append(m)
+    for m in matched:
+        by_title[norm(m.get("title") or m.get("question") or "")].append(m)
 
     result = []
     for items in by_title.values():
@@ -318,11 +393,14 @@ def _best_prediction_market(kalshi: list[dict], polymarket: list[dict]) -> list[
         else:
             direction = (items[0].get("ai_direction") or "yes").lower()
             if direction == "yes":
-                # Lower YES price = you pay less for the same $1 payout = better value
                 winner = min(items, key=lambda x: float(x.get("yes_price") or 1))
             else:
                 winner = min(items, key=lambda x: float(x.get("no_price") or 1))
+            loser = [i for i in items if i is not winner][0]
+            winner["vs_platform"] = loser.get("platform")
+            winner["vs_yes_price"] = loser.get("yes_price")
             result.append(winner)
+
     result.sort(key=lambda m: float(m.get("ai_confidence") or 0), reverse=True)
     return result
 
@@ -336,10 +414,11 @@ def send_combined_entry(
 ):
     """
     ONE combined entry card.
-    - Props: PP vs Underdog best-book per prop (lower OVER line / higher UNDER line wins)
-    - Predictions: Kalshi vs Polymarket best price per market
-    - HardRock: always shown (sportsbook, no competition)
-    - Each pick shows recommended bet size based on confidence + EV
+    - Props: compare FULL PP slip EV vs FULL UD slip EV — show only the better slip
+    - HardRock: always shown (ML / Spread / Total — no competing platform)
+    - Predictions: Kalshi vs Polymarket filtered to TODAY's live/upcoming games,
+      better-priced platform shown per prediction
+    - Each section shows recommended bet size
     """
     from src.discord_bot.bot import _post
     from src.core.config import DEFAULT_BANKROLL
@@ -360,34 +439,51 @@ def send_combined_entry(
 
     fields = []
 
-    # ── Best Props (PP vs Underdog — winner per prop) ───────────────────────────
+    # ── Best Slip: PP vs Underdog (slip EV comparison) ─────────────────────────
     if prop_picks:
-        best_props = _best_book_props(prop_picks)[:6]
-        lines = []
-        for p in best_props:
-            arrow     = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
-            emoji     = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
-            book      = p.get("best_book", p.get("source","").title())
-            conf      = round((p.get("confidence") or 0) * 100)
-            ev        = round((p.get("ev_pct") or 0) * 100, 1)
-            bet_str   = _recommended_bet(p.get("confidence") or 0, p.get("ev_pct") or 0, DEFAULT_BANKROLL)
-            gap       = p.get("line_gap")
-            other     = p.get("other_book", "")
-            other_l   = p.get("other_line", "")
-            gap_note  = f" *(vs {other} @ {other_l} — save {gap:.1f} pts)*" if gap and gap > 0 else ""
-            lines.append(
-                f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}  ·  **{book}**{gap_note}\n"
-                f"  `{conf}% conf · +{ev}% edge` · {bet_str}"
-            )
-        fields.append({"name": "🎯 Best Props (PP vs Underdog)", "value": "\n\n".join(lines), "inline": False})
+        slip = _compare_slips(prop_picks)
+        picks = slip["picks"]
+        if picks:
+            platform = slip["platform"]
+            ev       = slip["ev"]
+            p_win    = slip["p_all_win"]
+            mult     = slip["multiplier"]
+            vs_plat  = slip["vs_platform"]
+            vs_ev    = slip["vs_ev"]
+            n        = len(picks)
 
-    # ── HardRock (always shown — sportsbook, no competition) ───────────────────
+            slip_emoji = "🏆" if platform == "PrizePicks" else "🐶"
+            ev_pct_avg = sum(p.get("ev_pct") or 0 for p in picks) / n
+            conf_avg   = sum(p.get("confidence") or 0 for p in picks) / n
+            bet_str    = _recommended_bet(conf_avg, ev_pct_avg, DEFAULT_BANKROLL)
+
+            leg_lines = []
+            for i, p in enumerate(picks, 1):
+                arrow = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
+                emoji = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
+                conf  = round((p.get("confidence") or 0) * 100)
+                leg_lines.append(
+                    f"`{i}.` {emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}  `{conf}%`"
+                )
+
+            ev_str  = f"+{round(ev*100,1)}%" if ev > 0 else f"{round(ev*100,1)}%"
+            vs_str  = f"+{round(vs_ev*100,1)}%" if vs_ev > 0 else f"{round(vs_ev*100,1)}%"
+            summary = (
+                f"{slip_emoji} **{platform}** wins — {n}-pick slip · **{mult}x** payout\n"
+                f"`P(all win): {round(p_win*100,1)}% · Slip EV: {ev_str}` · {bet_str}\n"
+                f"*(vs {vs_plat} slip EV: {vs_str})*\n\n"
+                + "\n".join(leg_lines)
+            )
+            fields.append({"name": f"🎯 Best Slip — {platform}  ·  {mult}x", "value": summary, "inline": False})
+
+    # ── HardRock (always shown — ML / Spread / Total) ──────────────────────────
     if hr_games:
         lines = []
         for g in hr_games[:4]:
             sport    = _SPORT_LABEL.get(g.get("sport_key",""), g.get("sport_key","").split("_")[-1].upper())
             odds     = g.get("best_odds", "")
             odds_str = (f"+{odds}" if isinstance(odds, int) and odds > 0 else str(odds)) if odds else ""
+            mkt      = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}.get(g.get("market","h2h"), g.get("market","h2h").title())
             sel      = g.get("selection","") or f"{g.get('away_team','?')} @ {g.get('home_team','?')}"
             game_time = g.get("commence_time","")
             time_str = ""
@@ -399,18 +495,20 @@ def send_combined_entry(
                     time_str = f" · {t.strftime('%-I:%M %p ET')}"
                 except Exception:
                     pass
-            conf     = round((g.get("confidence") or 0) * 100)
-            ev       = round((g.get("ev_pct") or 0) * 100, 1)
-            bet_str  = _recommended_bet(g.get("confidence") or 0, g.get("ev_pct") or 0, DEFAULT_BANKROLL)
-            meta     = f"\n  `{conf}% conf · +{ev}% edge` · {bet_str}" if conf else ""
-            lines.append(f"🪨 **{sel}**  ·  {sport}{time_str}" + (f"  ·  {odds_str}" if odds_str else "") + meta)
-        fields.append({"name": "🪨 HardRock Bet", "value": "\n\n".join(lines), "inline": False})
+            conf    = round((g.get("confidence") or 0) * 100)
+            ev      = round((g.get("ev_pct") or 0) * 100, 1)
+            bet_str = _recommended_bet(g.get("confidence") or 0, g.get("ev_pct") or 0, DEFAULT_BANKROLL)
+            meta    = f"\n  `{conf}% conf · +{ev}% edge` · {bet_str}" if conf else ""
+            lines.append(
+                f"🪨 **{sel}**  ·  {sport}{time_str}  ·  {mkt}: **{sel}** {odds_str}" + meta
+            )
+        fields.append({"name": "🪨 HardRock Bet  ·  ML / Spread / Total", "value": "\n\n".join(lines), "inline": False})
 
-    # ── Best Predictions (Kalshi vs Polymarket — winner per market) ─────────────
-    best_preds = _best_prediction_market(kalshi or [], polymarket or [])
+    # ── Best Predictions: today's games on Kalshi vs Polymarket ────────────────
+    best_preds = _todays_game_predictions(kalshi or [], polymarket or [])
     if best_preds:
         lines = []
-        for m in best_preds[:4]:
+        for m in best_preds[:5]:
             platform  = m.get("platform", "Kalshi")
             p_emoji   = "📈" if platform == "Kalshi" else "🟣"
             title     = (m.get("title") or m.get("question") or "")[:55]
@@ -420,13 +518,16 @@ def send_combined_entry(
             conf      = round((m.get("ai_confidence") or 0) * 100)
             ev        = round((m.get("ai_ev_pct") or 0) * 100, 1)
             bet_str   = _recommended_bet(m.get("ai_confidence") or 0, m.get("ai_ev_pct") or 0, DEFAULT_BANKROLL)
+            vs_plat   = m.get("vs_platform","")
+            vs_yes    = round(float(m.get("vs_yes_price",0))*100) if m.get("vs_yes_price") else None
+            vs_note   = f" *(vs {vs_plat} @ {vs_yes}¢)*" if vs_plat and vs_yes else ""
             price_str = f"YES {yes_pct}¢ / NO {no_pct}¢"
             meta      = f"`{conf}% conf · +{ev}% edge` · {bet_str}" if conf else ""
             lines.append(
-                f"{p_emoji} **{direction}** on **{platform}** — {title}\n"
+                f"{p_emoji} **{direction}** on **{platform}** — {title}{vs_note}\n"
                 f"  {price_str}" + (f"\n  {meta}" if meta else "")
             )
-        fields.append({"name": "🔮 Best Predictions (Kalshi vs Polymarket)", "value": "\n\n".join(lines), "inline": False})
+        fields.append({"name": "🔮 Best Predictions — Today's Games  ·  Kalshi vs Polymarket", "value": "\n\n".join(lines), "inline": False})
 
     if not fields:
         return
@@ -443,7 +544,7 @@ def send_combined_entry(
             {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
             for f in fields
         ],
-        "footer": {"text": "Best book per pick · HardRock · Kalshi vs Polymarket · Bet responsibly"},
+        "footer": {"text": "Best slip · HardRock · Best prediction odds on today's games · Bet responsibly"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
