@@ -343,6 +343,133 @@ def wake_up_brief():
 
 
 @app.task
+def todays_recap():
+    """
+    2:59 AM Eastern — full Today's RECAP before sleep mode kicks in at 3 AM.
+    Shows every pick made today, all settled results, W/L/P record, ROI, best/worst pick.
+    """
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post
+    from src.db.session import get_db
+    from src.db.models import PropResult
+    from datetime import datetime, timedelta, date
+    import zoneinfo, json
+
+    et_tz  = zoneinfo.ZoneInfo("America/New_York")
+    et_now = datetime.now(et_tz)
+    today  = et_now.date()
+
+    # ── Pull all prop results settled today ─────────────────────────────────────
+    try:
+        with get_db() as db:
+            rows = db.query(PropResult).filter(
+                PropResult.settled_at >= datetime.combine(today, datetime.min.time()),
+                PropResult.settled_at <  datetime.combine(today + timedelta(days=1), datetime.min.time()),
+            ).order_by(PropResult.settled_at.desc()).all()
+    except Exception as e:
+        logger.warning("todays_recap: DB query failed: %s", e)
+        rows = []
+
+    total  = len(rows)
+    wins   = sum(1 for r in rows if r.result == "won")
+    losses = sum(1 for r in rows if r.result == "lost")
+    pushes = sum(1 for r in rows if r.result == "push")
+
+    # ── Also pull active (unsettled) picks from Redis ───────────────────────────
+    active_count = 0
+    active_lines: list[str] = []
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _r
+        red = _r.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = red.get("props:active_picks")
+        if raw:
+            active_picks = json.loads(raw)
+            active_count = len(active_picks)
+            for p in active_picks[:5]:
+                arrow = "⬆️" if (p.get("direction") or "").lower() == "over" else "⬇️"
+                active_lines.append(
+                    f"• **{p.get('subject')}** {p.get('stat')} {p.get('line')} {arrow}"
+                )
+    except Exception:
+        pass
+
+    # ── Build result lines ──────────────────────────────────────────────────────
+    result_lines: list[str] = []
+    best_pick = None
+    worst_pick = None
+    for r in rows:
+        icon = "✅" if r.result == "won" else "❌" if r.result == "lost" else "➖"
+        result_lines.append(
+            f"{icon} **{r.subject}** {r.stat} {r.line} {r.direction.upper()} → {r.actual_value}"
+        )
+        if r.result == "won" and best_pick is None:
+            best_pick = r
+        if r.result == "lost" and worst_pick is None:
+            worst_pick = r
+
+    # ── Stats ───────────────────────────────────────────────────────────────────
+    if total > 0:
+        hit_rate = round(wins / total * 100)
+        roi      = round((wins - losses) / total * 100, 1)
+        record_str = f"**{wins}W — {losses}L — {pushes}P**  ·  {hit_rate}% hit rate  ·  ROI: {roi:+.1f}%"
+        color = 0x00C851 if wins >= losses else 0xFF1744
+    else:
+        record_str = "No settled picks today."
+        color = 0x546E7A
+
+    fields: list[dict] = [
+        {"name": "📊 Today's Record", "value": record_str, "inline": False},
+    ]
+
+    if result_lines:
+        fields.append({
+            "name": f"🗂️ All Picks ({total} settled)",
+            "value": "\n".join(result_lines[:15]) or "—",
+            "inline": False,
+        })
+
+    if best_pick:
+        fields.append({
+            "name": "🏆 Best Pick",
+            "value": f"**{best_pick.subject}** {best_pick.stat} {best_pick.line} {best_pick.direction.upper()} → {best_pick.actual_value} ✅",
+            "inline": True,
+        })
+    if worst_pick:
+        fields.append({
+            "name": "💀 Worst Pick",
+            "value": f"**{worst_pick.subject}** {worst_pick.stat} {worst_pick.line} {worst_pick.direction.upper()} → {worst_pick.actual_value} ❌",
+            "inline": True,
+        })
+
+    if active_lines:
+        fields.append({
+            "name": f"⏳ Still Active ({active_count} picks — results pending)",
+            "value": "\n".join(active_lines),
+            "inline": False,
+        })
+
+    fields.append({
+        "name": "🌙 Going to Sleep",
+        "value": "Scanning paused until **5:00 AM ET**. Self-improvement running now.",
+        "inline": False,
+    })
+
+    embed = {
+        "title": f"📋 Today's RECAP — {et_now.strftime('%A, %B %-d')}",
+        "color": color,
+        "fields": [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
+            for f in fields
+        ],
+        "footer": {"text": f"Sports Intelligence Platform · See you at 5 AM ET"},
+    }
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Today's RECAP sent: %dW %dL %dP", wins, losses, pushes)
+    return {"wins": wins, "losses": losses, "pushes": pushes, "active": active_count}
+
+
+@app.task
 def run_self_improvement():
     from src.engines.self_improvement_engine import run_full_self_improvement
     result = run_full_self_improvement()

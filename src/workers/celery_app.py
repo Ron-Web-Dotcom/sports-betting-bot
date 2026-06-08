@@ -149,9 +149,9 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.cleanup_old_snapshots",
         "schedule": crontab(hour=2, minute=55),
     },
-    # Parlay generation — daily 9 AM Eastern
-    "generate-parlays-daily": {
-        "task": "src.workers.picks_worker.generate_parlays",
-        "schedule": crontab(hour=9, minute=0),
+    # Today's RECAP Summary — 2:59 AM Eastern (fires just before sleep mode)
+    "todays-recap-259am": {
+        "task": "src.workers.analytics_worker.todays_recap",
+        "schedule": crontab(hour=2, minute=59),
     },
 }

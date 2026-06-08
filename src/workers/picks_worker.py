@@ -463,10 +463,32 @@ def scan_and_pick_props(self):
 
         # Top 5 only
         picks = picks[:5]
-
-        # Only post to Discord if picks changed since last scan
         pick_dicts = [dataclasses.asdict(p) for p in picks]
-        picks_hash = hashlib.md5(json.dumps(pick_dicts, sort_keys=True).encode()).hexdigest()
+
+        # ── Build HardRock games for hash (so HR changes also trigger a re-post) ─
+        hr_games_for_hash = []
+        try:
+            from src.engines.odds_engine import get_latest_snapshots_by_game
+            snaps = get_latest_snapshots_by_game()
+            for gid, snap_list in list(snaps.items())[:4]:
+                if snap_list:
+                    s = snap_list[0]
+                    hr_games_for_hash.append({
+                        "home": s.get("home_team"), "away": s.get("away_team"),
+                        "odds": s.get("best_odds"), "market": s.get("market"),
+                    })
+        except Exception:
+            pass
+
+        # Hash = ALL entry picks (PP + UD + HardRock) — predictions excluded (they change constantly)
+        pp_picks  = [p for p in pick_dicts if p.get("source") == "prizepicks"]
+        ud_picks  = [p for p in pick_dicts if p.get("source") == "underdog"]
+        entry_snapshot = {
+            "pp":  sorted(pp_picks,          key=lambda x: x.get("subject","") + x.get("stat","")),
+            "ud":  sorted(ud_picks,           key=lambda x: x.get("subject","") + x.get("stat","")),
+            "hr":  sorted(hr_games_for_hash,  key=lambda x: str(x.get("home",""))),
+        }
+        picks_hash = hashlib.md5(json.dumps(entry_snapshot, sort_keys=True).encode()).hexdigest()
         last_hash = r.get("props:last_picks_hash")
         picks_changed = picks_hash != last_hash
         if picks_changed:
