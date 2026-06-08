@@ -139,10 +139,10 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.send_monthly_summary",
         "schedule": crontab(day_of_month=1, hour=0, minute=1),
     },
-    # Health check — hourly, confirms bot is alive in Discord
-    "health-check-hourly": {
-        "task": "src.workers.analytics_worker.health_check",
-        "schedule": 3600,
+    # 6:00 AM ET — yesterday's record + today's game count
+    "yesterday-recap-6am": {
+        "task": "src.workers.analytics_worker.yesterday_recap",
+        "schedule": crontab(hour=6, minute=0),
     },
     # OddsSnapshot cleanup — 3 AM Eastern (fires just before sleep mode kicks in)
     "cleanup-old-snapshots": {

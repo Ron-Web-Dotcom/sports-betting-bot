@@ -262,15 +262,16 @@ def wake_up_brief():
         next_msg = "Scanning every 5 min — picks posted when found"
 
     embed = _embed(
-        title=f"☀️ Good Morning — {et.strftime('%A, %B %-d')}",
+        title=f"🟢 Bot Online · Good Morning — {et.strftime('%A, %B %-d')}",
         description=(
-            f"**{total} games** on today across {len(sport_counts)} sports.\n\n"
+            f"Scanning live props every 5 minutes. Picks posted when high-confidence bets are found.\n\n"
+            f"**{total} games today** across {len(sport_counts)} sports.\n\n"
             f"{games_text}"
         ),
-        color=0xF57F17,
+        color=0x00C851,
         fields=[
             {"name": "Sports Active Today", "value": sports_on or "—", "inline": False},
-            {"name": "Next Update", "value": next_msg, "inline": False},
+            {"name": "Next Update", "value": "6:00 AM ET — Yesterday's results & record", "inline": False},
         ],
     )
     _run_async(_post({"embeds": [embed]}))
@@ -389,3 +390,88 @@ def health_check():
     except Exception as e:
         logger.error("Health check failed: %s", e)
         return {"status": "error", "error": str(e)}
+
+
+@app.task
+def yesterday_recap():
+    """6 AM ET — yesterday's pick results + today's game count from DB."""
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post
+    from src.db.session import get_db
+    from src.db.models import PropResult
+    from datetime import datetime, timedelta
+    import zoneinfo, json
+
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    yesterday = (et - timedelta(days=1)).date()
+
+    try:
+        with get_db() as db:
+            rows = db.query(PropResult).filter(
+                PropResult.settled_at >= datetime.combine(yesterday, datetime.min.time()),
+                PropResult.settled_at <  datetime.combine(et.date(),  datetime.min.time()),
+            ).all()
+    except Exception as e:
+        logger.warning("yesterday_recap: DB query failed: %s", e)
+        rows = []
+
+    total  = len(rows)
+    wins   = sum(1 for r in rows if r.result == "won")
+    losses = sum(1 for r in rows if r.result == "lost")
+    pushes = sum(1 for r in rows if r.result == "push")
+
+    if total == 0:
+        record_str = "No settled picks yesterday — results appear as games finish."
+        color = 0x607D8B
+    else:
+        pct = round(wins / total * 100) if total else 0
+        record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
+        color = 0x00C851 if wins >= losses else 0xE53935
+
+    # Best picks yesterday
+    winners = [r for r in rows if r.result == "won"][:3]
+    losers  = [r for r in rows if r.result == "lost"][:3]
+
+    def _row(r):
+        return f"• **{r.subject}** {r.stat} {r.line} ({r.direction.upper()})"
+
+    win_text  = "\n".join(_row(r) for r in winners) or "—"
+    loss_text = "\n".join(_row(r) for r in losers)  or "—"
+
+    # Sport breakdown
+    sport_stats: dict = {}
+    for r in rows:
+        sk = r.sport_key or "other"
+        if sk not in sport_stats:
+            sport_stats[sk] = {"w": 0, "l": 0}
+        if r.result == "won":
+            sport_stats[sk]["w"] += 1
+        elif r.result == "lost":
+            sport_stats[sk]["l"] += 1
+    sport_lines = [
+        f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L"
+        for sk, v in sport_stats.items()
+    ]
+    sport_breakdown = "  ".join(sport_lines) or "—"
+
+    embed = {
+        "title": f"📊 Yesterday's Results — {yesterday.strftime('%A, %B %-d')}",
+        "description": record_str,
+        "color": color,
+        "fields": [
+            {"name": "✅ Winners",        "value": win_text,        "inline": True},
+            {"name": "❌ Losers",         "value": loss_text,       "inline": True},
+            {"name": "By Sport",          "value": sport_breakdown, "inline": False},
+            {"name": "Next Picks",        "value": "Props scanning every 5 min — posted when found", "inline": False},
+        ],
+        "footer": {"text": f"6:00 AM ET recap · {et.strftime('%B %-d, %Y')}"},
+    }
+
+    try:
+        import asyncio
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Yesterday recap sent: %dW-%dL-%dP", wins, losses, pushes)
+    except Exception as e:
+        logger.error("yesterday_recap post failed: %s", e)
+
+    return {"wins": wins, "losses": losses, "pushes": pushes, "total": total}
