@@ -462,12 +462,12 @@ def scan_and_pick_props(self):
 
             # Post B: PrizePicks Entry card
             pp_picks = [p for p in pick_dicts if p.get("source") == "prizepicks"] or pick_dicts
-            if len(pp_picks) >= 2:
+            if pp_picks:
                 send_pp_parlay_alert.delay(pp_picks[:6])
 
             # Post C: Underdog Entry card
             ud_picks = [p for p in pick_dicts if p.get("source") == "underdog"]
-            if len(ud_picks) >= 2:
+            if ud_picks:
                 send_underdog_entry.delay(ud_picks[:6])
 
             # Post D: HardRock Entry — top game picks from Odds API (DB) or props cache
@@ -563,12 +563,19 @@ def scan_and_pick_props(self):
         else:
             logger.info("Prop picks unchanged — skipping Discord post")
 
-        # Post watchlist if it changed (independent of main picks)
+        # Post watchlist if it changed — stable hash (round conf to 1dp to ignore noise)
         if watchlist:
             watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
-            watchlist_hash = hashlib.md5(json.dumps(watchlist_dicts, sort_keys=True).encode()).hexdigest()
+            # Round floats so tiny AI score shifts don't trigger a new post
+            stable = [
+                {**w, "confidence": round(w.get("confidence", 0), 1),
+                       "ev_pct":    round(w.get("ev_pct", 0), 2)}
+                for w in watchlist_dicts
+            ]
+            watchlist_hash = hashlib.md5(json.dumps(stable, sort_keys=True).encode()).hexdigest()
+            # 30-min cooldown — don't re-post the same watchlist every 5 min
             if r.get("props:last_watchlist_hash") != watchlist_hash:
-                r.setex("props:last_watchlist_hash", 3600, watchlist_hash)
+                r.setex("props:last_watchlist_hash", 1800, watchlist_hash)
                 from src.workers.alert_worker import send_watchlist_update
                 send_watchlist_update.delay(watchlist_dicts)
 

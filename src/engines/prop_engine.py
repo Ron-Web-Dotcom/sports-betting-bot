@@ -17,8 +17,8 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Minimum thresholds for a prop to be recommended
-MIN_PROP_CONFIDENCE = 0.65   # 65% — only high-confidence picks
-MIN_PROP_EV        = 0.04    # 4% edge minimum
+MIN_PROP_CONFIDENCE = 0.60   # 60% — enough picks to fill entry cards
+MIN_PROP_EV        = 0.03    # 3% edge minimum
 
 
 @dataclass
