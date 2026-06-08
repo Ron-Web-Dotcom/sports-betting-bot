@@ -213,6 +213,28 @@ def generate_picks(self):
 
 
 @app.task
+def morning_picks_summary():
+    """
+    9:30 AM ET — first combined picks summary of the day.
+    Fetches fresh props from all sources, runs AI scoring, posts:
+      - Top Prop Picks summary
+      - PP Entry, Underdog Entry, HardRock Entry, Kalshi Entry, Polymarket Entry
+      - Line Shop Alert if discrepancies exist
+    """
+    # Force the 5-min scan immediately with a fresh cache bust
+    import json
+    from src.core.config import REDIS_URL
+    import redis as _redis
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    # Clear last hash so picks always post fresh at 9:30 AM
+    r.delete("props:last_picks_hash")
+    r.delete("props:last_lineshop_hash")
+    # Trigger a fresh scan
+    scan_and_pick_props.delay()
+    logger.info("Morning picks summary triggered at 9:30 AM ET")
+
+
+@app.task
 def morning_props_brief():
     """
     8 AM Eastern — PP and HardRock lines are now live.
@@ -389,17 +411,17 @@ def scan_and_pick_props(self):
         def _is_upcoming_today(p: dict) -> bool:
             gt = p.get("game_time", "")
             if not gt:
-                # No time — include only PrizePicks props (they omit time, lines are pre-game)
                 return p.get("source") == "prizepicks"
             try:
                 t = _parse(gt)
                 if t.tzinfo is None:
                     t = t.replace(tzinfo=timezone.utc)
-                too_soon   = t < now + timedelta(minutes=30)   # game starts in <30 min or already started
-                too_far    = t > now + timedelta(hours=9)       # game more than 9 hrs away
-                t_et       = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
-                wrong_day  = t_et.date() != et_now.date()
-                return not too_soon and not too_far and not wrong_day
+                # Only cut off props within 30 min of tip or already started
+                # No upper limit — show all of today's games regardless of time
+                too_soon  = t < now + timedelta(minutes=30)
+                t_et      = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
+                wrong_day = t_et.date() != et_now.date()
+                return not too_soon and not wrong_day
             except Exception:
                 return True
         props = [p for p in props if _is_upcoming_today(p)]

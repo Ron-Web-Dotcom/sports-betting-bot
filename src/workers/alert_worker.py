@@ -347,26 +347,39 @@ def send_kalshi_entry(markets: list[dict]):
 
 @app.task
 def send_games_starting_soon(games: list[dict]):
-    """Post ONE embed: all games starting in ~30 min."""
+    """Post ONE embed: games with active picks starting in ~30 min."""
     from src.discord_bot.bot import _post
     import asyncio
     if not games:
         return
 
+    _SPORT_EMOJI = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "soccer_fifa_world_cup": "⚽", "mma_mixed_martial_arts": "🥊",
+        "tennis_atp_french_open": "🎾", "golf_masters_tournament_winner": "⛳",
+    }
+
     lines = []
     for g in games:
-        home = g.get("home_team", "?")
-        away = g.get("away_team", "?")
-        sport = g.get("sport_key", "").split("_")[-1].upper()
-        mins = g.get("minutes_remaining")
-        time_str = f"~{int(mins)} min" if mins is not None else ""
-        lines.append(f"• **{away} @ {home}**  ·  {sport}" + (f"  ·  {time_str}" if time_str else ""))
+        sport    = g.get("sport_key", "")
+        emoji    = _SPORT_EMOJI.get(sport, "🎯")
+        team     = g.get("team", g.get("home_team", "?"))
+        opponent = g.get("opponent", g.get("away_team", "?"))
+        gt       = g.get("game_time_et", "")
+        subject  = g.get("subject", "")
+        stat     = g.get("stat", "")
+        direction = (g.get("direction") or "").upper()
+        line     = g.get("line", "")
+        arrow    = "⬆️" if direction == "OVER" else "⬇️" if direction == "UNDER" else ""
+        pick_str = f" — {subject} {stat} {line} {arrow}" if subject else ""
+        lines.append(f"{emoji} **{team} vs {opponent}**  ·  {gt}{pick_str}")
 
     embed = {
-        "title": "⚠️ Games Starting Soon",
+        "title": "⚠️ Games Starting Soon — Active Picks Inside",
         "description": "\n".join(lines),
         "color": 0xF57F17,
-        "footer": {"text": "Last chance to place your bets"},
+        "footer": {"text": "~30 min to tip — last chance to place your bets"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
@@ -377,30 +390,90 @@ def send_games_starting_soon(games: list[dict]):
 
 @app.task
 def send_games_started(games: list[dict]):
-    """Post ONE embed: all games that just went live."""
+    """Post ONE embed: games with active picks that just went live."""
     from src.discord_bot.bot import _post
     import asyncio
     if not games:
         return
 
+    _SPORT_EMOJI = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "soccer_fifa_world_cup": "⚽", "mma_mixed_martial_arts": "🥊",
+        "tennis_atp_french_open": "🎾", "golf_masters_tournament_winner": "⛳",
+    }
+
     lines = []
     for g in games:
-        home = g.get("home_team", "?")
-        away = g.get("away_team", "?")
-        sport = g.get("sport_key", "").split("_")[-1].upper()
-        lines.append(f"• **{away} @ {home}**  ·  {sport}")
+        sport    = g.get("sport_key", "")
+        emoji    = _SPORT_EMOJI.get(sport, "🎯")
+        team     = g.get("team", g.get("home_team", "?"))
+        opponent = g.get("opponent", g.get("away_team", "?"))
+        subject  = g.get("subject", "")
+        stat     = g.get("stat", "")
+        direction = (g.get("direction") or "").upper()
+        line     = g.get("line", "")
+        arrow    = "⬆️" if direction == "OVER" else "⬇️" if direction == "UNDER" else ""
+        pick_str = f" — {subject} {stat} {line} {arrow}" if subject else ""
+        lines.append(f"{emoji} **{team} vs {opponent}**  ·  LIVE{pick_str}")
 
     embed = {
-        "title": "🏀 Games Are Live Now",
+        "title": "🔴 Games Are Live Now",
         "description": "\n".join(lines),
-        "color": 0x00C851,
-        "footer": {"text": "Games are underway — no more pre-game bets"},
+        "color": 0xFF1744,
+        "footer": {"text": "Games underway — track your picks"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
         logger.info("Games-started alert sent: %d games", len(games))
     except Exception as e:
         logger.error("Failed to send games-started alert: %s", e)
+
+
+@app.task
+def send_games_result(results: list[dict]):
+    """Post ONE embed: results for games where we had active picks."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not results:
+        return
+
+    _SPORT_EMOJI = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "soccer_fifa_world_cup": "⚽", "mma_mixed_martial_arts": "🥊",
+        "tennis_atp_french_open": "🎾", "golf_masters_tournament_winner": "⛳",
+    }
+
+    lines = []
+    for r in results:
+        sport    = r.get("sport_key", "")
+        emoji    = _SPORT_EMOJI.get(sport, "🎯")
+        team     = r.get("team", "?")
+        opponent = r.get("opponent", "?")
+        subject  = r.get("subject", "")
+        stat     = r.get("stat", "")
+        direction = (r.get("direction") or "").upper()
+        line     = r.get("line", "")
+        actual   = r.get("actual_value", "?")
+        outcome  = r.get("outcome", "").upper()
+        outcome_emoji = "✅" if outcome == "WON" else "❌" if outcome == "LOST" else "➖"
+        lines.append(
+            f"{emoji} {outcome_emoji} **{team} vs {opponent}**\n"
+            f"  {subject} {stat} {line} {direction} — actual: **{actual}** → **{outcome}**"
+        )
+
+    embed = {
+        "title": "📊 Game Results — Your Picks",
+        "description": "\n\n".join(lines),
+        "color": 0x4CAF50,
+        "footer": {"text": "Results for your active picks today"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Game results alert sent: %d results", len(results))
+    except Exception as e:
+        logger.error("Failed to send game results alert: %s", e)
 
 
 @app.task
@@ -412,12 +485,19 @@ def send_prop_change_alerts(changes: list[dict]):
 @app.task
 def send_pick_line_update(changes: list[dict]):
     """
-    🚨 ALERT ALERT — fires when any of our chosen picks moves line or goes off-board.
-    All changes batched into ONE summary embed.
+    🚨 ALERT ALERT — fires after 6:30 PM ET only.
+    Before that, line moves don't matter enough to interrupt — picks are stable.
     """
     from src.discord_bot.bot import _post
     import asyncio
+    from datetime import datetime
+    import zoneinfo
     if not changes:
+        return
+    # Only alert after 6:30 PM ET — games are approaching, lines matter now
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    if et.hour < 18 or (et.hour == 18 and et.minute < 30):
+        logger.debug("ALERT ALERT suppressed before 6:30 PM ET (%d changes)", len(changes))
         return
 
     lines = []
@@ -598,58 +678,94 @@ def send_result_alert(pick: dict, result: str):
 
 @app.task
 def send_pregame_alerts():
-    """Check all upcoming games and fire grouped pre-game alerts (one embed per window)."""
-    from src.engines.timing_engine import upcoming_games_by_window, should_fire_alert, minutes_to_game
-    from src.db.session import get_db
-    from src.db.models import Game, AlertRecord
-    from datetime import datetime
+    """
+    Check active picks and fire game alerts ONLY for games we have a pick on.
+    Fires for ANY sport — soccer, MLB, NBA, UFC, etc.
+    Uses Redis props cache (not DB) so it works even if games table is sparse.
+    """
+    import json
+    from datetime import datetime, timezone, timedelta
+    from dateutil.parser import parse as _parse
+    import zoneinfo
+    from src.core.config import REDIS_URL
+    import redis as _redis
 
-    # Extract plain values inside session — avoids DetachedInstanceError after close
-    with get_db() as db:
-        rows = db.query(
-            Game.id, Game.home_team, Game.away_team, Game.commence_time
-        ).filter(Game.commence_time >= datetime.utcnow()).all()
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-    events = [
-        {
-            "id": str(gid),
-            "sport_key": "",   # not on Game model directly — resolved via Sport FK if needed
-            "home_team": home,
-            "away_team": away,
-            "commence_time": ct.isoformat() if ct else "",
-        }
-        for gid, home, away, ct in rows
-    ]
+    # Get active picks from cache
+    active_raw = r.get("props:active_picks")
+    if not active_raw:
+        return
+    active_picks = json.loads(active_raw)
+    if not active_picks:
+        return
 
-    windowed = upcoming_games_by_window(events)
+    now    = datetime.now(timezone.utc)
+    et_tz  = zoneinfo.ZoneInfo("America/New_York")
+    et_now = datetime.now(et_tz)
 
-    for window, games in windowed.items():
-        # Collect all games in this window that haven't been alerted yet
-        games_to_alert = []
-        for event in games:
-            game_id = event["id"]
-            if not should_fire_alert(game_id, window):
+    # Build unique matchups from active picks
+    seen_keys: set = set()
+    matchups: list[dict] = []
+    for p in active_picks:
+        gt = p.get("game_time", "")
+        if not gt:
+            continue
+        team     = p.get("team", "")
+        opponent = p.get("opponent", "")
+        key      = f"{team}|{opponent}|{gt}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        matchups.append({
+            "team":       team,
+            "opponent":   opponent,
+            "sport_key":  p.get("sport_key", ""),
+            "game_time":  gt,
+            "subject":    p.get("subject", ""),
+            "stat":       p.get("stat", ""),
+            "direction":  p.get("direction", ""),
+            "line":       p.get("line", ""),
+        })
+
+    starting_soon: list[dict] = []
+    just_started:  list[dict] = []
+
+    for m in matchups:
+        try:
+            t = _parse(m["game_time"])
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            mins_to_start = (t - now).total_seconds() / 60
+            t_et = t.astimezone(et_tz)
+
+            # Only today's games
+            if t_et.date() != et_now.date():
                 continue
-            mins = minutes_to_game(event["commence_time"])
-            games_to_alert.append({**event, "minutes_remaining": mins})
 
-        if not games_to_alert:
+            m["game_time_et"] = t_et.strftime("%-I:%M %p ET")
+            m["mins_to_start"] = int(mins_to_start)
+
+            if -5 <= mins_to_start <= 5:
+                just_started.append(m)
+            elif 25 <= mins_to_start <= 35:
+                starting_soon.append(m)
+        except Exception:
             continue
 
-        # Group: ~30-min window → "starting soon"; ~0-min window → "started"
-        if window <= 5:
-            # Games that just started — post one grouped embed
-            send_games_started.delay(games_to_alert)
-        else:
-            # Games starting in ~30 min — post one grouped embed
-            send_games_starting_soon.delay(games_to_alert)
+    # Fire once per matchup using Redis dedup
+    def _already_alerted(key: str) -> bool:
+        if r.get(f"alert:fired:{key}"):
+            return True
+        r.setex(f"alert:fired:{key}", 3600, "1")
+        return False
 
-        # Record alert so we don't re-fire
-        with get_db() as db:
-            for event in games_to_alert:
-                db.add(AlertRecord(
-                    alert_type=f"pregame_{window}",
-                    channel=f"game-alerts:{event['id']}",
-                    priority="high" if window <= 15 else "medium",
-                    sent_at=datetime.utcnow(),
-                ))
+    if starting_soon:
+        unseen = [m for m in starting_soon if not _already_alerted(f"soon:{m['team']}:{m['game_time']}")]
+        if unseen:
+            send_games_starting_soon.delay(unseen)
+
+    if just_started:
+        unseen = [m for m in just_started if not _already_alerted(f"live:{m['team']}:{m['game_time']}")]
+        if unseen:
+            send_games_started.delay(unseen)
