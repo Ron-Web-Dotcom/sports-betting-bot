@@ -467,56 +467,8 @@ def send_pick_line_update(changes: list[dict]):
 
 @app.task
 def send_watchlist_update(watchlist: list[dict]):
-    """
-    👁️ Props on Radar — near-miss picks (55–64% confidence).
-    Posted once per scan cycle alongside the main picks summary.
-    Lets you keep an eye on props that almost made the cut.
-    """
-    from src.discord_bot.bot import _post
-    import asyncio
-    if not watchlist:
-        return
-
-    _emoji = {
-        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
-        "icehockey_nhl": "🏒", "soccer_fifa_world_cup": "⚽", "soccer_epl": "⚽",
-        "soccer_usa_mls": "⚽", "mma_mixed_martial_arts": "🥊", "tennis_atp_french_open": "🎾",
-    }
-    _sport_name = {
-        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
-        "icehockey_nhl": "NHL", "soccer_fifa_world_cup": "World Cup",
-        "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
-        "mma_mixed_martial_arts": "UFC/MMA", "tennis_atp_french_open": "Tennis",
-    }
-
-    lines = []
-    for p in watchlist[:8]:  # max 8 on radar
-        sport  = p.get("sport_key", "")
-        emoji  = _emoji.get(sport, "🎯")
-        label  = _sport_name.get(sport, sport.split("_")[-1].upper())
-        conf   = round(p.get("confidence", 0) * 100)
-        ev     = round(p.get("ev_pct", 0) * 100, 1)
-        arrow  = "⬆️" if p.get("direction", "").lower() == "over" else "⬇️"
-        lines.append(
-            f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}  "
-            f"`{conf}% conf | +{ev}% edge | {label}`"
-        )
-
-    embed = {
-        "title": "👁️ Props on Radar",
-        "description": (
-            "These props are close but didn't meet the confidence threshold. "
-            "Worth watching — they may cross the line by game time.\n\n"
-            + "\n".join(lines)
-        ),
-        "color": 0x607D8B,
-        "footer": {"text": "Near-miss picks · 55–64% confidence · Not a recommendation"},
-    }
-    try:
-        asyncio.run(_post({"embeds": [embed]}))
-        logger.info("Watchlist posted: %d props on radar", len(watchlist))
-    except Exception as e:
-        logger.error("Failed to send watchlist: %s", e)
+    # Disabled — Props on Radar removed from Discord per user preference
+    logger.debug("send_watchlist_update suppressed (%d props)", len(watchlist))
 
 
 @app.task
