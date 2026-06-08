@@ -317,7 +317,7 @@ def wake_up_brief():
          "value": "🏆 PrizePicks · 🐶 Underdog · 🪨 HardRock · 📈 Kalshi · 🟣 Polymarket",
          "inline": False},
         {"name": health_title,         "value": health_block,                                     "inline": False},
-        {"name": "Next Post",          "value": "**9:30 AM ET** — Good Morning Summary",         "inline": True},
+        {"name": "Next Post",          "value": "**6:00 AM ET** — Good Morning Summary",         "inline": True},
         {"name": "Scan Intervals",
          "value": "Props every 5 min · News every 15 min · Picks every 10 min",
          "inline": False},
