@@ -55,10 +55,10 @@ app.conf.beat_schedule = {
         "task": "src.workers.odds_worker.scan_and_save_odds",
         "schedule": 300,
     },
-    # Player props (PrizePicks + Underdog + Kalshi) — every 10 min
-    "scan-props-every-10min": {
+    # Player props scan — every 5 min
+    "scan-props-every-5min": {
         "task": "src.workers.odds_worker.scan_player_props",
-        "schedule": 600,
+        "schedule": 300,
     },
     # News / injuries — every 15 min
     "fetch-news-every-15min": {
@@ -70,10 +70,10 @@ app.conf.beat_schedule = {
         "task": "src.workers.picks_worker.generate_picks",
         "schedule": 600,
     },
-    # PrizePicks prop picks — every 30 min (reads from props cache)
-    "prop-picks-every-30min": {
+    # Prop picks — every 5 min, single summary post
+    "prop-picks-every-5min": {
         "task": "src.workers.picks_worker.scan_and_pick_props",
-        "schedule": 1800,
+        "schedule": 300,
     },
     # Pre-game alerts — every minute
     "pregame-alerts-every-min": {

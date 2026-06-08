@@ -98,6 +98,52 @@ def send_prop_pick_alerts(picks: list[dict]):
 
 
 @app.task
+def send_prop_summary(picks: list[dict]):
+    """Post ONE summary embed with all top picks — no per-pick spam."""
+    from src.discord_bot.bot import _post
+    from datetime import datetime
+    if not picks:
+        return
+
+    # Sport emoji map
+    _emoji = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "basketball_ncaab": "🏀", "americanfootball_ncaaf": "🏈",
+        "soccer_fifa_world_cup": "⚽", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "mma_mixed_martial_arts": "🥊", "tennis_atp_french_open": "🎾",
+        "golf_masters_tournament_winner": "⛳",
+    }
+
+    lines = []
+    for p in picks:
+        sport = p.get("sport_key", "")
+        emoji = _emoji.get(sport, "🎯")
+        direction = p.get("direction", "").upper()
+        arrow = "⬆️" if direction == "OVER" else "⬇️"
+        conf = round(p.get("confidence", 0) * 100)
+        ev = round(p.get("ev_pct", 0) * 100, 1)
+        source = p.get("source", "").upper()
+        lines.append(
+            f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow} {direction}\n"
+            f"  `{conf}% conf | +{ev}% edge | {source}`"
+        )
+
+    now_str = datetime.utcnow().strftime("%I:%M %p UTC")
+    embed = {
+        "title": f"🎯 Top Prop Picks — {now_str}",
+        "description": "\n\n".join(lines),
+        "color": 0x00C851,
+        "footer": {"text": f"{len(picks)} picks · PrizePicks & Underdog · Bet responsibly"},
+    }
+    try:
+        import asyncio
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Prop summary posted: %d picks", len(picks))
+    except Exception as e:
+        logger.error("Failed to send prop summary: %s", e)
+
+
+@app.task
 def send_prop_result_alert(pick: dict, result: str, actual: float):
     from src.discord_bot.bot import post_prop_result
     try:

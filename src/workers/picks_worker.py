@@ -346,18 +346,15 @@ def morning_props_brief():
 @app.task(bind=True, max_retries=2, default_retry_delay=60)
 def scan_and_pick_props(self):
     """
-    Full PrizePicks prop pick cycle — runs every 30 min (skips during sleep).
-
-    1. Pull live props from Redis cache (populated by scan_player_props)
-    2. AI analyses each prop: Over or Under?
-    3. Gate filters low-confidence / low-EV props
-    4. BET props posted to Discord
-    5. Results tracked in PropResult table for learning loop
+    Prop pick cycle — runs every 5 min (skips during sleep).
+    Posts ONE summary embed to Discord with the top picks, no spamming.
+    Only posts if picks changed since last scan.
     """
     try:
         from src.core.config import REDIS_URL
         import redis as _redis
-        import json, dataclasses
+        import json, dataclasses, hashlib
+        from datetime import datetime, timezone
 
         if _is_sleep_time():
             return {"skipped": "sleep_mode"}
@@ -372,19 +369,16 @@ def scan_and_pick_props(self):
         if not props:
             return {"picks": 0}
 
-        # Filter out completed/in-progress games
+        # Filter: no completed games, no blank subject names
         props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
-
-        # Filter out props with no subject name
         props = [p for p in props if p.get("subject", "").strip()]
 
-        # Filter props to only sports with games today
-        from datetime import datetime, timezone
+        # Filter: today or future only
         now = datetime.now(timezone.utc)
         def _is_today_or_future(p: dict) -> bool:
             gt = p.get("game_time", "")
             if not gt:
-                return True  # no time set — include (PrizePicks often omits it)
+                return True
             try:
                 from dateutil.parser import parse as _parse
                 t = _parse(gt)
@@ -398,25 +392,38 @@ def scan_and_pick_props(self):
         from src.engines.prop_engine import score_props
         picks = score_props(props)
 
-        if picks:
-            # Cap at top 5 picks per scan to avoid Discord spam
-            picks = picks[:5]
-            pick_dicts = [dataclasses.asdict(p) for p in picks]
-            from src.workers.alert_worker import (
-                send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
-            )
-            # Individual pick alerts
-            send_prop_pick_alerts.delay(pick_dicts)
+        if not picks:
+            return {"props_analysed": len(props), "picks": 0}
 
-            # PP parlay — best 2 to 6 picks bundled
-            _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
-            logger.info("Prop picks: %d picks, parlays posted", len(picks))
+        # Top 5 only
+        picks = picks[:5]
 
-        return {"props_analysed": len(props), "picks": len(picks)}
+        # Only post to Discord if picks changed since last scan
+        pick_dicts = [dataclasses.asdict(p) for p in picks]
+        picks_hash = hashlib.md5(json.dumps(pick_dicts, sort_keys=True).encode()).hexdigest()
+        last_hash = r.get("props:last_picks_hash")
+        if picks_hash == last_hash:
+            logger.info("Prop picks unchanged — skipping Discord post")
+            return {"props_analysed": len(props), "picks": len(picks), "posted": False}
+        r.setex("props:last_picks_hash", 3600, picks_hash)
+
+        # Build ONE summary embed
+        from src.workers.alert_worker import send_prop_summary
+        send_prop_summary.delay(pick_dicts)
+        logger.info("Prop picks: %d picks posted as summary", len(picks))
+
+        # Parlay bundle (single post)
+        _post_parlay_bundles(pick_dicts, *_get_parlay_senders())
+        return {"props_analysed": len(props), "picks": len(picks), "posted": True}
 
     except Exception as exc:
         logger.error("scan_and_pick_props failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+def _get_parlay_senders():
+    from src.workers.alert_worker import send_pp_parlay_alert, send_hardrock_parlay_alert
+    return send_pp_parlay_alert, send_hardrock_parlay_alert
 
 
 @app.task
