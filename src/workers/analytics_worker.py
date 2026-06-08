@@ -308,3 +308,56 @@ def cleanup_old_snapshots():
         deleted_snaps, deleted_alerts,
     )
     return {"snapshots_deleted": deleted_snaps, "alerts_deleted": deleted_alerts}
+
+
+@app.task
+def health_check():
+    """Post a single status card to Discord once per hour — confirms bot is alive."""
+    if is_sleep_time():
+        return {"skipped": "sleep_mode"}
+
+    try:
+        from src.core.config import REDIS_URL, DISCORD_WEBHOOK_URL
+        from src.discord_bot.bot import _post
+        import redis as _redis, json
+        from datetime import datetime
+        import zoneinfo
+
+        if not DISCORD_WEBHOOK_URL:
+            return {"skipped": "no_webhook"}
+
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+        # Prop counts from cache
+        all_raw = r.get("props:all")
+        props = json.loads(all_raw) if all_raw else []
+        pp_count  = sum(1 for p in props if p.get("source") == "prizepicks")
+        ud_count  = sum(1 for p in props if p.get("source") == "underdog")
+        last_hash = r.get("props:last_picks_hash")
+
+        et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        time_str = et.strftime("%I:%M %p ET")
+
+        embed = {
+            "title": "🟢 Bot Online",
+            "description": (
+                f"Scanning live props every 5 minutes.\n"
+                f"Top picks posted when new high-confidence bets are found."
+            ),
+            "color": 0x00C851,
+            "fields": [
+                {"name": "PrizePicks",  "value": f"{pp_count:,} props", "inline": True},
+                {"name": "Underdog",    "value": f"{ud_count:,} props", "inline": True},
+                {"name": "Last Picks",  "value": "Updated ✅" if last_hash else "Pending ⏳", "inline": True},
+            ],
+            "footer": {"text": f"Health check · {time_str}"},
+        }
+
+        import asyncio
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Health check posted at %s", time_str)
+        return {"status": "ok", "props": len(props)}
+
+    except Exception as e:
+        logger.error("Health check failed: %s", e)
+        return {"status": "error", "error": str(e)}
