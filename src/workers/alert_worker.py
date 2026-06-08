@@ -233,6 +233,122 @@ def send_underdog_entry(picks: list[dict]):
 
 
 @app.task
+def send_combined_entry(
+    prop_picks: list[dict],
+    hr_games:   list[dict],
+    kalshi:     list[dict],
+    polymarket: list[dict],
+):
+    """
+    ONE combined entry card — PP, Underdog, HardRock, Kalshi, Polymarket in a single embed.
+    Replaces 5 separate cards so Discord stays clean.
+    """
+    from src.discord_bot.bot import _post
+    import asyncio
+
+    _SPORT_EMOJI = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "soccer_fifa_world_cup": "⚽", "mma_mixed_martial_arts": "🥊",
+        "tennis_atp_french_open": "🎾", "golf_masters_tournament_winner": "⛳",
+    }
+    _SPORT_LABEL = {
+        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
+        "icehockey_nhl": "NHL", "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
+        "soccer_fifa_world_cup": "World Cup", "mma_mixed_martial_arts": "UFC/MMA",
+        "tennis_atp_french_open": "Tennis", "golf_masters_tournament_winner": "Golf",
+    }
+
+    fields = []
+
+    # ── PrizePicks ──────────────────────────────────────────────────────────────
+    pp = [p for p in prop_picks if p.get("source") == "prizepicks"]
+    if pp:
+        lines = []
+        for p in pp[:6]:
+            arrow = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
+            emoji = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
+            lines.append(f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}")
+        fields.append({"name": "🏆 PrizePicks", "value": "\n".join(lines), "inline": False})
+
+    # ── Underdog ────────────────────────────────────────────────────────────────
+    ud = [p for p in prop_picks if p.get("source") == "underdog"]
+    if ud:
+        _UD_MULT = {1: "1.5x", 2: "3x", 3: "6x", 4: "10x", 5: "20x", 6: "40x"}
+        lines = []
+        for p in ud[:6]:
+            arrow = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
+            emoji = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
+            lines.append(f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}")
+        mult = _UD_MULT.get(len(ud[:6]), "40x")
+        fields.append({"name": f"🐶 Underdog  ·  {mult} payout", "value": "\n".join(lines), "inline": False})
+
+    # ── HardRock ────────────────────────────────────────────────────────────────
+    if hr_games:
+        lines = []
+        for g in hr_games[:4]:
+            sport = _SPORT_LABEL.get(g.get("sport_key",""), g.get("sport_key","").split("_")[-1].upper())
+            odds  = g.get("best_odds", "")
+            odds_str = (f"+{odds}" if isinstance(odds, int) and odds > 0 else str(odds)) if odds else ""
+            sel   = g.get("selection","") or f"{g.get('away_team','?')} @ {g.get('home_team','?')}"
+            game_time = g.get("commence_time","")
+            time_str = ""
+            if game_time:
+                try:
+                    from dateutil.parser import parse as _p
+                    import zoneinfo as _zi
+                    t = _p(game_time).astimezone(_zi.ZoneInfo("America/New_York"))
+                    time_str = f" · {t.strftime('%-I:%M %p ET')}"
+                except Exception:
+                    pass
+            lines.append(f"🪨 **{sel}**  ·  {sport}{time_str}" + (f"  ·  {odds_str}" if odds_str else ""))
+        fields.append({"name": "🪨 HardRock Bet", "value": "\n".join(lines), "inline": False})
+
+    # ── Kalshi ──────────────────────────────────────────────────────────────────
+    if kalshi:
+        lines = []
+        for m in kalshi[:4]:
+            title = (m.get("title") or "")[:60]
+            direction = m.get("ai_direction","yes").upper()
+            yes_pct = round(float(m.get("yes_price",0))*100) if m.get("yes_price") else "?"
+            lines.append(f"📈 Bet **{direction}** — {title}  ·  YES {yes_pct}¢")
+        fields.append({"name": "📈 Kalshi", "value": "\n".join(lines), "inline": False})
+
+    # ── Polymarket ──────────────────────────────────────────────────────────────
+    if polymarket:
+        lines = []
+        for m in polymarket[:4]:
+            title = (m.get("title") or "")[:60]
+            direction = m.get("ai_direction","yes").upper()
+            yes_pct = round(float(m.get("yes_price",0))*100) if m.get("yes_price") else "?"
+            lines.append(f"🟣 Bet **{direction}** — {title}  ·  YES {yes_pct}¢")
+        fields.append({"name": "🟣 Polymarket", "value": "\n".join(lines), "inline": False})
+
+    if not fields:
+        return
+
+    fields.append({"name": "⚠️", "value": "Place manually on each platform. Bet responsibly.", "inline": False})
+
+    from datetime import datetime
+    import zoneinfo
+    now_str = datetime.now(zoneinfo.ZoneInfo("America/New_York")).strftime("%I:%M %p ET")
+    embed = {
+        "title": f"📋 Today's Entries — {now_str}",
+        "color": 0x1A237E,
+        "fields": [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
+            for f in fields
+        ],
+        "footer": {"text": "PrizePicks · Underdog · HardRock · Kalshi · Polymarket"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Combined entry posted")
+    except Exception as e:
+        logger.error("Failed to send combined entry: %s", e)
+
+
+@app.task
 def send_hardrock_entry(games: list[dict]):
     """Post HardRock Bet entry card — top game picks (ML/spread/totals) from Odds API."""
     from src.discord_bot.bot import _post

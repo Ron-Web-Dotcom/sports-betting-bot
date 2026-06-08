@@ -482,26 +482,16 @@ def scan_and_pick_props(self):
             # Post A: Top Prop Picks summary
             send_prop_summary.delay(pick_dicts)
 
-            # Post B: PrizePicks Entry card
-            pp_picks = [p for p in pick_dicts if p.get("source") == "prizepicks"] or pick_dicts
-            if pp_picks:
-                send_pp_parlay_alert.delay(pp_picks[:6])
-
-            # Post C: Underdog Entry card
-            ud_picks = [p for p in pick_dicts if p.get("source") == "underdog"]
-            if ud_picks:
-                send_underdog_entry.delay(ud_picks[:6])
-
-            # Post D: HardRock Entry — top game picks from Odds API (DB) or props cache
+            # Post B: ONE combined entry card (PP + Underdog + HardRock + Kalshi + Polymarket)
             try:
-                from src.workers.alert_worker import send_hardrock_entry
-                hr_games = []
+                from src.workers.alert_worker import send_combined_entry
 
-                # Try DB snapshots first
+                # HardRock games
+                hr_games = []
                 try:
                     from src.engines.odds_engine import get_latest_snapshots_by_game
                     snaps = get_latest_snapshots_by_game()
-                    for gid, snap_list in list(snaps.items())[:8]:
+                    for gid, snap_list in list(snaps.items())[:4]:
                         if not snap_list:
                             continue
                         s = snap_list[0]
@@ -517,69 +507,48 @@ def scan_and_pick_props(self):
                         })
                 except Exception:
                     pass
-
-                # Fallback: build from today's prop picks (shows matchups even without odds)
-                if not hr_games and pick_dicts:
-                    seen = set()
+                if not hr_games:
+                    seen: set = set()
                     for p in pick_dicts:
-                        if not p.get("opponent") or not p.get("team"):
+                        if not p.get("team") or not p.get("opponent"):
                             continue
                         key = f"{p.get('team')}|{p.get('opponent')}"
                         if key in seen:
                             continue
                         seen.add(key)
                         hr_games.append({
-                            "home_team":     p.get("team", ""),
-                            "away_team":     p.get("opponent", ""),
-                            "sport_key":     p.get("sport_key", ""),
-                            "commence_time": p.get("game_time", ""),
-                            "best_odds":     -110,
-                            "book":          "HardRock",
-                            "market":        "h2h",
-                            "selection":     p.get("team", ""),
+                            "home_team": p.get("team", ""), "away_team": p.get("opponent", ""),
+                            "sport_key": p.get("sport_key", ""), "commence_time": p.get("game_time", ""),
+                            "best_odds": -110, "book": "HardRock", "market": "h2h",
+                            "selection": p.get("team", ""),
                         })
 
-                if hr_games:
-                    send_hardrock_entry.delay(hr_games[:4])
-            except Exception as _hre:
-                logger.debug("HardRock entry failed: %s", _hre)
+                # Kalshi markets
+                kalshi_scored = []
+                try:
+                    kalshi_raw = r.get("kalshi:markets")
+                    if kalshi_raw:
+                        kalshi_scored = _score_kalshi_markets(json.loads(kalshi_raw))
+                except Exception:
+                    pass
 
-            # Post E: Kalshi Entry — AI-scored sports prediction markets
-            try:
-                kalshi_raw = r.get("kalshi:markets")
-                if kalshi_raw:
-                    kalshi_markets_data = json.loads(kalshi_raw)
-                    if kalshi_markets_data:
-                        from src.workers.alert_worker import send_kalshi_entry
-                        # AI score the markets before posting
-                        scored = _score_kalshi_markets(kalshi_markets_data)
-                        if scored:
-                            scored_hash = hashlib.md5(
-                                json.dumps(scored, sort_keys=True).encode()
-                            ).hexdigest()
-                            if r.get("kalshi:last_hash") != scored_hash:
-                                r.setex("kalshi:last_hash", 3600, scored_hash)
-                                send_kalshi_entry.delay(scored)
-            except Exception as _ke:
-                logger.debug("Kalshi entry failed: %s", _ke)
+                # Polymarket markets
+                poly_scored = []
+                try:
+                    poly_raw = r.get("polymarket:markets")
+                    if poly_raw:
+                        poly_scored = _score_kalshi_markets(json.loads(poly_raw))
+                except Exception:
+                    pass
 
-            # Post F: Polymarket Entry — AI-scored sports prediction markets
-            try:
-                poly_raw = r.get("polymarket:markets")
-                if poly_raw:
-                    poly_data = json.loads(poly_raw)
-                    if poly_data:
-                        from src.workers.alert_worker import send_polymarket_entry
-                        scored_poly = _score_kalshi_markets(poly_data)  # same AI scoring logic
-                        if scored_poly:
-                            poly_hash = hashlib.md5(
-                                json.dumps(scored_poly, sort_keys=True).encode()
-                            ).hexdigest()
-                            if r.get("polymarket:last_hash") != poly_hash:
-                                r.setex("polymarket:last_hash", 3600, poly_hash)
-                                send_polymarket_entry.delay(scored_poly)
-            except Exception as _pe:
-                logger.debug("Polymarket entry failed: %s", _pe)
+                send_combined_entry.delay(
+                    pick_dicts,
+                    hr_games[:4],
+                    kalshi_scored[:4],
+                    poly_scored[:4],
+                )
+            except Exception as _ce:
+                logger.warning("Combined entry failed: %s", _ce)
 
             logger.info("Prop picks posted: %d picks", len(picks))
         else:
