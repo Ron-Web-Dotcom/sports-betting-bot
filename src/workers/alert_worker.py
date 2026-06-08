@@ -491,8 +491,10 @@ def send_games_starting_soon(games: list[dict]):
         pick_str = f" — {subject} {stat} {line} {arrow}" if subject else ""
         lines.append(f"{emoji} **{team} vs {opponent}**  ·  {gt}{pick_str}")
 
+    n = len(games)
+    title = "⚠️ Game Starting Soon — Active Pick Inside" if n == 1 else "⚠️ Games Starting Soon — Active Picks Inside"
     embed = {
-        "title": "⚠️ Games Starting Soon — Active Picks Inside",
+        "title": title,
         "description": "\n".join(lines),
         "color": 0xF57F17,
         "footer": {"text": "~30 min to tip — last chance to place your bets"},
@@ -533,8 +535,10 @@ def send_games_started(games: list[dict]):
         pick_str = f" — {subject} {stat} {line} {arrow}" if subject else ""
         lines.append(f"{emoji} **{team} vs {opponent}**  ·  LIVE{pick_str}")
 
+    n = len(games)
+    title = "🔴 Game is Live" if n == 1 else "🔴 Games are Live"
     embed = {
-        "title": "🔴 Games Are Live Now",
+        "title": title,
         "description": "\n".join(lines),
         "color": 0xFF1744,
         "footer": {"text": "Games underway — track your picks"},
@@ -548,11 +552,30 @@ def send_games_started(games: list[dict]):
 
 @app.task
 def send_games_result(results: list[dict]):
-    """Post ONE embed: results for games where we had active picks."""
+    """
+    Post ONE embed per settled pick with progress counter.
+    Shows: "Messi Shot on Goal 2.5 ✓ 1/3 picks left to go"
+    When ALL picks settle, appends the final slip verdict (WIN / LOSS / REDUCED).
+
+    Each result dict should have:
+      subject, stat, line, direction, actual_value, outcome (won/lost/push),
+      sport_key, team, opponent, slip_type ("pp_power"|"pp_flex"|"underdog"|"hardrock"),
+      session_key (optional — defaults to today's date string)
+    """
     from src.discord_bot.bot import _post
     import asyncio
+    import json
+    from datetime import datetime
+    import zoneinfo
+    from src.core.config import REDIS_URL
+    import redis as _redis
+
     if not results:
         return
+
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    et_tz   = zoneinfo.ZoneInfo("America/New_York")
+    today   = datetime.now(et_tz).strftime("%Y-%m-%d")
 
     _SPORT_EMOJI = {
         "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
@@ -562,34 +585,110 @@ def send_games_result(results: list[dict]):
     }
 
     lines = []
-    for r in results:
-        sport    = r.get("sport_key", "")
-        emoji    = _SPORT_EMOJI.get(sport, "🎯")
-        team     = r.get("team", "?")
-        opponent = r.get("opponent", "?")
-        subject  = r.get("subject", "")
-        stat     = r.get("stat", "")
-        direction = (r.get("direction") or "").upper()
-        line     = r.get("line", "")
-        actual   = r.get("actual_value", "?")
-        outcome  = r.get("outcome", "").upper()
-        outcome_emoji = "✅" if outcome == "WON" else "❌" if outcome == "LOST" else "➖"
+    for res in results:
+        sport     = res.get("sport_key", "")
+        emoji     = _SPORT_EMOJI.get(sport, "🎯")
+        subject   = res.get("subject", "?")
+        stat      = res.get("stat", "")
+        line      = res.get("line", "")
+        direction = (res.get("direction") or "").upper()
+        actual    = res.get("actual_value", "?")
+        outcome   = res.get("outcome", "").lower()
+        slip_type = res.get("slip_type", "pp_flex")
+        session   = res.get("session_key", today)
+
+        outcome_emoji = "✅" if outcome == "won" else "❌" if outcome == "lost" else "➖"
+
+        # ── Progress tracking via Redis ──────────────────────────────────────
+        progress_key = f"slip:progress:{session}"
+        total_key    = f"slip:total:{session}"
+        losses_key   = f"slip:losses:{session}"
+
+        # Seed total on first result of this session
+        total_raw = r.get(total_key)
+        if not total_raw:
+            # Try to get total from active_picks cache
+            active_raw = r.get("props:active_picks")
+            total = len(json.loads(active_raw)) if active_raw else 1
+            r.setex(total_key, 86400, total)
+        else:
+            total = int(total_raw)
+
+        settled = r.incr(progress_key)
+        r.expire(progress_key, 86400)
+        if outcome == "lost":
+            r.incr(losses_key)
+            r.expire(losses_key, 86400)
+        losses = int(r.get(losses_key) or 0)
+
+        left = total - settled
+        if left > 0:
+            progress_str = f"  `{left}/{total} picks left to go`"
+        else:
+            progress_str = "  `All picks settled`"
+
         lines.append(
-            f"{emoji} {outcome_emoji} **{team} vs {opponent}**\n"
-            f"  {subject} {stat} {line} {direction} — actual: **{actual}** → **{outcome}**"
+            f"{emoji} {outcome_emoji} **{subject}** — {stat} {line} {direction}\n"
+            f"  actual: **{actual}** → **{outcome.upper()}**\n{progress_str}"
         )
 
+        # ── Final slip verdict when last pick settles ────────────────────────
+        if settled >= total:
+            verdict = _slip_verdict(slip_type, total, losses)
+            lines.append(f"\n{verdict}")
+
+    if not lines:
+        return
+
+    n = len(results)
+    title = "📊 Pick Result" if n == 1 else "📊 Pick Results"
     embed = {
-        "title": "📊 Game Results — Your Picks",
+        "title": title,
         "description": "\n\n".join(lines),
         "color": 0x4CAF50,
         "footer": {"text": "Results for your active picks today"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
-        logger.info("Game results alert sent: %d results", len(results))
+        logger.info("Game results alert sent: %d results", n)
     except Exception as e:
         logger.error("Failed to send game results alert: %s", e)
+
+
+def _slip_verdict(slip_type: str, total: int, losses: int) -> str:
+    """
+    Return the final slip verdict string based on slip type and loss count.
+
+    PP Power Play 2: both must win — 1 loss = dead
+    PP Power Play 3-6: 1 loss = entire slip dead
+    PP Flex 3-6: 1 loss = reduced payout (slip still alive), 2+ = dead
+    Underdog: 1 loss = dead
+    HardRock parlay: 1 loss = dead
+    """
+    if losses == 0:
+        return "🏆 **SLIP WIN** — All picks cashed! Full payout."
+
+    if slip_type == "pp_flex" and total >= 3:
+        # Flex: 1 loss = reduced, 2+ = dead
+        if losses == 1:
+            return "⚠️ **SLIP REDUCED** — 1 loss on Flex slip. Reduced payout — still counts."
+        else:
+            return "💀 **SLIP LOST** — 2+ losses on PP Flex slip. No payout."
+
+    if slip_type == "pp_power" and total == 2:
+        return "💀 **SLIP LOST** — PP Power Play (2-pick): 1 loss kills the slip."
+
+    if slip_type == "pp_power" and total >= 3:
+        return "💀 **SLIP LOST** — PP Power Play: any loss kills the slip."
+
+    if slip_type == "underdog":
+        return "💀 **SLIP LOST** — Underdog: 1 loss = dead slip. No payout."
+
+    if slip_type == "hardrock":
+        return "💀 **SLIP LOST** — HardRock parlay: 1 loss = dead slip. No payout."
+
+    # Default fallback
+    return "💀 **SLIP LOST**" if losses > 0 else "🏆 **SLIP WIN**"
 
 
 @app.task
