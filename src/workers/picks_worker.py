@@ -373,19 +373,17 @@ def scan_and_pick_props(self):
         props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
         props = [p for p in props if p.get("subject", "").strip()]
 
-        # Filter: skip sports that are currently off-season (NFL/NCAAF in June)
-        import calendar
-        current_month = datetime.now(timezone.utc).month
-        _off_season: dict[str, list[int]] = {
-            "americanfootball_nfl":  [3, 4, 5, 6, 7],   # NFL off-season Mar–Jul
-            "americanfootball_ncaaf": [1, 2, 3, 4, 5, 6, 7, 8],  # NCAAF off Aug-Jan only
-            "icehockey_nhl":         [7, 8, 9],          # NHL off Jul–Sep
-            "basketball_ncaab":      [4, 5, 6, 7, 8, 9, 10, 11],  # NCAAB off Apr–Nov
-        }
-        props = [
-            p for p in props
-            if current_month not in _off_season.get(p.get("sport_key", ""), [])
-        ]
+        # Filter: only include sports that actually have props live right now
+        # (auto-detects active seasons — no hardcoded months needed)
+        active_sports = {p.get("sport_key") for p in props if p.get("sport_key")}
+        # Remove sports with fewer than 5 props (likely stale/off-season leftovers)
+        sport_counts = {}
+        for p in props:
+            sk = p.get("sport_key", "")
+            sport_counts[sk] = sport_counts.get(sk, 0) + 1
+        active_sports = {sk for sk, cnt in sport_counts.items() if cnt >= 5}
+        props = [p for p in props if p.get("sport_key") in active_sports]
+        logger.info("Active sports with props: %s", sorted(active_sports))
 
         # Filter: only games starting between now and 4 hours from now (today only, not started)
         now = datetime.now(timezone.utc)
