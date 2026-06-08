@@ -154,11 +154,44 @@ def send_prop_result_alert(pick: dict, result: str, actual: float):
 
 @app.task
 def send_prop_change_alerts(changes: list[dict]):
-    from src.discord_bot.bot import post_prop_changes
+    # Disabled — floods Discord with thousands of line moves every scan
+    logger.debug("send_prop_change_alerts suppressed (%d changes)", len(changes))
+
+
+@app.task
+def send_pick_line_update(changes: list[dict]):
+    """Alert only when one of our recommended picks moves line or goes off-board."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not changes:
+        return
+
+    _type_emoji = {"moved": "📊", "removed": "❌"}
+    lines = []
+    for c in changes:
+        emoji = _type_emoji.get(c.get("change_type"), "ℹ️")
+        subject = c.get("subject", "")
+        stat = c.get("stat", "")
+        direction = c.get("our_direction", "").upper()
+        if c.get("change_type") == "moved":
+            lines.append(f"{emoji} **{subject}** {stat} — line moved {c.get('old_line')} → **{c.get('new_line')}** (we picked {direction})")
+        elif c.get("change_type") == "removed":
+            lines.append(f"{emoji} **{subject}** {stat} — **OFF THE BOARD** (we picked {direction})")
+
+    if not lines:
+        return
+
+    embed = {
+        "title": "⚠️ Pick Update",
+        "description": "\n".join(lines),
+        "color": 0xFF6F00,
+        "footer": {"text": "Line movement on your active picks"},
+    }
     try:
-        _run_async(post_prop_changes(changes))
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Pick line update sent: %d changes", len(changes))
     except Exception as e:
-        logger.error("Failed to send prop change alerts: %s", e)
+        logger.error("Failed to send pick line update: %s", e)
 
 
 @app.task

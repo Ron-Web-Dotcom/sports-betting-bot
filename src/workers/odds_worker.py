@@ -88,6 +88,38 @@ def _prop_key(prop: dict) -> str:
     return f"{prop.get('subject', '')}|{prop.get('stat', '')}|{prop.get('sport_key', '')}"
 
 
+def _alert_active_pick_changes(r, all_changes: list[dict]):
+    """
+    Check if any of our recommended picks moved or went off-board.
+    Post a brief Discord update only for those — not for all 2000+ props.
+    """
+    import json
+    last_raw = r.get("props:last_picks_hash")
+    if not last_raw:
+        return  # no active picks to track
+
+    active_raw = r.get("props:active_picks")
+    if not active_raw:
+        return
+    active_picks = json.loads(active_raw)
+    active_keys = {
+        f"{p.get('subject', '')}|{p.get('stat', '')}|{p.get('sport_key', '')}": p
+        for p in active_picks
+    }
+
+    relevant = []
+    for c in all_changes:
+        key = f"{c.get('subject', '')}|{c.get('stat', '')}|{c.get('sport_key', '')}"
+        if key in active_keys:
+            relevant.append({**c, "our_direction": active_picks[0].get("direction", "")})
+
+    if not relevant:
+        return
+
+    from src.workers.alert_worker import send_pick_line_update
+    send_pick_line_update.delay(relevant)
+
+
 def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> list[dict]:
     """Compare two prop snapshots and return a list of change dicts."""
     prev_map = {_prop_key(p): p for p in prev}
@@ -197,9 +229,10 @@ def scan_player_props(self):
             r.setex(f"props:{name}", 900, json.dumps(items or []))
         r.setex("props:all", 900, json.dumps(all_props))
 
-        # Prop change alerts disabled — line move spam floods Discord
+        # Only alert on changes to picks we already recommended
         if all_changes:
-            logger.info("Props changed: %d updates detected (alerts suppressed)", len(all_changes))
+            logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
+            _alert_active_pick_changes(r, all_changes)
 
         counts = {k: len(v or []) for k, v in results.items()}
         logger.info("Props scan complete: %s | total=%d", counts, len(all_props))
