@@ -232,6 +232,101 @@ def send_underdog_entry(picks: list[dict]):
         logger.error("Failed to send Underdog entry: %s", e)
 
 
+def _recommended_bet(confidence: float, ev_pct: float, bankroll: float = 1000.0) -> str:
+    """
+    Kelly-lite bet sizing: fraction = (edge / 1) capped at 5% bankroll.
+    Maps to unit tiers. Returns human-readable string e.g. "$15 (1.5 units)".
+    """
+    if not confidence or not ev_pct or ev_pct <= 0:
+        return ""
+    # Half-Kelly: (p - q) / 1  where p = confidence, q = 1 - p
+    kelly = (confidence - (1 - confidence)) * ev_pct
+    kelly = max(0.005, min(kelly, 0.05))   # floor 0.5%, cap 5% of bankroll
+    dollar = round(bankroll * kelly, 2)
+    units  = round(dollar / (bankroll * 0.01), 1)   # 1 unit = 1% bankroll
+    return f"Bet **${dollar:.0f}** ({units} units)"
+
+
+def _best_book_props(prop_picks: list[dict]) -> list[dict]:
+    """
+    For props that appear on BOTH PrizePicks and Underdog, keep only the better-lined one.
+    - OVER: lower line = easier to hit = better
+    - UNDER: higher line = easier to hit = better
+    Props that appear on only one book are kept as-is.
+    Returns a flat list with 'best_book' key added.
+    """
+    from collections import defaultdict
+    by_key: dict[str, list[dict]] = defaultdict(list)
+    for p in prop_picks:
+        norm_name = (p.get("subject") or "").lower().strip()
+        norm_stat = (p.get("stat") or "").lower().strip()
+        by_key[f"{norm_name}|{norm_stat}"].append(p)
+
+    result = []
+    for picks in by_key.values():
+        if len(picks) == 1:
+            p = picks[0]
+            p["best_book"] = p.get("source", "").title()
+            result.append(p)
+        else:
+            # Multiple books — pick the best line per direction
+            direction = (picks[0].get("direction") or "over").lower()
+            if direction == "over":
+                winner = min(picks, key=lambda x: float(x.get("line") or 999))
+                loser  = max(picks, key=lambda x: float(x.get("line") or 999))
+            else:
+                winner = max(picks, key=lambda x: float(x.get("line") or 0))
+                loser  = min(picks, key=lambda x: float(x.get("line") or 0))
+            winner_line = float(winner.get("line") or 0)
+            loser_line  = float(loser.get("line") or 0)
+            gap = abs(winner_line - loser_line)
+            winner["best_book"] = winner.get("source", "").title()
+            winner["line_gap"]  = gap
+            winner["other_book"] = loser.get("source", "").title()
+            winner["other_line"] = loser.get("line")
+            result.append(winner)
+    result.sort(key=lambda p: p.get("ev_pct", 0) * p.get("confidence", 0), reverse=True)
+    return result
+
+
+def _best_prediction_market(kalshi: list[dict], polymarket: list[dict]) -> list[dict]:
+    """
+    For predictions that appear on both Kalshi and Polymarket, show the better-priced one.
+    Better price = lower yes_price if betting YES (cheaper to buy), higher if betting NO.
+    Unmatched predictions kept as-is.
+    Returns flat list with 'platform' key.
+    """
+    from collections import defaultdict
+    norm = lambda t: (t or "").lower().strip()[:60]
+    combined: list[dict] = []
+    for m in kalshi:
+        m["platform"] = "Kalshi"
+        combined.append(m)
+    for m in polymarket:
+        m["platform"] = "Polymarket"
+        combined.append(m)
+
+    by_title: dict[str, list[dict]] = defaultdict(list)
+    for m in combined:
+        key = norm(m.get("title") or m.get("question") or "")
+        by_title[key].append(m)
+
+    result = []
+    for items in by_title.values():
+        if len(items) == 1:
+            result.append(items[0])
+        else:
+            direction = (items[0].get("ai_direction") or "yes").lower()
+            if direction == "yes":
+                # Lower YES price = you pay less for the same $1 payout = better value
+                winner = min(items, key=lambda x: float(x.get("yes_price") or 1))
+            else:
+                winner = min(items, key=lambda x: float(x.get("no_price") or 1))
+            result.append(winner)
+    result.sort(key=lambda m: float(m.get("ai_confidence") or 0), reverse=True)
+    return result
+
+
 @app.task
 def send_combined_entry(
     prop_picks: list[dict],
@@ -240,10 +335,14 @@ def send_combined_entry(
     polymarket: list[dict],
 ):
     """
-    ONE combined entry card — PP, Underdog, HardRock, Kalshi, Polymarket in a single embed.
-    Replaces 5 separate cards so Discord stays clean.
+    ONE combined entry card.
+    - Props: PP vs Underdog best-book per prop (lower OVER line / higher UNDER line wins)
+    - Predictions: Kalshi vs Polymarket best price per market
+    - HardRock: always shown (sportsbook, no competition)
+    - Each pick shows recommended bet size based on confidence + EV
     """
     from src.discord_bot.bot import _post
+    from src.core.config import DEFAULT_BANKROLL
     import asyncio
 
     _SPORT_EMOJI = {
@@ -261,36 +360,35 @@ def send_combined_entry(
 
     fields = []
 
-    # ── PrizePicks ──────────────────────────────────────────────────────────────
-    pp = [p for p in prop_picks if p.get("source") == "prizepicks"]
-    if pp:
+    # ── Best Props (PP vs Underdog — winner per prop) ───────────────────────────
+    if prop_picks:
+        best_props = _best_book_props(prop_picks)[:6]
         lines = []
-        for p in pp[:6]:
-            arrow = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
-            emoji = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
-            lines.append(f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}")
-        fields.append({"name": "🏆 PrizePicks", "value": "\n".join(lines), "inline": False})
+        for p in best_props:
+            arrow     = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
+            emoji     = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
+            book      = p.get("best_book", p.get("source","").title())
+            conf      = round((p.get("confidence") or 0) * 100)
+            ev        = round((p.get("ev_pct") or 0) * 100, 1)
+            bet_str   = _recommended_bet(p.get("confidence") or 0, p.get("ev_pct") or 0, DEFAULT_BANKROLL)
+            gap       = p.get("line_gap")
+            other     = p.get("other_book", "")
+            other_l   = p.get("other_line", "")
+            gap_note  = f" *(vs {other} @ {other_l} — save {gap:.1f} pts)*" if gap and gap > 0 else ""
+            lines.append(
+                f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}  ·  **{book}**{gap_note}\n"
+                f"  `{conf}% conf · +{ev}% edge` · {bet_str}"
+            )
+        fields.append({"name": "🎯 Best Props (PP vs Underdog)", "value": "\n\n".join(lines), "inline": False})
 
-    # ── Underdog ────────────────────────────────────────────────────────────────
-    ud = [p for p in prop_picks if p.get("source") == "underdog"]
-    if ud:
-        _UD_MULT = {1: "1.5x", 2: "3x", 3: "6x", 4: "10x", 5: "20x", 6: "40x"}
-        lines = []
-        for p in ud[:6]:
-            arrow = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
-            emoji = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
-            lines.append(f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}")
-        mult = _UD_MULT.get(len(ud[:6]), "40x")
-        fields.append({"name": f"🐶 Underdog  ·  {mult} payout", "value": "\n".join(lines), "inline": False})
-
-    # ── HardRock ────────────────────────────────────────────────────────────────
+    # ── HardRock (always shown — sportsbook, no competition) ───────────────────
     if hr_games:
         lines = []
         for g in hr_games[:4]:
-            sport = _SPORT_LABEL.get(g.get("sport_key",""), g.get("sport_key","").split("_")[-1].upper())
-            odds  = g.get("best_odds", "")
+            sport    = _SPORT_LABEL.get(g.get("sport_key",""), g.get("sport_key","").split("_")[-1].upper())
+            odds     = g.get("best_odds", "")
             odds_str = (f"+{odds}" if isinstance(odds, int) and odds > 0 else str(odds)) if odds else ""
-            sel   = g.get("selection","") or f"{g.get('away_team','?')} @ {g.get('home_team','?')}"
+            sel      = g.get("selection","") or f"{g.get('away_team','?')} @ {g.get('home_team','?')}"
             game_time = g.get("commence_time","")
             time_str = ""
             if game_time:
@@ -301,28 +399,34 @@ def send_combined_entry(
                     time_str = f" · {t.strftime('%-I:%M %p ET')}"
                 except Exception:
                     pass
-            lines.append(f"🪨 **{sel}**  ·  {sport}{time_str}" + (f"  ·  {odds_str}" if odds_str else ""))
-        fields.append({"name": "🪨 HardRock Bet", "value": "\n".join(lines), "inline": False})
+            conf     = round((g.get("confidence") or 0) * 100)
+            ev       = round((g.get("ev_pct") or 0) * 100, 1)
+            bet_str  = _recommended_bet(g.get("confidence") or 0, g.get("ev_pct") or 0, DEFAULT_BANKROLL)
+            meta     = f"\n  `{conf}% conf · +{ev}% edge` · {bet_str}" if conf else ""
+            lines.append(f"🪨 **{sel}**  ·  {sport}{time_str}" + (f"  ·  {odds_str}" if odds_str else "") + meta)
+        fields.append({"name": "🪨 HardRock Bet", "value": "\n\n".join(lines), "inline": False})
 
-    # ── Kalshi ──────────────────────────────────────────────────────────────────
-    if kalshi:
+    # ── Best Predictions (Kalshi vs Polymarket — winner per market) ─────────────
+    best_preds = _best_prediction_market(kalshi or [], polymarket or [])
+    if best_preds:
         lines = []
-        for m in kalshi[:4]:
-            title = (m.get("title") or "")[:60]
-            direction = m.get("ai_direction","yes").upper()
-            yes_pct = round(float(m.get("yes_price",0))*100) if m.get("yes_price") else "?"
-            lines.append(f"📈 Bet **{direction}** — {title}  ·  YES {yes_pct}¢")
-        fields.append({"name": "📈 Kalshi", "value": "\n".join(lines), "inline": False})
-
-    # ── Polymarket ──────────────────────────────────────────────────────────────
-    if polymarket:
-        lines = []
-        for m in polymarket[:4]:
-            title = (m.get("title") or "")[:60]
-            direction = m.get("ai_direction","yes").upper()
-            yes_pct = round(float(m.get("yes_price",0))*100) if m.get("yes_price") else "?"
-            lines.append(f"🟣 Bet **{direction}** — {title}  ·  YES {yes_pct}¢")
-        fields.append({"name": "🟣 Polymarket", "value": "\n".join(lines), "inline": False})
+        for m in best_preds[:4]:
+            platform  = m.get("platform", "Kalshi")
+            p_emoji   = "📈" if platform == "Kalshi" else "🟣"
+            title     = (m.get("title") or m.get("question") or "")[:55]
+            direction = (m.get("ai_direction") or "yes").upper()
+            yes_pct   = round(float(m.get("yes_price",0))*100) if m.get("yes_price") else "?"
+            no_pct    = round(float(m.get("no_price",0))*100)  if m.get("no_price")  else "?"
+            conf      = round((m.get("ai_confidence") or 0) * 100)
+            ev        = round((m.get("ai_ev_pct") or 0) * 100, 1)
+            bet_str   = _recommended_bet(m.get("ai_confidence") or 0, m.get("ai_ev_pct") or 0, DEFAULT_BANKROLL)
+            price_str = f"YES {yes_pct}¢ / NO {no_pct}¢"
+            meta      = f"`{conf}% conf · +{ev}% edge` · {bet_str}" if conf else ""
+            lines.append(
+                f"{p_emoji} **{direction}** on **{platform}** — {title}\n"
+                f"  {price_str}" + (f"\n  {meta}" if meta else "")
+            )
+        fields.append({"name": "🔮 Best Predictions (Kalshi vs Polymarket)", "value": "\n\n".join(lines), "inline": False})
 
     if not fields:
         return
@@ -339,7 +443,7 @@ def send_combined_entry(
             {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
             for f in fields
         ],
-        "footer": {"text": "PrizePicks · Underdog · HardRock · Kalshi · Polymarket"},
+        "footer": {"text": "Best book per pick · HardRock · Kalshi vs Polymarket · Bet responsibly"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
