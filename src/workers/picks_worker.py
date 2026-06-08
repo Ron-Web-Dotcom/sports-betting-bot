@@ -470,26 +470,53 @@ def scan_and_pick_props(self):
             if len(ud_picks) >= 2:
                 send_underdog_entry.delay(ud_picks[:6])
 
-            # Post D: HardRock Entry — top game picks from Odds API
+            # Post D: HardRock Entry — top game picks from Odds API (DB) or props cache
             try:
-                from src.engines.odds_engine import get_latest_snapshots_by_game
                 from src.workers.alert_worker import send_hardrock_entry
-                snaps = get_latest_snapshots_by_game()
                 hr_games = []
-                for gid, snap_list in list(snaps.items())[:8]:
-                    if not snap_list:
-                        continue
-                    s = snap_list[0]
-                    hr_games.append({
-                        "home_team":    s.get("home_team", ""),
-                        "away_team":    s.get("away_team", ""),
-                        "sport_key":    s.get("sport_key", ""),
-                        "commence_time": str(s.get("commence_time", "")),
-                        "best_odds":    s.get("best_odds", -110),
-                        "book":         s.get("book", ""),
-                        "market":       s.get("market", "h2h"),
-                        "selection":    s.get("selection", ""),
-                    })
+
+                # Try DB snapshots first
+                try:
+                    from src.engines.odds_engine import get_latest_snapshots_by_game
+                    snaps = get_latest_snapshots_by_game()
+                    for gid, snap_list in list(snaps.items())[:8]:
+                        if not snap_list:
+                            continue
+                        s = snap_list[0]
+                        hr_games.append({
+                            "home_team":     s.get("home_team", ""),
+                            "away_team":     s.get("away_team", ""),
+                            "sport_key":     s.get("sport_key", ""),
+                            "commence_time": str(s.get("commence_time", "")),
+                            "best_odds":     s.get("best_odds", -110),
+                            "book":          s.get("book", "HardRock"),
+                            "market":        s.get("market", "h2h"),
+                            "selection":     s.get("selection", ""),
+                        })
+                except Exception:
+                    pass
+
+                # Fallback: build from today's prop picks (shows matchups even without odds)
+                if not hr_games and pick_dicts:
+                    seen = set()
+                    for p in pick_dicts:
+                        if not p.get("opponent") or not p.get("team"):
+                            continue
+                        key = f"{p.get('team')}|{p.get('opponent')}"
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        hr_games.append({
+                            "home_team":     p.get("team", ""),
+                            "away_team":     p.get("opponent", ""),
+                            "sport_key":     p.get("sport_key", ""),
+                            "commence_time": p.get("game_time", ""),
+                            "best_odds":     -110,
+                            "book":          "HardRock",
+                            "market":        "h2h",
+                            "selection":     p.get("team", ""),
+                        })
+
                 if hr_games:
                     send_hardrock_entry.delay(hr_games[:4])
             except Exception as _hre:

@@ -167,19 +167,77 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
     return out
 
 
+_SPORTS_KEYWORDS = [
+    "nba", "nfl", "mlb", "nhl", "ufc", "mma", "world cup", "fifa",
+    "champions league", "premier league", "mls", "stanley cup", "super bowl",
+    "world series", "wimbledon", "us open", "french open", "masters", "pga",
+    "formula 1", "f1", "ncaa", "march madness", "playoffs", "finals",
+    "win the", "championship", "series", "advance", "qualify",
+]
+
+
 def get_sports_markets() -> list[dict]:
-    """Fetch all open sports markets across all tracked sports."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    results = []
-    sport_keys = list(_SPORT_TAGS.keys())
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {pool.submit(get_markets, sk): sk for sk in sport_keys}
-        for future in as_completed(futures, timeout=25):
-            try:
-                results.extend(future.result())
-            except Exception as e:
-                logger.warning("Kalshi fetch failed for %s: %s", futures[future], e)
-    return results
+    """
+    Fetch all open sports markets in a single API call.
+    Filters by keyword rather than per-sport tag to avoid 13 round trips.
+    """
+    data = _get("/markets", {"limit": 200, "status": "open"})
+    if not data:
+        return []
+
+    markets_raw = data.get("markets", []) if isinstance(data, dict) else []
+    if not markets_raw:
+        # Try cursor-based fetch if empty
+        data2 = _get("/markets", {"limit": 200})
+        markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
+
+    out = []
+    for m in markets_raw:
+        title    = (m.get("title") or "").lower()
+        category = (m.get("category") or "").lower()
+        tags     = [t.lower() for t in (m.get("tags") or [])]
+
+        is_sports = (
+            "sports" in category
+            or any(kw in title for kw in _SPORTS_KEYWORDS)
+            or any(kw in " ".join(tags) for kw in _SPORTS_KEYWORDS)
+        )
+        if not is_sports:
+            continue
+
+        yes_bid = (m.get("yes_bid") or 0) / 100
+        yes_ask = (m.get("yes_ask") or 0) / 100
+        no_bid  = (m.get("no_bid")  or 0) / 100
+        no_ask  = (m.get("no_ask")  or 0) / 100
+
+        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
+
+        # Detect sport from title
+        sport_key = ""
+        for sk, tag_list in _SPORT_TAGS.items():
+            if any(t.lower() in title for t in tag_list):
+                sport_key = sk
+                break
+
+        out.append({
+            "market_id":    m.get("ticker", ""),
+            "title":        m.get("title", ""),
+            "category":     category,
+            "tags":         tags,
+            "yes_price":    round(yes_mid, 4),
+            "no_price":     round(no_mid,  4),
+            "yes_american": _prob_to_american(yes_mid),
+            "no_american":  _prob_to_american(no_mid),
+            "volume":       m.get("volume", 0),
+            "close_time":   m.get("close_time", ""),
+            "result":       m.get("result", ""),
+            "sport_key":    sport_key,
+            "source":       "kalshi",
+        })
+
+    logger.info("Kalshi: %d sports markets fetched (from %d total)", len(out), len(markets_raw))
+    return out
 
 
 def _prob_to_american(prob: float) -> int:
