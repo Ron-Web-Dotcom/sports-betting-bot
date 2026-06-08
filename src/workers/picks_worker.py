@@ -396,7 +396,7 @@ def scan_and_pick_props(self):
                 if t.tzinfo is None:
                     t = t.replace(tzinfo=timezone.utc)
                 too_soon   = t < now + timedelta(minutes=30)   # game starts in <30 min or already started
-                too_far    = t > now + timedelta(hours=6)       # game more than 6 hrs away
+                too_far    = t > now + timedelta(hours=9)       # game more than 9 hrs away
                 t_et       = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
                 wrong_day  = t_et.date() != et_now.date()
                 return not too_soon and not too_far and not wrong_day
