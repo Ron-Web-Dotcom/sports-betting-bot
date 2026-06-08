@@ -687,6 +687,12 @@ def _slip_verdict(slip_type: str, total: int, losses: int) -> str:
     if slip_type == "hardrock":
         return "💀 **SLIP LOST** — HardRock parlay: 1 loss = dead slip. No payout."
 
+    if slip_type == "kalshi":
+        return "💀 **PREDICTION LOST** — Kalshi: 1 wrong call = dead entry. No payout."
+
+    if slip_type == "polymarket":
+        return "💀 **PREDICTION LOST** — Polymarket: 1 wrong call = dead entry. No payout."
+
     # Default fallback
     return "💀 **SLIP LOST**" if losses > 0 else "🏆 **SLIP WIN**"
 
