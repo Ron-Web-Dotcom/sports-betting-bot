@@ -514,6 +514,24 @@ def scan_and_pick_props(self):
             except Exception as _ke:
                 logger.debug("Kalshi entry failed: %s", _ke)
 
+            # Post F: Polymarket Entry — AI-scored sports prediction markets
+            try:
+                poly_raw = r.get("polymarket:markets")
+                if poly_raw:
+                    poly_data = json.loads(poly_raw)
+                    if poly_data:
+                        from src.workers.alert_worker import send_polymarket_entry
+                        scored_poly = _score_kalshi_markets(poly_data)  # same AI scoring logic
+                        if scored_poly:
+                            poly_hash = hashlib.md5(
+                                json.dumps(scored_poly, sort_keys=True).encode()
+                            ).hexdigest()
+                            if r.get("polymarket:last_hash") != poly_hash:
+                                r.setex("polymarket:last_hash", 3600, poly_hash)
+                                send_polymarket_entry.delay(scored_poly)
+            except Exception as _pe:
+                logger.debug("Polymarket entry failed: %s", _pe)
+
             logger.info("Prop picks posted: %d picks", len(picks))
         else:
             logger.info("Prop picks unchanged — skipping Discord post")

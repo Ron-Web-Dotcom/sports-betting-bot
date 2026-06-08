@@ -520,6 +520,67 @@ def send_watchlist_update(watchlist: list[dict]):
 
 
 @app.task
+def send_polymarket_entry(markets: list[dict]):
+    """Post Polymarket AI-scored sports prediction entry card."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not markets:
+        return
+
+    n = min(len(markets), 6)
+    markets = markets[:n]
+
+    lines = []
+    for i, m in enumerate(markets, 1):
+        title_text = m.get("title") or m.get("question") or m.get("market_id", "?")
+        yes_price  = m.get("yes_price")
+        no_price   = m.get("no_price")
+        direction  = m.get("ai_direction", "yes").upper()
+        confidence = m.get("ai_confidence")
+        reasoning  = m.get("ai_reasoning", "")
+        ev_pct     = m.get("ai_ev_pct", 0)
+        outcomes   = m.get("outcomes", ["Yes", "No"])
+        volume     = m.get("volume", 0)
+
+        yes_pct = round(float(yes_price) * 100) if yes_price is not None else "?"
+        no_pct  = round(float(no_price)  * 100) if no_price  is not None else "?"
+
+        # For team vs team markets, show outcome names
+        if outcomes and len(outcomes) == 2 and outcomes[0].lower() not in ("yes", "no"):
+            price_str = f"{outcomes[0]}: {yes_pct}¢  ·  {outcomes[1]}: {no_pct}¢"
+            bet_label = outcomes[0] if direction == "YES" else outcomes[1]
+        else:
+            price_str = f"YES {yes_pct}¢  /  NO {no_pct}¢"
+            bet_label = direction
+
+        conf_str = f"{round(confidence * 100)}% conf" if confidence else ""
+        ev_str   = f"+{round(ev_pct * 100, 1)}% edge" if ev_pct else ""
+        vol_str  = f"${volume:,.0f} vol" if volume else ""
+        meta     = "  ·  ".join(filter(None, [conf_str, ev_str, vol_str]))
+
+        lines.append(
+            f"`{i}.` ✅ Bet **{bet_label}** — **{title_text}**\n"
+            f"     └ {price_str}" + (f"  ·  {meta}" if meta else "")
+            + (f"\n     └ {reasoning}" if reasoning else "")
+        )
+
+    embed = {
+        "title": f"🟣 Polymarket Entry — {n} Predictions",
+        "description": "\n\n".join(lines),
+        "color": 0x6C3FC5,
+        "fields": [
+            {"name": "⚠️", "value": "Place manually on Polymarket. Decentralised prediction market — USDC on Polygon.", "inline": False},
+        ],
+        "footer": {"text": "Polymarket · AI-scored sports predictions · Bet responsibly"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Polymarket entry posted: %d markets", n)
+    except Exception as e:
+        logger.error("Failed to send Polymarket entry: %s", e)
+
+
+@app.task
 def send_line_shop_alert(opportunities: list[dict]):
     """
     💰 LINE SHOP — same prop, different lines on PP vs Underdog.

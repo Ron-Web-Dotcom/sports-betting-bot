@@ -185,6 +185,7 @@ def scan_player_props(self):
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
         from src.apis.kalshi import get_sports_markets as kalshi_markets
+        from src.apis.polymarket import get_sports_markets as polymarket_markets
         from src.core.config import REDIS_URL
         import redis as _redis
         import json
@@ -196,10 +197,11 @@ def scan_player_props(self):
             "underdog":   get_all_lines,
         }
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {pool.submit(fn): name for name, fn in prop_tasks.items()}
-            # Kalshi runs in parallel but stored separately — not mixed into props:all
-            kalshi_future = pool.submit(kalshi_markets)
+            # Kalshi + Polymarket run in parallel, stored separately
+            kalshi_future     = pool.submit(kalshi_markets)
+            polymarket_future = pool.submit(polymarket_markets)
             for future in as_completed(futures, timeout=30):
                 name = futures[future]
                 try:
@@ -212,6 +214,11 @@ def scan_player_props(self):
             except Exception as e:
                 logger.warning("Kalshi scan failed: %s", e)
                 kalshi_result = []
+            try:
+                polymarket_result = polymarket_future.result(timeout=15)
+            except Exception as e:
+                logger.warning("Polymarket scan failed: %s", e)
+                polymarket_result = []
 
         all_props = []
         for items in results.values():
@@ -232,9 +239,11 @@ def scan_player_props(self):
             r.setex(f"props:{name}", 900, json.dumps(items or []))
         r.setex("props:all", 900, json.dumps(all_props))
 
-        # Cache Kalshi separately — picked up by picks_worker for AI scoring
+        # Cache Kalshi + Polymarket separately — picked up by picks_worker for AI scoring
         if kalshi_result:
             r.setex("kalshi:markets", 900, json.dumps(kalshi_result))
+        if polymarket_result:
+            r.setex("polymarket:markets", 900, json.dumps(polymarket_result))
 
         # Only alert on changes to picks we already recommended
         if all_changes:
@@ -242,7 +251,8 @@ def scan_player_props(self):
             _alert_active_pick_changes(r, all_changes)
 
         counts = {k: len(v or []) for k, v in results.items()}
-        counts["kalshi"] = len(kalshi_result or [])
+        counts["kalshi"]     = len(kalshi_result or [])
+        counts["polymarket"] = len(polymarket_result or [])
         logger.info("Props scan complete: %s | total=%d", counts, len(all_props))
         return {**counts, "total": len(all_props), "changes": len(all_changes)}
 
