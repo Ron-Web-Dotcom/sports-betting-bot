@@ -232,19 +232,58 @@ def send_underdog_entry(picks: list[dict]):
         logger.error("Failed to send Underdog entry: %s", e)
 
 
-def _recommended_bet(confidence: float, ev_pct: float, bankroll: float = 1000.0) -> str:
+def _recommended_bet(confidence: float, ev_pct: float,
+                     bankroll: float = 1000.0,   # kept for signature compat, unused
+                     min_bet: int = 5, max_bet: int = 100) -> str:
     """
-    Kelly-lite bet sizing: fraction = (edge / 1) capped at 5% bankroll.
-    Maps to unit tiers. Returns human-readable string e.g. "$15 (1.5 units)".
+    Tiered bet sizing in the $5–$100 range.
+    Confidence is the primary driver; EV adds a small boost (up to +25%).
+    All amounts rounded to the nearest $5.
+
+    Tier table (before EV boost):
+      60–64%  →  $5
+      65–69%  →  $10
+      70–74%  →  $20
+      75–79%  →  $35
+      80–84%  →  $50
+      85–89%  →  $75
+      90%+    →  $85
     """
-    if not confidence or not ev_pct or ev_pct <= 0:
+    if not confidence or confidence < 0.60 or not ev_pct or ev_pct <= 0:
         return ""
-    # Half-Kelly: (p - q) / 1  where p = confidence, q = 1 - p
-    kelly = (confidence - (1 - confidence)) * ev_pct
-    kelly = max(0.005, min(kelly, 0.05))   # floor 0.5%, cap 5% of bankroll
-    dollar = round(bankroll * kelly, 2)
-    units  = round(dollar / (bankroll * 0.01), 1)   # 1 unit = 1% bankroll
-    return f"Bet **${dollar:.0f}** ({units} units)"
+
+    if confidence >= 0.90:
+        base = 85
+    elif confidence >= 0.85:
+        base = 75
+    elif confidence >= 0.80:
+        base = 50
+    elif confidence >= 0.75:
+        base = 35
+    elif confidence >= 0.70:
+        base = 20
+    elif confidence >= 0.65:
+        base = 10
+    else:
+        base = 5
+
+    # EV boost: up to +25% on top of base (capped)
+    ev_boost = min(1.25, 1.0 + ev_pct * 2)
+    raw = base * ev_boost
+    dollar = int(round(raw / 5) * 5)          # round to nearest $5
+    dollar = max(min_bet, min(max_bet, dollar))
+
+    # Confidence label so user knows why
+    if confidence >= 0.85:
+        label = "🔥 High confidence"
+    elif confidence >= 0.75:
+        label = "✅ Good confidence"
+    elif confidence >= 0.65:
+        label = "👍 Moderate confidence"
+    else:
+        label = "⚠️ Low confidence"
+
+    return f"**Put down ${dollar}** — {label} ({round(confidence*100)}% / +{round(ev_pct*100,1)}% edge)"
 
 
 def _slip_ev(picks: list[dict], platform: str) -> tuple[float, float, int]:
