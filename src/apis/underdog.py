@@ -94,8 +94,13 @@ def get_over_under_lines(sport_key: str | None = None) -> list[dict]:
 
         stat = app_stat.get("display_stat") or app_stat.get("stat", "")
 
+        name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
+        if not name:
+            continue  # skip if player lookup failed
+
         out.append({
-            "player":    f"{player.get('first_name', '')} {player.get('last_name', '')}".strip(),
+            "subject":   name,
+            "player":    name,
             "team":      app.get("team_abbreviation", ""),
             "opponent":  app.get("opponent_abbreviation", ""),
             "stat":      stat,

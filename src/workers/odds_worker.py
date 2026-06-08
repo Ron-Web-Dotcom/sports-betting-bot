@@ -197,11 +197,9 @@ def scan_player_props(self):
             r.setex(f"props:{name}", 900, json.dumps(items or []))
         r.setex("props:all", 900, json.dumps(all_props))
 
-        # Fire Discord alerts if anything changed
+        # Prop change alerts disabled — line move spam floods Discord
         if all_changes:
-            from src.workers.alert_worker import send_prop_change_alerts
-            send_prop_change_alerts.delay(all_changes)
-            logger.info("Props changed: %d updates detected", len(all_changes))
+            logger.info("Props changed: %d updates detected (alerts suppressed)", len(all_changes))
 
         counts = {k: len(v or []) for k, v in results.items()}
         logger.info("Props scan complete: %s | total=%d", counts, len(all_props))

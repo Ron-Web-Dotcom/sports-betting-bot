@@ -363,17 +363,37 @@ def scan_and_pick_props(self):
             return {"skipped": "sleep_mode"}
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        raw = r.get("props:prizepicks")
+        raw = r.get("props:all")
         if not raw:
-            logger.info("scan_and_pick_props: no PrizePicks data in cache yet")
+            logger.info("scan_and_pick_props: no props data in cache yet")
             return {"picks": 0}
 
         props = json.loads(raw)
         if not props:
             return {"picks": 0}
 
-        # Only analyse props with a game coming up (status not empty / not already started)
+        # Filter out completed/in-progress games
         props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
+
+        # Filter out props with no subject name
+        props = [p for p in props if p.get("subject", "").strip()]
+
+        # Filter props to only sports with games today
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        def _is_today_or_future(p: dict) -> bool:
+            gt = p.get("game_time", "")
+            if not gt:
+                return True  # no time set — include (PrizePicks often omits it)
+            try:
+                from dateutil.parser import parse as _parse
+                t = _parse(gt)
+                if t.tzinfo is None:
+                    t = t.replace(tzinfo=timezone.utc)
+                return t >= now
+            except Exception:
+                return True
+        props = [p for p in props if _is_today_or_future(p)]
 
         from src.engines.prop_engine import score_props
         picks = score_props(props)
