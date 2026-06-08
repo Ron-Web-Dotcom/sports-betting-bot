@@ -385,8 +385,9 @@ def scan_and_pick_props(self):
         props = [p for p in props if p.get("sport_key") in active_sports]
         logger.info("Active sports with props: %s", sorted(active_sports))
 
-        # Filter: only games starting between now and 4 hours from now (today only, not started)
+        # Filter: games starting 30 min from now up to 6 hours away, today ET only
         now = datetime.now(timezone.utc)
+        from datetime import timedelta
         from dateutil.parser import parse as _parse
         import zoneinfo
         et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
@@ -394,20 +395,17 @@ def scan_and_pick_props(self):
         def _is_upcoming_today(p: dict) -> bool:
             gt = p.get("game_time", "")
             if not gt:
-                # No time set — only include if source is PrizePicks (they omit time for live props)
+                # No time — include only PrizePicks props (they omit time, lines are pre-game)
                 return p.get("source") == "prizepicks"
             try:
                 t = _parse(gt)
                 if t.tzinfo is None:
                     t = t.replace(tzinfo=timezone.utc)
-                # Must not have started yet (give 5 min grace) and within 4 hours
-                from datetime import timedelta
-                started = t < now - timedelta(minutes=5)
-                too_far = t > now + timedelta(hours=4)
-                # Must be same calendar day in ET
-                t_et = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
-                wrong_day = t_et.date() != et_now.date()
-                return not started and not too_far and not wrong_day
+                too_soon   = t < now + timedelta(minutes=30)   # game starts in <30 min or already started
+                too_far    = t > now + timedelta(hours=6)       # game more than 6 hrs away
+                t_et       = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
+                wrong_day  = t_et.date() != et_now.date()
+                return not too_soon and not too_far and not wrong_day
             except Exception:
                 return True
         props = [p for p in props if _is_upcoming_today(p)]

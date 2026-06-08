@@ -105,27 +105,47 @@ def send_prop_summary(picks: list[dict]):
     if not picks:
         return
 
-    # Sport emoji map
+    # Sport display maps
     _emoji = {
         "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
         "icehockey_nhl": "🏒", "basketball_ncaab": "🏀", "americanfootball_ncaaf": "🏈",
         "soccer_fifa_world_cup": "⚽", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
-        "mma_mixed_martial_arts": "🥊", "tennis_atp_french_open": "🎾",
+        "soccer_uefa_champs_league": "⚽", "mma_mixed_martial_arts": "🥊", "mma": "🥊",
+        "tennis_atp_french_open": "🎾", "tennis": "🎾",
         "golf_masters_tournament_winner": "⛳",
+    }
+    _sport_name = {
+        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
+        "icehockey_nhl": "NHL", "basketball_ncaab": "NCAAB", "americanfootball_ncaaf": "NCAAF",
+        "soccer_fifa_world_cup": "World Cup", "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
+        "soccer_uefa_champs_league": "UCL", "mma_mixed_martial_arts": "UFC/MMA", "mma": "UFC/MMA",
+        "tennis_atp_french_open": "French Open", "tennis": "Tennis",
+        "golf_masters_tournament_winner": "Golf",
     }
 
     lines = []
     for p in picks:
         sport = p.get("sport_key", "")
         emoji = _emoji.get(sport, "🎯")
+        sport_label = _sport_name.get(sport, sport.replace("_", " ").title())
         direction = p.get("direction", "").upper()
         arrow = "⬆️" if direction == "OVER" else "⬇️"
         conf = round(p.get("confidence", 0) * 100)
         ev = round(p.get("ev_pct", 0) * 100, 1)
-        source = p.get("source", "").upper()
+        source = p.get("source", "").title()
+        game_time = p.get("game_time", "")
+        time_str = ""
+        if game_time:
+            try:
+                from dateutil.parser import parse as _parse
+                import zoneinfo as _zi
+                t = _parse(game_time).astimezone(_zi.ZoneInfo("America/New_York"))
+                time_str = f" · {t.strftime('%-I:%M %p ET')}"
+            except Exception:
+                pass
         lines.append(
             f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow} {direction}\n"
-            f"  `{conf}% conf | +{ev}% edge | {source}`"
+            f"  `{conf}% conf | +{ev}% edge | {sport_label} · {source}{time_str}`"
         )
 
     import zoneinfo

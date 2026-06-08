@@ -187,6 +187,16 @@ def wake_up_brief():
     import zoneinfo
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    current_month = et.month
+
+    # Off-season sport keys — skip entirely in morning brief
+    _OFF_SEASON: dict[str, list[int]] = {
+        "americanfootball_nfl":           [3, 4, 5, 6, 7],
+        "americanfootball_ncaaf":         [1, 2, 3, 4, 5, 6, 7, 8],
+        "icehockey_nhl":                  [7, 8, 9],
+        "basketball_ncaab":               [4, 5, 6, 7, 8, 9, 10, 11],
+        "golf_masters_tournament_winner": [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12],
+    }
 
     _SPORT_LABELS = {
         "basketball_nba":                 "🏀 NBA",
@@ -196,18 +206,27 @@ def wake_up_brief():
         "soccer_epl":                     "⚽ Premier League",
         "soccer_uefa_champs_league":      "⚽ Champions League",
         "soccer_usa_mls":                 "⚽ MLS",
+        "soccer_fifa_world_cup":          "⚽ FIFA World Cup",
         "basketball_ncaab":               "🏀 NCAAB",
         "americanfootball_ncaaf":         "🏈 NCAAF",
         "mma":                            "🥊 UFC/MMA",
+        "mma_mixed_martial_arts":         "🥊 UFC/MMA",
         "tennis":                         "🎾 Tennis",
+        "tennis_atp_french_open":         "🎾 French Open",
         "golf_masters_tournament_winner": "⛳ Golf",
     }
 
-    # Fetch all scoreboards in parallel
+    # Active sport keys only
+    active_sport_keys = [
+        sk for sk in SPORT_MAP
+        if current_month not in _OFF_SEASON.get(sk, [])
+    ]
+
+    # Fetch scoreboards in parallel — active sports only
     all_games: list[str] = []
     sport_counts: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=12) as pool:
-        futures = {pool.submit(fetch_scoreboard, sk): sk for sk in SPORT_MAP}
+        futures = {pool.submit(fetch_scoreboard, sk): sk for sk in active_sport_keys}
         for future in as_completed(futures, timeout=20):
             sk = futures[future]
             try:
@@ -216,36 +235,42 @@ def wake_up_brief():
                 if active:
                     label = _SPORT_LABELS.get(sk, sk)
                     sport_counts[label] = len(active)
-                    for g in active[:3]:  # top 3 per sport in the brief
-                        all_games.append(
-                            f"{label}: {g.get('away_team','?')} @ {g.get('home_team','?')}"
-                        )
+                    for g in active[:3]:
+                        home = g.get("home_team", "")
+                        away = g.get("away_team", "")
+                        if home and away:
+                            all_games.append(f"{label}: {away} @ {home}")
             except Exception:
                 pass
 
     total = sum(sport_counts.values())
     if all_games:
-        games_text = "\n".join(f"• {g}" for g in all_games[:20])
+        games_text = "\n".join(f"• {g}" for g in sorted(all_games)[:20])
         if total > 20:
             games_text += f"\n*… and {total - 20} more*"
     else:
-        games_text = "*No games found yet — check back after 8 AM when lines open.*"
+        games_text = "*No games scheduled yet — lines typically open by 8 AM ET.*"
 
     sports_on = ", ".join(
         f"{label} ({n})" for label, n in sorted(sport_counts.items(), key=lambda x: -x[1])
-    ) or "None yet"
+    ) or "None scheduled"
+
+    # Dynamic next-update message based on current time
+    if et.hour < 8:
+        next_msg = "8:00 AM ET — Full props picks brief"
+    else:
+        next_msg = "Scanning every 5 min — picks posted when found"
 
     embed = _embed(
         title=f"☀️ Good Morning — {et.strftime('%A, %B %-d')}",
         description=(
             f"**{total} games** on today across {len(sport_counts)} sports.\n\n"
-            f"{games_text}\n\n"
-            f"⏳ **Props lines open at 8 AM ET** — full pick recommendations coming then."
+            f"{games_text}"
         ),
         color=0xF57F17,
         fields=[
             {"name": "Sports Active Today", "value": sports_on or "—", "inline": False},
-            {"name": "Next Update", "value": "8:00 AM ET — Full props picks brief", "inline": False},
+            {"name": "Next Update", "value": next_msg, "inline": False},
         ],
     )
     _run_async(_post({"embeds": [embed]}))
@@ -334,6 +359,9 @@ def health_check():
         pp_count  = sum(1 for p in props if p.get("source") == "prizepicks")
         ud_count  = sum(1 for p in props if p.get("source") == "underdog")
         last_hash = r.get("props:last_picks_hash")
+        active_picks_raw = r.get("props:active_picks")
+        active_picks = json.loads(active_picks_raw) if active_picks_raw else []
+        picks_count = len(active_picks)
 
         et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
         time_str = et.strftime("%I:%M %p ET")
@@ -348,7 +376,7 @@ def health_check():
             "fields": [
                 {"name": "PrizePicks",  "value": f"{pp_count:,} props", "inline": True},
                 {"name": "Underdog",    "value": f"{ud_count:,} props", "inline": True},
-                {"name": "Last Picks",  "value": "Updated ✅" if last_hash else "Pending ⏳", "inline": True},
+                {"name": "Active Picks", "value": f"{picks_count} picks ✅" if picks_count else "None yet ⏳", "inline": True},
             ],
             "footer": {"text": f"Health check · {time_str}"},
         }
