@@ -109,11 +109,6 @@ app.conf.beat_schedule = {
         "task": "src.workers.settlement_worker.record_closing_lines",
         "schedule": 3600,
     },
-    # Daily summary — 11 PM Eastern
-    "daily-summary": {
-        "task": "src.workers.analytics_worker.send_daily_summary",
-        "schedule": crontab(hour=23, minute=0),
-    },
     # Weekly summary — Sunday midnight Eastern
     "weekly-summary": {
         "task": "src.workers.analytics_worker.send_weekly_summary",
