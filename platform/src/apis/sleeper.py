@@ -19,8 +19,14 @@ logger = logging.getLogger(__name__)
 _BASE    = "https://api.sleeper.app/v1"
 _BASE_V2 = "https://api.sleeper.app"   # projections live here (no /v1/)
 
-# Maps our internal sport_key → Sleeper sport string
+# Sleeper projections are NFL-only (NBA/MLB endpoints return empty lists)
+# NBA/MLB injury data still works via get_injured_players()
 SPORT_MAP = {
+    "americanfootball_nfl": "nfl",
+}
+
+# Sports supported for roster/injury data (broader than projections)
+INJURY_SPORT_MAP = {
     "americanfootball_nfl": "nfl",
     "basketball_nba":       "nba",
     "baseball_mlb":         "mlb",
@@ -168,7 +174,7 @@ def get_all_players(sport_key: str = "americanfootball_nfl") -> dict:
     Returns all players for a sport as {player_id: player_dict}.
     Large payload (~5MB for NFL) — cache this, don't call every scan.
     """
-    sport = SPORT_MAP.get(sport_key, "nfl")
+    sport = INJURY_SPORT_MAP.get(sport_key, "nfl")
     data = get_json(f"{_BASE}/players/{sport}")
     return data or {}
 
@@ -253,7 +259,7 @@ def get_all_injured_players() -> list[dict]:
     out: list[dict] = []
     from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {pool.submit(get_injured_players, sk): sk for sk in SPORT_MAP}
+        futures = {pool.submit(get_injured_players, sk): sk for sk in INJURY_SPORT_MAP}
         for fut in as_completed(futures, timeout=20):
             try:
                 out.extend(fut.result())
