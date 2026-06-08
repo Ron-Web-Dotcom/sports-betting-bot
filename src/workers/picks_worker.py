@@ -373,6 +373,20 @@ def scan_and_pick_props(self):
         props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
         props = [p for p in props if p.get("subject", "").strip()]
 
+        # Filter: skip sports that are currently off-season (NFL/NCAAF in June)
+        import calendar
+        current_month = datetime.now(timezone.utc).month
+        _off_season: dict[str, list[int]] = {
+            "americanfootball_nfl":  [3, 4, 5, 6, 7],   # NFL off-season Mar–Jul
+            "americanfootball_ncaaf": [1, 2, 3, 4, 5, 6, 7, 8],  # NCAAF off Aug-Jan only
+            "icehockey_nhl":         [7, 8, 9],          # NHL off Jul–Sep
+            "basketball_ncaab":      [4, 5, 6, 7, 8, 9, 10, 11],  # NCAAB off Apr–Nov
+        }
+        props = [
+            p for p in props
+            if current_month not in _off_season.get(p.get("sport_key", ""), [])
+        ]
+
         # Filter: only games starting between now and 4 hours from now (today only, not started)
         now = datetime.now(timezone.utc)
         from dateutil.parser import parse as _parse

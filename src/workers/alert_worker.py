@@ -128,7 +128,8 @@ def send_prop_summary(picks: list[dict]):
             f"  `{conf}% conf | +{ev}% edge | {source}`"
         )
 
-    now_str = datetime.utcnow().strftime("%I:%M %p UTC")
+    import zoneinfo
+    now_str = datetime.now(zoneinfo.ZoneInfo("America/New_York")).strftime("%I:%M %p ET")
     embed = {
         "title": f"🎯 Top Prop Picks — {now_str}",
         "description": "\n\n".join(lines),
