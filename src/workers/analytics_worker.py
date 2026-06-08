@@ -217,41 +217,88 @@ def enter_sleep_mode():
 
 @app.task
 def wake_up_brief():
-    """5 AM Eastern — health check + platform status card, styled like screenshot."""
+    """5 AM Eastern — health check + platform status card."""
     import time
     import httpx
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
     from src.core.config import (
-        DISCORD_WEBHOOK_URL, OPENAI_API_KEY, PAPER_TRADING, REDIS_URL,
+        DISCORD_WEBHOOK_URL, OPENAI_API_KEY, ODDS_API_KEY, REDIS_URL,
     )
     from datetime import datetime
     import zoneinfo
 
     et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    mode   = "PAPER" if PAPER_TRADING else "LIVE"
-    color  = 0xFFA500 if PAPER_TRADING else 0x00C851   # orange=paper, green=live
 
-    # ── Ping each service ───────────────────────────────────────────────────────
+    # ── Real health checks for every service we use ─────────────────────────────
     def _ping(label: str, fn) -> str:
         try:
-            t0 = time.monotonic()
-            fn()
-            ms = int((time.monotonic() - t0) * 1000)
-            return f"✅  {label:<14} —  {ms}ms"
+            t0  = time.monotonic()
+            ok  = fn()
+            ms  = int((time.monotonic() - t0) * 1000)
+            if ok is False:
+                return f"❌  {label:<16} —  unhealthy"
+            return f"✅  {label:<16} —  {ms}ms"
         except Exception as exc:
-            return f"❌  {label:<14} —  {exc}"
+            short = str(exc)[:40]
+            return f"❌  {label:<16} —  {short}"
 
-    checks = [
-        _ping("Kalshi",     lambda: httpx.get("https://external-api.kalshi.com/trade-api/v2/exchange/status", timeout=5)),
-        _ping("Polymarket", lambda: httpx.get("https://gamma-api.polymarket.com/markets?limit=1", timeout=5)),
-        _ping("Discord",    lambda: httpx.get(DISCORD_WEBHOOK_URL, timeout=5) if DISCORD_WEBHOOK_URL else None),
-        _ping("AI",         lambda: __import__("openai").OpenAI(api_key=OPENAI_API_KEY).models.list()),
-        _ping("Redis",      lambda: __import__("redis").from_url(REDIS_URL, socket_connect_timeout=3).ping()),
+    def _check_prizepicks():
+        r = httpx.get("https://api.prizepicks.com/projections?per_page=1", timeout=6,
+                      headers={"User-Agent": "Mozilla/5.0"})
+        return r.status_code < 500
+
+    def _check_underdog():
+        r = httpx.get("https://api.underdogfantasy.com/beta/v5/over_under_lines", timeout=6,
+                      headers={"User-Agent": "Mozilla/5.0"})
+        return r.status_code < 500
+
+    def _check_odds_api():
+        r = httpx.get(f"https://api.the-odds-api.com/v4/sports?apiKey={ODDS_API_KEY}", timeout=6)
+        return r.status_code == 200
+
+    def _check_kalshi():
+        r = httpx.get("https://external-api.kalshi.com/trade-api/v2/exchange/status", timeout=6)
+        data = r.json()
+        return data.get("exchange_active", False) is not False
+
+    def _check_polymarket():
+        r = httpx.get("https://gamma-api.polymarket.com/markets?limit=1", timeout=6)
+        return r.status_code == 200
+
+    def _check_discord():
+        if not DISCORD_WEBHOOK_URL:
+            return False
+        r = httpx.get(DISCORD_WEBHOOK_URL, timeout=6)
+        return r.status_code in (200, 405)   # 405 = method not allowed but webhook is alive
+
+    def _check_openai():
+        import openai
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        models = client.models.list()
+        return len(list(models)) > 0
+
+    def _check_redis():
+        import redis as _r
+        return _r.from_url(REDIS_URL, socket_connect_timeout=3).ping()
+
+    service_checks = [
+        ("PrizePicks",  _check_prizepicks),
+        ("Underdog",    _check_underdog),
+        ("Odds API",    _check_odds_api),
+        ("Kalshi",      _check_kalshi),
+        ("Polymarket",  _check_polymarket),
+        ("Discord",     _check_discord),
+        ("OpenAI",      _check_openai),
+        ("Redis",       _check_redis),
     ]
-    health_block = "\n".join(f"`{line}`" for line in checks)
 
-    # ── Count today's active games from Redis ───────────────────────────────────
+    results = [_ping(label, fn) for label, fn in service_checks]
+    health_block = "\n".join(f"`{line}`" for line in results)
+    all_healthy  = all(line.startswith("✅") for line in results)
+    health_title = "🔧 Service Health — All Systems Go ✅" if all_healthy else "🔧 Service Health — ⚠️ Issues Detected"
+
+    # ── Active game count ───────────────────────────────────────────────────────
     games_today = "—"
     try:
         import json, redis as _r
@@ -264,22 +311,26 @@ def wake_up_brief():
         pass
 
     fields = [
-        {"name": "Trading Mode",       "value": f"**{mode}**",                                   "inline": True},
+        {"name": "Trading Mode",       "value": "**LIVE** 🟢",                                   "inline": True},
         {"name": "Active Games Today", "value": games_today,                                      "inline": True},
-        {"name": "Platforms",          "value": "🏆 PrizePicks · 🐶 Underdog · 🪨 HardRock · 📈 Kalshi · 🟣 Polymarket", "inline": False},
-        {"name": "🔧 Service Health",  "value": health_block,                                     "inline": False},
-        {"name": "Next Post",          "value": "**9:30 AM ET** — Top Picks Summary",            "inline": True},
-        {"name": "Scan Intervals",     "value": "Props every 5 min · News every 15 min · Picks every 10 min", "inline": False},
+        {"name": "Platforms",
+         "value": "🏆 PrizePicks · 🐶 Underdog · 🪨 HardRock · 📈 Kalshi · 🟣 Polymarket",
+         "inline": False},
+        {"name": health_title,         "value": health_block,                                     "inline": False},
+        {"name": "Next Post",          "value": "**9:30 AM ET** — Good Morning Summary",         "inline": True},
+        {"name": "Scan Intervals",
+         "value": "Props every 5 min · News every 15 min · Picks every 10 min",
+         "inline": False},
     ]
 
     embed = {
-        "title": f"🚀 Bot Online — {et_now.strftime('%-I:%M %p ET')} — {mode} MODE",
+        "title": f"🚀 Bot Online — {et_now.strftime('%-I:%M %p ET')}",
         "description": (
             "Bot is online and scanning markets on "
             "🏆 PrizePicks + 🐶 Underdog + 🪨 HardRock + 📈 Kalshi + 🟣 Polymarket.\n"
             "ALERT ALERT fires automatically on any line move or prop removal."
         ),
-        "color": color,
+        "color": 0x00C851,
         "fields": [
             {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
             for f in fields
@@ -287,8 +338,8 @@ def wake_up_brief():
         "footer": {"text": f"Sports Intelligence Platform · {et_now.strftime('%A, %B %-d')}"},
     }
     _run_async(_post({"embeds": [embed]}))
-    logger.info("Wake-up brief sent (5 AM)")
-    return {"woke_up": True, "mode": mode}
+    logger.info("Wake-up brief sent (5 AM) — healthy=%s", all_healthy)
+    return {"woke_up": True, "all_healthy": all_healthy}
 
 
 @app.task
