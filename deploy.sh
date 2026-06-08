@@ -7,7 +7,7 @@ set -e
 REPO="https://github.com/ron-web-dotcom/sports-betting-bot"
 APP_DIR="/root/sports-bot"
 VENV="$APP_DIR/venv"
-PLATFORM="$APP_DIR/platform"
+PLATFORM="$APP_DIR"
 
 echo "==> [1/8] System packages"
 apt-get update -qq
@@ -26,9 +26,9 @@ echo "    Redis running: $(redis-cli ping)"
 
 echo "==> [3/8] Clone / update repo"
 if [ -d "$APP_DIR/.git" ]; then
-    git -C "$APP_DIR" pull origin claude/dreamy-mayer-qu9LQ
+    git -C "$APP_DIR" pull origin main
 else
-    git clone -b claude/dreamy-mayer-qu9LQ "$REPO" "$APP_DIR"
+    git clone -b main "$REPO" "$APP_DIR"
 fi
 
 echo "==> [4/8] Python virtual environment"

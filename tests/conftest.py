@@ -1,4 +1,7 @@
-"""Pytest configuration — add project root to sys.path."""
-import sys
+"""Shared fixtures for platform tests."""
+import pytest
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+os.environ.setdefault("USE_SQLITE", "true")
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("ODDS_API_KEY", "test-key")

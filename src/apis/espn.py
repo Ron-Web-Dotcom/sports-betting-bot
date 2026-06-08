@@ -1,110 +1,244 @@
-"""ESPN public API — stats, injuries, schedules."""
+"""
+ESPN data adapter.
+
+Uses ESPN's semi-public APIs:
+  - site.api.espn.com  — team/player stats, injuries, schedules, scores
+  - sports.core.api.espn.com — deeper stats, historical data
+"""
 import logging
-import httpx
-from config.settings import ESPN_API_BASE, ESPN_SPORT_MAP
+from src.apis.base import get_json
 
 logger = logging.getLogger(__name__)
 
+_SITE   = "https://site.api.espn.com/apis/site/v2/sports"
+_CORE   = "https://sports.core.api.espn.com/v2/sports"
+_CDN    = "https://cdn.espn.com/core"
 
-def _get(url: str, params: dict | None = None) -> dict | None:
-    try:
-        resp = httpx.get(url, params=params or {}, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-    except httpx.HTTPError as exc:
-        logger.error("ESPN error %s: %s", url, exc)
-        return None
+# Maps our sport keys → ESPN sport/league path segments
+SPORT_MAP = {
+    "basketball_nba":            ("basketball", "nba"),
+    "americanfootball_nfl":      ("football",   "nfl"),
+    "baseball_mlb":              ("baseball",   "mlb"),
+    "icehockey_nhl":             ("hockey",     "nhl"),
+    "soccer_epl":                ("soccer",     "eng.1"),
+    "soccer_uefa_champs_league": ("soccer",     "uefa.champions"),
+    "soccer_usa_mls":            ("soccer",     "usa.1"),
+    "soccer_fifa_world_cup":     ("soccer",     "fifa.world"),
+    "basketball_ncaab":          ("basketball", "mens-college-basketball"),
+    "americanfootball_ncaaf":    ("football",   "college-football"),
+    "mma":                       ("mma",        "ufc"),
+    "tennis":                    ("tennis",     "atp"),
+    "golf_masters_tournament_winner": ("golf",  "pga"),
+}
 
 
-def get_injuries(odds_sport_key: str) -> list[dict]:
-    mapping = ESPN_SPORT_MAP.get(odds_sport_key)
-    if not mapping:
+def _path(sport_key: str) -> tuple[str, str] | None:
+    return SPORT_MAP.get(sport_key)
+
+
+# ── Injuries ───────────────────────────────────────────────────────────────────
+
+def fetch_injuries(sport_key: str) -> list[dict]:
+    seg = _path(sport_key)
+    if not seg:
         return []
-    sport, league = mapping
-    url = f"{ESPN_API_BASE}/{sport}/{league}/injuries"
-    data = _get(url)
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/injuries")
     if not data:
         return []
 
-    injuries = []
-    for item in data.get("injuries", []):
-        athlete = item.get("athlete", {})
-        injuries.append(
-            {
-                "sport": odds_sport_key,
-                "player_name": athlete.get("displayName", ""),
-                "team": item.get("team", {}).get("displayName", ""),
-                "status": item.get("status", ""),
-                "detail": item.get("longComment", item.get("shortComment", "")),
-            }
-        )
-    return injuries
+    out = []
+    for team_entry in data.get("injuries", []):
+        team_name = team_entry.get("team", {}).get("displayName", "Unknown")
+        for inj in team_entry.get("injuries", []):
+            athlete = inj.get("athlete", {})
+            out.append({
+                "source":   "espn",
+                "player":   athlete.get("displayName", "Unknown"),
+                "team":     team_name,
+                "position": athlete.get("position", {}).get("abbreviation", ""),
+                "status":   inj.get("status", "unknown").lower(),
+                "details":  inj.get("shortComment", ""),
+                "sport":    sport_key,
+            })
+    return out
 
 
-def get_scoreboard(odds_sport_key: str) -> list[dict]:
-    mapping = ESPN_SPORT_MAP.get(odds_sport_key)
-    if not mapping:
+# ── Team stats ─────────────────────────────────────────────────────────────────
+
+def fetch_team_stats(sport_key: str, team_id: str) -> dict:
+    seg = _path(sport_key)
+    if not seg:
+        return {}
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/teams/{team_id}/statistics")
+    if not data:
+        return {}
+
+    stats = {}
+    for cat in data.get("results", {}).get("stats", {}).get("categories", []):
+        for stat in cat.get("stats", []):
+            stats[stat.get("name", "")] = stat.get("displayValue", "")
+    return {"team_id": team_id, "sport": sport_key, "stats": stats, "source": "espn"}
+
+
+def fetch_team_roster(sport_key: str, team_id: str) -> list[dict]:
+    seg = _path(sport_key)
+    if not seg:
         return []
-    sport, league = mapping
-    url = f"{ESPN_API_BASE}/{sport}/{league}/scoreboard"
-    data = _get(url)
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/teams/{team_id}/roster")
+    if not data:
+        return []
+
+    players = []
+    for group in data.get("athletes", []):
+        for athlete in group.get("items", []):
+            players.append({
+                "id":       athlete.get("id"),
+                "name":     athlete.get("displayName"),
+                "position": athlete.get("position", {}).get("abbreviation", ""),
+                "jersey":   athlete.get("jersey", ""),
+                "status":   athlete.get("status", {}).get("name", "Active"),
+            })
+    return players
+
+
+def fetch_teams(sport_key: str) -> list[dict]:
+    seg = _path(sport_key)
+    if not seg:
+        return []
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/teams", params={"limit": 100})
+    if not data:
+        return []
+
+    return [
+        {
+            "id":           t.get("id"),
+            "name":         t.get("displayName"),
+            "abbreviation": t.get("abbreviation"),
+            "location":     t.get("location"),
+            "sport":        sport_key,
+            "source":       "espn",
+        }
+        for t in (
+            entry.get("team", entry)
+            for entry in data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            if entry.get("team")
+        )
+    ]
+
+
+# ── Player stats ───────────────────────────────────────────────────────────────
+
+def fetch_player_stats(sport_key: str, player_id: str) -> dict:
+    seg = _path(sport_key)
+    if not seg:
+        return {}
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/athletes/{player_id}/statistics")
+    if not data:
+        return {}
+
+    stats = {}
+    for split in data.get("splits", {}).get("categories", []):
+        for stat in split.get("stats", []):
+            stats[stat.get("name", "")] = stat.get("displayValue", "")
+    return {"player_id": player_id, "sport": sport_key, "stats": stats, "source": "espn"}
+
+
+def search_player(name: str, sport_key: str) -> list[dict]:
+    seg = _path(sport_key)
+    if not seg:
+        return []
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/athletes", params={"limit": 10, "search": name})
+    if not data:
+        return []
+    return [
+        {"id": a.get("id"), "name": a.get("displayName"), "team": a.get("team", {}).get("displayName", ""), "source": "espn"}
+        for a in data.get("athletes", [])
+    ]
+
+
+# ── Schedule & scores ──────────────────────────────────────────────────────────
+
+def fetch_scoreboard(sport_key: str) -> list[dict]:
+    seg = _path(sport_key)
+    if not seg:
+        return []
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/scoreboard")
     if not data:
         return []
 
     games = []
     for event in data.get("events", []):
-        competition = event.get("competitions", [{}])[0]
-        competitors = competition.get("competitors", [])
-        teams = [c.get("team", {}).get("displayName", "") for c in competitors]
-        scores = [c.get("score", "0") for c in competitors]
-        games.append(
-            {
-                "id": event.get("id"),
-                "name": event.get("name"),
-                "status": event.get("status", {}).get("type", {}).get("description", ""),
-                "teams": teams,
-                "scores": scores,
-                "date": event.get("date"),
-            }
-        )
+        comp = event.get("competitions", [{}])[0]
+        competitors = comp.get("competitors", [])
+        home = next((c for c in competitors if c.get("homeAway") == "home"), {})
+        away = next((c for c in competitors if c.get("homeAway") == "away"), {})
+        status = event.get("status", {}).get("type", {})
+        games.append({
+            "id":             event.get("id"),
+            "name":           event.get("name"),
+            "commence_time":  event.get("date"),
+            "home_team":      home.get("team", {}).get("displayName", ""),
+            "away_team":      away.get("team", {}).get("displayName", ""),
+            "home_score":     home.get("score"),
+            "away_score":     away.get("score"),
+            "status":         status.get("description", ""),
+            "completed":      status.get("completed", False),
+            "sport":          sport_key,
+            "source":         "espn",
+        })
     return games
 
 
-def get_team_stats(odds_sport_key: str, team_id: str) -> dict | None:
-    mapping = ESPN_SPORT_MAP.get(odds_sport_key)
-    if not mapping:
-        return None
-    sport, league = mapping
-    url = f"{ESPN_API_BASE}/{sport}/{league}/teams/{team_id}/statistics"
-    return _get(url)
+# ── News ───────────────────────────────────────────────────────────────────────
 
-
-def get_news(odds_sport_key: str) -> list[dict]:
-    mapping = ESPN_SPORT_MAP.get(odds_sport_key)
-    if not mapping:
+def fetch_news(sport_key: str, limit: int = 10) -> list[dict]:
+    seg = _path(sport_key)
+    if not seg:
         return []
-    sport, league = mapping
-    url = f"{ESPN_API_BASE}/{sport}/{league}/news"
-    data = _get(url)
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/news", params={"limit": limit})
     if not data:
         return []
-    articles = []
-    for item in data.get("articles", [])[:10]:
-        articles.append(
-            {
-                "headline": item.get("headline", ""),
-                "description": item.get("description", ""),
-                "published": item.get("published", ""),
-            }
-        )
-    return articles
+
+    return [
+        {
+            "headline":    a.get("headline", ""),
+            "description": a.get("description", ""),
+            "published":   a.get("published", ""),
+            "sport":       sport_key,
+            "source":      "espn",
+        }
+        for a in data.get("articles", [])
+    ]
 
 
-def fetch_all_injuries() -> dict[str, list[dict]]:
-    result = {}
-    for sport_key in ESPN_SPORT_MAP:
-        inj = get_injuries(sport_key)
-        if inj:
-            result[sport_key] = inj
-            logger.info("ESPN injuries: %d for %s", len(inj), sport_key)
-    return result
+# ── Team recent form (last N games) ───────────────────────────────────────────
+
+def fetch_team_record(sport_key: str, team_id: str) -> dict:
+    seg = _path(sport_key)
+    if not seg:
+        return {}
+    sport, league = seg
+    data = get_json(f"{_SITE}/{sport}/{league}/teams/{team_id}")
+    if not data:
+        return {}
+
+    team = data.get("team", {})
+    record = team.get("record", {}).get("items", [{}])[0]
+    stats  = {s.get("name"): s.get("value") for s in record.get("stats", [])}
+    return {
+        "team_id":  team_id,
+        "name":     team.get("displayName", ""),
+        "wins":     stats.get("wins", 0),
+        "losses":   stats.get("losses", 0),
+        "win_pct":  stats.get("winPercent", 0.0),
+        "streak":   stats.get("streak", ""),
+        "source":   "espn",
+    }
