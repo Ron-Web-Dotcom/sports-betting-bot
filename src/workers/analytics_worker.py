@@ -217,18 +217,78 @@ def enter_sleep_mode():
 
 @app.task
 def wake_up_brief():
-    """5 AM Eastern — simple wake-up post. Game list is posted at 6 AM by yesterday_recap."""
+    """5 AM Eastern — health check + platform status card, styled like screenshot."""
+    import time
+    import httpx
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post, _embed
-
-    embed = _embed(
-        title="🟢 Bot is Up and Ready To Make Some Money Today",
-        description="Scanning live props every 5 minutes. Picks posted when high-confidence bets are found.",
-        color=0x00C851,
+    from src.discord_bot.bot import _post
+    from src.core.config import (
+        DISCORD_WEBHOOK_URL, OPENAI_API_KEY, PAPER_TRADING, REDIS_URL,
     )
+    from datetime import datetime
+    import zoneinfo
+
+    et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    mode   = "PAPER" if PAPER_TRADING else "LIVE"
+    color  = 0xFFA500 if PAPER_TRADING else 0x00C851   # orange=paper, green=live
+
+    # ── Ping each service ───────────────────────────────────────────────────────
+    def _ping(label: str, fn) -> str:
+        try:
+            t0 = time.monotonic()
+            fn()
+            ms = int((time.monotonic() - t0) * 1000)
+            return f"✅  {label:<14} —  {ms}ms"
+        except Exception as exc:
+            return f"❌  {label:<14} —  {exc}"
+
+    checks = [
+        _ping("Kalshi",     lambda: httpx.get("https://external-api.kalshi.com/trade-api/v2/exchange/status", timeout=5)),
+        _ping("Polymarket", lambda: httpx.get("https://gamma-api.polymarket.com/markets?limit=1", timeout=5)),
+        _ping("Discord",    lambda: httpx.get(DISCORD_WEBHOOK_URL, timeout=5) if DISCORD_WEBHOOK_URL else None),
+        _ping("AI",         lambda: __import__("openai").OpenAI(api_key=OPENAI_API_KEY).models.list()),
+        _ping("Redis",      lambda: __import__("redis").from_url(REDIS_URL, socket_connect_timeout=3).ping()),
+    ]
+    health_block = "\n".join(f"`{line}`" for line in checks)
+
+    # ── Count today's active games from Redis ───────────────────────────────────
+    games_today = "—"
+    try:
+        import json, redis as _r
+        red = _r.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = red.get("props:active_picks")
+        if raw:
+            picks = json.loads(raw)
+            games_today = str(len({p.get("team", "") for p in picks if p.get("team")}))
+    except Exception:
+        pass
+
+    fields = [
+        {"name": "Trading Mode",       "value": f"**{mode}**",                                   "inline": True},
+        {"name": "Active Games Today", "value": games_today,                                      "inline": True},
+        {"name": "Platforms",          "value": "🏆 PrizePicks · 🐶 Underdog · 🪨 HardRock · 📈 Kalshi · 🟣 Polymarket", "inline": False},
+        {"name": "🔧 Service Health",  "value": health_block,                                     "inline": False},
+        {"name": "Next Post",          "value": "**9:30 AM ET** — Top Picks Summary",            "inline": True},
+        {"name": "Scan Intervals",     "value": "Props every 5 min · News every 15 min · Picks every 10 min", "inline": False},
+    ]
+
+    embed = {
+        "title": f"🚀 Bot Online — {et_now.strftime('%-I:%M %p ET')} — {mode} MODE",
+        "description": (
+            "Bot is online and scanning markets on "
+            "🏆 PrizePicks + 🐶 Underdog + 🪨 HardRock + 📈 Kalshi + 🟣 Polymarket.\n"
+            "ALERT ALERT fires automatically on any line move or prop removal."
+        ),
+        "color": color,
+        "fields": [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
+            for f in fields
+        ],
+        "footer": {"text": f"Sports Intelligence Platform · {et_now.strftime('%A, %B %-d')}"},
+    }
     _run_async(_post({"embeds": [embed]}))
     logger.info("Wake-up brief sent (5 AM)")
-    return {"woke_up": True}
+    return {"woke_up": True, "mode": mode}
 
 
 @app.task
