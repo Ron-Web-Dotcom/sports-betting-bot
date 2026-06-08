@@ -65,12 +65,20 @@ _MIN_THRESHOLDS: dict[str, float] = {
 }
 
 
-def _current_season_week(sport: str) -> tuple[int, int]:
-    """Return (season_year, week) for the given sport using Sleeper state API."""
+def _current_season_week(sport: str) -> tuple[int, str, int]:
+    """
+    Return (season_year, season_type, week) for the given sport.
+    Uses Sleeper state API — falls back to current year + week 1 if unavailable.
+    """
     state = get_json(f"{_BASE}/state/{sport}") or {}
-    season = int(state.get("season", datetime.utcnow().year))
-    week   = int(state.get("week", 1))
-    return season, week
+    season      = int(state.get("season", datetime.utcnow().year))
+    season_type = state.get("season_type", "regular")  # regular | post | pre | off
+    week        = int(state.get("week", 1))
+    # Use display_week if available (more accurate for current games)
+    display_week = state.get("display_week")
+    if display_week:
+        week = int(display_week)
+    return season, season_type, week
 
 
 def get_projections(sport_key: str, season: int | None = None, week: int | None = None) -> list[dict]:
@@ -86,10 +94,12 @@ def get_projections(sport_key: str, season: int | None = None, week: int | None 
         return []
 
     if season is None or week is None:
-        season, week = _current_season_week(sport)
+        season, season_type, week = _current_season_week(sport)
+    else:
+        season_type = "regular"
 
     url = f"{_BASE_V2}/projections/{sport}/{season}/{week}"
-    params = {"season_type": "regular"}
+    params = {"season_type": season_type}
     # add position filters for NFL to keep payload manageable
     if sport == "nfl":
         params["position[]"] = ["QB", "RB", "WR", "TE", "K"]
