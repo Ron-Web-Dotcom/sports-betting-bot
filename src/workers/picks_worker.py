@@ -233,7 +233,6 @@ def morning_props_brief():
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
-        from src.apis.sleeper import get_all_projections as sleeper_projections
         from src.core.config import REDIS_URL
         import redis as _redis
         from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
@@ -242,10 +241,9 @@ def morning_props_brief():
         _fetchers = {
             "prizepicks": get_all_projections,
             "underdog":   get_all_lines,
-            "sleeper":    sleeper_projections,
         }
         _results: dict = {}
-        with ThreadPoolExecutor(max_workers=3) as _pool:
+        with ThreadPoolExecutor(max_workers=2) as _pool:
             _futs = {_pool.submit(fn): name for name, fn in _fetchers.items()}
             for _fut in _as_completed(_futs, timeout=30):
                 _name = _futs[_fut]
@@ -257,10 +255,9 @@ def morning_props_brief():
 
         pp_props = _results.get("prizepicks", [])
         ud_props = _results.get("underdog", [])
-        sl_props = _results.get("sleeper", [])
         for _name, _items in _results.items():
             r.setex(f"props:{_name}", 900, json.dumps(_items or []))
-        all_props = pp_props + ud_props + sl_props
+        all_props = pp_props + ud_props
     except Exception as e:
         logger.warning("Morning props fetch failed: %s", e)
         all_props = []
@@ -474,24 +471,49 @@ def scan_and_pick_props(self):
             if len(ud_picks) >= 2:
                 send_underdog_entry.delay(ud_picks[:6])
 
-            # Post D: HardRock Entry (game picks with odds only)
-            hr_picks = sorted(
-                [p for p in pick_dicts if p.get("american_odds") or p.get("odds")],
-                key=lambda p: p.get("confidence", 0), reverse=True,
-            )
-            if len(hr_picks) >= 2:
-                send_hardrock_parlay_alert.delay(hr_picks[:4])
+            # Post D: HardRock Entry — top game picks from Odds API
+            try:
+                from src.engines.odds_engine import get_latest_snapshots_by_game
+                from src.workers.alert_worker import send_hardrock_entry
+                snaps = get_latest_snapshots_by_game()
+                hr_games = []
+                for gid, snap_list in list(snaps.items())[:8]:
+                    if not snap_list:
+                        continue
+                    s = snap_list[0]
+                    hr_games.append({
+                        "home_team":    s.get("home_team", ""),
+                        "away_team":    s.get("away_team", ""),
+                        "sport_key":    s.get("sport_key", ""),
+                        "commence_time": str(s.get("commence_time", "")),
+                        "best_odds":    s.get("best_odds", -110),
+                        "book":         s.get("book", ""),
+                        "market":       s.get("market", "h2h"),
+                        "selection":    s.get("selection", ""),
+                    })
+                if hr_games:
+                    send_hardrock_entry.delay(hr_games[:4])
+            except Exception as _hre:
+                logger.debug("HardRock entry failed: %s", _hre)
 
-            # Post E: Kalshi Entry (from cache, only if markets exist)
+            # Post E: Kalshi Entry — AI-scored sports prediction markets
             try:
                 kalshi_raw = r.get("kalshi:markets")
                 if kalshi_raw:
-                    kalshi_markets = json.loads(kalshi_raw)
-                    if kalshi_markets:
+                    kalshi_markets_data = json.loads(kalshi_raw)
+                    if kalshi_markets_data:
                         from src.workers.alert_worker import send_kalshi_entry
-                        send_kalshi_entry.delay(kalshi_markets)
+                        # AI score the markets before posting
+                        scored = _score_kalshi_markets(kalshi_markets_data)
+                        if scored:
+                            scored_hash = hashlib.md5(
+                                json.dumps(scored, sort_keys=True).encode()
+                            ).hexdigest()
+                            if r.get("kalshi:last_hash") != scored_hash:
+                                r.setex("kalshi:last_hash", 3600, scored_hash)
+                                send_kalshi_entry.delay(scored)
             except Exception as _ke:
-                logger.debug("Kalshi cache check failed: %s", _ke)
+                logger.debug("Kalshi entry failed: %s", _ke)
 
             logger.info("Prop picks posted: %d picks", len(picks))
         else:
@@ -511,6 +533,72 @@ def scan_and_pick_props(self):
     except Exception as exc:
         logger.error("scan_and_pick_props failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+def _score_kalshi_markets(markets: list[dict], top_n: int = 6) -> list[dict]:
+    """
+    AI-score Kalshi sports prediction markets.
+    Returns top N markets with YES/NO recommendation and reasoning.
+    """
+    import json
+    from src.engines.ai_engine import _call_json
+
+    if not markets:
+        return []
+
+    # Only sports markets with meaningful volume
+    sports = [m for m in markets if m.get("volume", 0) > 0 or m.get("yes_price")]
+    if not sports:
+        return markets[:top_n]
+
+    system = """You are a sports prediction expert. Given a list of Kalshi prediction markets
+(YES/NO contracts on sports outcomes), identify the best bets.
+
+Return ONLY valid JSON array:
+[
+  {
+    "index": <int>,
+    "direction": "yes"|"no",
+    "confidence": <float 0.0-1.0>,
+    "reasoning": "<1-2 sentences>",
+    "ev_pct": <float e.g. 0.05>
+  }
+]
+
+Only include markets where you have genuine edge (confidence >= 0.60).
+Consider: implied probability vs your assessment, team form, injuries, matchup."""
+
+    compact = [
+        {"index": i, "title": m.get("title", ""), "yes_price": m.get("yes_price"),
+         "no_price": m.get("no_price"), "category": m.get("category", "")}
+        for i, m in enumerate(sports[:20])
+    ]
+
+    try:
+        result = _call_json(
+            f"Score these Kalshi sports markets:\n\n```json\n{json.dumps(compact, indent=2)}\n```",
+            system,
+        )
+        if not result or not isinstance(result, list):
+            return sports[:top_n]
+
+        scored = []
+        for item in result:
+            idx = item.get("index")
+            if idx is None or idx >= len(sports):
+                continue
+            m = dict(sports[idx])
+            m["ai_direction"]  = item.get("direction", "yes")
+            m["ai_confidence"] = float(item.get("confidence", 0.6))
+            m["ai_reasoning"]  = item.get("reasoning", "")
+            m["ai_ev_pct"]     = float(item.get("ev_pct", 0))
+            scored.append(m)
+
+        scored.sort(key=lambda x: x.get("ai_confidence", 0), reverse=True)
+        return scored[:top_n] if scored else sports[:top_n]
+    except Exception as e:
+        logger.warning("Kalshi AI scoring failed: %s", e)
+        return sports[:top_n]
 
 
 def _get_parlay_senders():

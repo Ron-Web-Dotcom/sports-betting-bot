@@ -233,46 +233,110 @@ def send_underdog_entry(picks: list[dict]):
 
 
 @app.task
+def send_hardrock_entry(games: list[dict]):
+    """Post HardRock Bet entry card — top game picks (ML/spread/totals) from Odds API."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not games:
+        return
+
+    _SPORT_LABELS = {
+        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
+        "icehockey_nhl": "NHL", "basketball_ncaab": "NCAAB", "americanfootball_ncaaf": "NCAAF",
+        "soccer_epl": "EPL", "soccer_usa_mls": "MLS", "soccer_fifa_world_cup": "World Cup",
+        "mma_mixed_martial_arts": "UFC/MMA", "tennis_atp_french_open": "Tennis",
+    }
+    _MARKET_LABELS = {"h2h": "Moneyline", "spreads": "Spread", "totals": "Total"}
+
+    n = min(len(games), 4)
+    games = games[:n]
+
+    leg_lines = []
+    for i, g in enumerate(games, 1):
+        home  = g.get("home_team", "?")
+        away  = g.get("away_team", "?")
+        sport = _SPORT_LABELS.get(g.get("sport_key", ""), g.get("sport_key", "").split("_")[-1].upper())
+        odds  = g.get("best_odds", "")
+        book  = g.get("book", "")
+        mkt   = _MARKET_LABELS.get(g.get("market", "h2h"), g.get("market", "h2h").title())
+        sel   = g.get("selection", "")
+        odds_str = f"+{odds}" if isinstance(odds, int) and odds > 0 else str(odds)
+
+        game_time = g.get("commence_time", "")
+        time_str = ""
+        if game_time:
+            try:
+                from dateutil.parser import parse as _parse
+                import zoneinfo as _zi
+                t = _parse(game_time).astimezone(_zi.ZoneInfo("America/New_York"))
+                time_str = f" · {t.strftime('%-I:%M %p ET')}"
+            except Exception:
+                pass
+
+        leg_lines.append(
+            f"`{i}.` **{away} @ {home}**  ·  {sport}{time_str}\n"
+            f"     └ {mkt}: **{sel}**  ·  {odds_str}  ·  via {book}"
+        )
+
+    embed = {
+        "title": f"🪨 HardRock Entry — {n} Games",
+        "description": "\n".join(leg_lines),
+        "color": 0xB71C1C,
+        "fields": [
+            {"name": "⚠️", "value": "Place manually on HardRock Bet. Parlay for bigger payout.", "inline": False},
+        ],
+        "footer": {"text": "HardRock Bet · via Odds API · Bet responsibly"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("HardRock entry posted: %d games", n)
+    except Exception as e:
+        logger.error("Failed to send HardRock entry: %s", e)
+
+
+@app.task
 def send_kalshi_entry(markets: list[dict]):
-    """Post Kalshi prediction market entry card."""
+    """Post Kalshi AI-scored prediction market entry card."""
     from src.discord_bot.bot import _post
     import asyncio
     if not markets:
         return
 
-    n = min(len(markets), 8)
+    n = min(len(markets), 6)
     markets = markets[:n]
 
     lines = []
-    for m in markets:
-        ticker = m.get("ticker") or m.get("id") or "?"
-        title_text = m.get("title") or m.get("question") or ticker
-        yes_price = m.get("yes_price") or m.get("yes_bid") or m.get("price")
-        no_price = m.get("no_price") or m.get("no_bid")
-        if yes_price is not None:
-            try:
-                yes_pct = round(float(yes_price) * 100) if float(yes_price) <= 1 else int(yes_price)
-            except Exception:
-                yes_pct = yes_price
-            price_str = f"YES {yes_pct}¢"
-            if no_price is not None:
-                try:
-                    no_pct = round(float(no_price) * 100) if float(no_price) <= 1 else int(no_price)
-                except Exception:
-                    no_pct = no_price
-                price_str += f"  /  NO {no_pct}¢"
-        else:
-            price_str = "—"
-        lines.append(f"• **{title_text}**  ·  {price_str}")
+    for i, m in enumerate(markets, 1):
+        title_text  = m.get("title") or m.get("question") or m.get("market_id", "?")
+        yes_price   = m.get("yes_price")
+        no_price    = m.get("no_price")
+        direction   = m.get("ai_direction", "yes").upper()
+        confidence  = m.get("ai_confidence")
+        reasoning   = m.get("ai_reasoning", "")
+        ev_pct      = m.get("ai_ev_pct", 0)
+
+        yes_pct = round(float(yes_price) * 100) if yes_price is not None else "?"
+        no_pct  = round(float(no_price)  * 100) if no_price  is not None else "?"
+        price_str = f"YES {yes_pct}¢  /  NO {no_pct}¢"
+
+        conf_str = f"{round(confidence * 100)}% conf" if confidence else ""
+        ev_str   = f"+{round(ev_pct * 100, 1)}% edge" if ev_pct else ""
+        meta     = "  ·  ".join(filter(None, [conf_str, ev_str]))
+
+        lines.append(
+            f"`{i}.` ✅ Bet **{direction}** — **{title_text}**\n"
+            f"     └ {price_str}" + (f"  ·  {meta}" if meta else "")
+            + (f"\n     └ {reasoning}" if reasoning else "")
+        )
 
     embed = {
-        "title": f"📈 Kalshi Entry — {n} Markets",
-        "description": "\n".join(lines),
+        "title": f"📈 Kalshi Entry — {n} Predictions",
+        "description": "\n\n".join(lines),
         "color": 0x00ACC1,
         "fields": [
-            {"name": "⚠️", "value": "Place manually on Kalshi. Prediction markets — not sports books.", "inline": False},
+            {"name": "⚠️", "value": "Place manually on Kalshi. Prediction markets — not a sportsbook.", "inline": False},
         ],
-        "footer": {"text": "Kalshi · prediction market prices"},
+        "footer": {"text": "Kalshi · AI-scored sports predictions · Bet responsibly"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))

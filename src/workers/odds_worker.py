@@ -173,7 +173,6 @@ def scan_player_props(self):
     Sources:
       PrizePicks  — player Over/Under props (public, no key)
       Underdog    — player Over/Under props (public, no key)
-      Sleeper     — NFL/NBA/MLB weekly stat projections (public, no key)
       HardRock    — ML/spread/totals via Odds API (already in scan_and_save_odds)
       Kalshi      — prediction market contracts (KALSHI_API_KEY_ID required)
 
@@ -185,7 +184,6 @@ def scan_player_props(self):
     try:
         from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
-        from src.apis.sleeper import get_all_projections as sleeper_projections
         from src.apis.kalshi import get_sports_markets as kalshi_markets
         from src.core.config import REDIS_URL
         import redis as _redis
@@ -193,15 +191,15 @@ def scan_player_props(self):
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         results: dict = {}
-        tasks = {
+        prop_tasks = {
             "prizepicks": get_all_projections,
             "underdog":   get_all_lines,
-            "sleeper":    sleeper_projections,
-            "kalshi":     kalshi_markets,
         }
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(fn): name for name, fn in tasks.items()}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(fn): name for name, fn in prop_tasks.items()}
+            # Kalshi runs in parallel but stored separately — not mixed into props:all
+            kalshi_future = pool.submit(kalshi_markets)
             for future in as_completed(futures, timeout=30):
                 name = futures[future]
                 try:
@@ -209,6 +207,11 @@ def scan_player_props(self):
                 except Exception as e:
                     logger.warning("Props scan [%s] failed: %s", name, e)
                     results[name] = []
+            try:
+                kalshi_result = kalshi_future.result(timeout=15)
+            except Exception as e:
+                logger.warning("Kalshi scan failed: %s", e)
+                kalshi_result = []
 
         all_props = []
         for items in results.values():
@@ -224,10 +227,14 @@ def scan_player_props(self):
             changes = _detect_prop_changes(prev_items, new_items or [], source_name)
             all_changes.extend(changes)
 
-        # Cache new snapshots
+        # Cache prop snapshots (PP + Underdog only in props:all)
         for name, items in results.items():
             r.setex(f"props:{name}", 900, json.dumps(items or []))
         r.setex("props:all", 900, json.dumps(all_props))
+
+        # Cache Kalshi separately — picked up by picks_worker for AI scoring
+        if kalshi_result:
+            r.setex("kalshi:markets", 900, json.dumps(kalshi_result))
 
         # Only alert on changes to picks we already recommended
         if all_changes:
@@ -235,6 +242,7 @@ def scan_player_props(self):
             _alert_active_pick_changes(r, all_changes)
 
         counts = {k: len(v or []) for k, v in results.items()}
+        counts["kalshi"] = len(kalshi_result or [])
         logger.info("Props scan complete: %s | total=%d", counts, len(all_props))
         return {**counts, "total": len(all_props), "changes": len(all_changes)}
 
