@@ -119,93 +119,111 @@ def _sample_props(props: list[dict], max_per_sport: int = 30) -> list[dict]:
 
 def score_props(props: list[dict]) -> list[PropPick]:
     """
-    Analyse a batch of props and return PropPick objects that pass the gate.
-    Samples up to 30 props per sport to keep OpenAI calls manageable.
-    Enriches each prop with player context + past loss history before AI call.
+    Analyse props using a SINGLE batch OpenAI call per sport group.
+    Reduces API calls from N (one per prop) to ~5 (one per sport).
+    Samples top props per sport, sends them all in one prompt, gets back ranked picks.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from src.apis.data_hub import build_player_context
-    from src.db.session import get_db
-    from src.db.models import PropResult
+    import json
+    from src.engines.ai_engine import _call_json
+    from collections import defaultdict
 
-    # Sample to avoid thousands of OpenAI calls
-    props = _sample_props(props, max_per_sport=30)
-    logger.info("Prop engine: scoring %d sampled props", len(props))
+    # Sample props — prioritise game-day props, cap per sport
+    sampled = _sample_props(props, max_per_sport=25)
+    logger.info("Prop engine: batch scoring %d props across sports", len(sampled))
+
+    # Group by sport for focused analysis
+    by_sport: dict[str, list[dict]] = defaultdict(list)
+    for p in sampled:
+        by_sport[p.get("sport_key", "unknown")].append(p)
+
+    system = """You are an elite sports prop analyst. Given a list of player/team prop lines,
+identify the BEST bets (OVER or UNDER). Only recommend props with genuine statistical edge.
+
+Return ONLY valid JSON array of picks (empty array [] if none qualify):
+[
+  {
+    "index": <int — index of prop in the input list>,
+    "direction": "over"|"under",
+    "confidence": <float 0.0-1.0>,
+    "ev_pct": <float e.g. 0.05 = 5% edge>,
+    "reasoning": "<2-3 sentences>",
+    "key_factors": ["<factor1>", "<factor2>"],
+    "parlay_friendly": true|false
+  }
+]
+
+Only include props where confidence >= 0.55 and ev_pct >= 0.02.
+Consider: season averages vs line, recent form, matchup, injuries, pace."""
 
     picks: list[PropPick] = []
 
-    def _process(prop: dict) -> PropPick | None:
-        subject   = prop.get("subject", "")
-        stat      = prop.get("stat", "")
-        sport_key = prop.get("sport_key", "")
+    for sport_key, sport_props in by_sport.items():
+        if not sport_props:
+            continue
 
-        # Enrich with player context (recent form, injuries, splits)
-        try:
-            ctx = build_player_context(
-                player_name = subject,
-                sport_key   = sport_key,
-                opponent    = prop.get("opponent", ""),
-            )
-        except Exception:
-            ctx = {}
+        # Build compact prop list for the prompt
+        prop_list = [
+            {
+                "index":      i,
+                "subject":    p.get("subject"),
+                "stat":       p.get("stat"),
+                "line":       p.get("line"),
+                "team":       p.get("team", ""),
+                "opponent":   p.get("opponent", ""),
+                "game_time":  p.get("game_time", ""),
+                "is_team":    p.get("is_team_prop", False),
+            }
+            for i, p in enumerate(sport_props)
+        ]
 
-        # Pull past losses for this subject+stat to feed the learning loop
-        loss_history: list[dict] = []
-        try:
-            with get_db() as db:
-                rows = db.query(PropResult).filter_by(
-                    subject=subject, stat=stat, result="lost"
-                ).order_by(PropResult.settled_at.desc()).limit(5).all()
-                loss_history = [
-                    {
-                        "line":        r.line,
-                        "direction":   r.direction,
-                        "actual":      r.actual_value,
-                        "game_time":   str(r.game_time),
-                        "missed_by":   round(abs((r.actual_value or 0) - (r.line or 0)), 2),
-                    }
-                    for r in rows
-                ]
-        except Exception:
-            pass  # PropResult table may not exist yet on first run
-
-        ai = analyse_prop(prop, player_context=ctx, loss_history=loss_history or None)
-        if not ai:
-            return None
-
-        direction  = ai.get("direction", "pass").lower()
-        confidence = float(ai.get("confidence", 0))
-        ev_pct     = float(ai.get("ev_pct", 0))
-
-        if direction == "pass" or confidence < MIN_PROP_CONFIDENCE or ev_pct < MIN_PROP_EV:
-            return None
-
-        return PropPick(
-            source       = prop.get("source", "prizepicks"),
-            sport_key    = sport_key,
-            subject      = subject,
-            stat         = stat,
-            line         = float(prop.get("line", 0)),
-            direction    = direction,
-            confidence   = round(confidence, 4),
-            ev_pct       = round(ev_pct, 4),
-            reasoning    = ai.get("reasoning", ""),
-            key_factors  = ai.get("key_factors", []),
-            is_team_prop = prop.get("is_team_prop", False),
-            game_time    = prop.get("game_time", ""),
-            opponent     = prop.get("opponent", ""),
-            team         = prop.get("team", ""),
+        prompt = (
+            f"Sport: {sport_key}\n\n"
+            f"Analyse these {len(prop_list)} props and return your best picks:\n\n"
+            f"```json\n{json.dumps(prop_list, indent=2)}\n```"
         )
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_process, p): p for p in props}
-        for future in as_completed(futures, timeout=120):
-            try:
-                result = future.result()
-                if result:
-                    picks.append(result)
-            except Exception as e:
-                logger.warning("Prop analysis failed: %s", e)
+        try:
+            result = _call_json(prompt, system)
+            if not result:
+                continue
+
+            # Result may be a list directly or wrapped
+            if isinstance(result, dict):
+                result = result.get("picks", result.get("results", []))
+            if not isinstance(result, list):
+                continue
+
+            for item in result:
+                idx = item.get("index")
+                if idx is None or idx >= len(sport_props):
+                    continue
+                prop      = sport_props[idx]
+                direction = item.get("direction", "pass").lower()
+                confidence = float(item.get("confidence", 0))
+                ev_pct    = float(item.get("ev_pct", 0))
+
+                if direction == "pass" or confidence < MIN_PROP_CONFIDENCE or ev_pct < MIN_PROP_EV:
+                    continue
+
+                picks.append(PropPick(
+                    source       = prop.get("source", "prizepicks"),
+                    sport_key    = sport_key,
+                    subject      = prop.get("subject", ""),
+                    stat         = prop.get("stat", ""),
+                    line         = float(prop.get("line", 0)),
+                    direction    = direction,
+                    confidence   = round(confidence, 4),
+                    ev_pct       = round(ev_pct, 4),
+                    reasoning    = item.get("reasoning", ""),
+                    key_factors  = item.get("key_factors", []),
+                    is_team_prop = prop.get("is_team_prop", False),
+                    game_time    = prop.get("game_time", ""),
+                    opponent     = prop.get("opponent", ""),
+                    team         = prop.get("team", ""),
+                ))
+
+        except Exception as e:
+            logger.warning("Batch prop scoring failed [%s]: %s", sport_key, e)
 
     picks.sort(key=lambda p: (p.ev_pct * p.confidence), reverse=True)
     logger.info("Prop engine: %d props analysed → %d picks", len(props), len(picks))
