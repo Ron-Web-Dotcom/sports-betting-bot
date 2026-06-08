@@ -94,6 +94,192 @@ def send_prop_pick_alerts(picks: list[dict]):
 
 
 @app.task
+def send_picks_entry_post(
+    prop_picks:    list[dict],
+    hr_games:      list[dict],
+    kalshi:        list[dict],
+    polymarket:    list[dict],
+    discrepancies: list[dict],
+):
+    """
+    ONE big Picks Entry Post — Top Picks + Best Slip + HardRock + Predictions + Line Shop.
+    Posted at 9:30 AM if enough quality picks exist, otherwise delayed to 10:00 AM.
+    (Separate from 6 AM Good Morning Summary.)
+    """
+    from src.discord_bot.bot import _post
+    from src.core.config import DEFAULT_BANKROLL
+    import asyncio
+    from datetime import datetime
+    import zoneinfo
+
+    if not prop_picks:
+        return
+
+    _SPORT_EMOJI = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "soccer_fifa_world_cup": "⚽", "mma_mixed_martial_arts": "🥊",
+        "tennis_atp_french_open": "🎾", "golf_masters_tournament_winner": "⛳",
+    }
+    _SPORT_LABEL = {
+        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
+        "icehockey_nhl": "NHL", "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
+        "soccer_fifa_world_cup": "World Cup", "mma_mixed_martial_arts": "UFC/MMA",
+        "tennis_atp_french_open": "Tennis", "golf_masters_tournament_winner": "Golf",
+    }
+
+    et_tz   = zoneinfo.ZoneInfo("America/New_York")
+    now_str = datetime.now(et_tz).strftime("%-I:%M %p ET")
+    fields  = []
+
+    # ── Section 1: Top Picks ──────────────────────────────────────────────────
+    top_lines = []
+    for p in prop_picks:
+        sport   = p.get("sport_key","")
+        emoji   = _SPORT_EMOJI.get(sport, "🎯")
+        label   = _SPORT_LABEL.get(sport, sport.split("_")[-1].upper())
+        arrow   = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
+        conf    = round((p.get("confidence") or 0) * 100)
+        ev      = round((p.get("ev_pct") or 0) * 100, 1)
+        source  = (p.get("source") or "").title()
+        gt      = p.get("game_time","")
+        time_str = ""
+        if gt:
+            try:
+                from dateutil.parser import parse as _p
+                t = _p(gt).astimezone(et_tz)
+                time_str = f" · {t.strftime('%-I:%M %p ET')}"
+            except Exception:
+                pass
+        top_lines.append(
+            f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}"
+            f"  `{conf}% | +{ev}% edge | {label} · {source}{time_str}`"
+        )
+    fields.append({"name": f"🎯 Top Picks — {now_str}", "value": "\n".join(top_lines), "inline": False})
+
+    # ── Section 2: Best Slip (PP vs UD) ───────────────────────────────────────
+    slip = _compare_slips(prop_picks)
+    if slip["picks"]:
+        platform = slip["platform"]
+        ev_s     = slip["ev"]
+        p_win    = slip["p_all_win"]
+        mult     = slip["multiplier"]
+        vs_plat  = slip["vs_platform"]
+        vs_ev    = slip["vs_ev"]
+        n        = len(slip["picks"])
+        conf_avg = sum(p.get("confidence") or 0 for p in slip["picks"]) / n
+        ev_avg   = sum(p.get("ev_pct") or 0 for p in slip["picks"]) / n
+        bet_str  = _recommended_bet(conf_avg, ev_avg, DEFAULT_BANKROLL)
+        slip_emoji = "🏆" if platform == "PrizePicks" else "🐶"
+        leg_lines  = []
+        for i, p in enumerate(slip["picks"], 1):
+            arrow = "⬆️" if p.get("direction","").lower() == "over" else "⬇️"
+            emoji = _SPORT_EMOJI.get(p.get("sport_key",""), "🎯")
+            conf  = round((p.get("confidence") or 0) * 100)
+            leg_lines.append(f"`{i}.` {emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow}  `{conf}%`")
+        ev_str = f"+{round(ev_s*100,1)}%" if ev_s > 0 else f"{round(ev_s*100,1)}%"
+        vs_str = f"+{round(vs_ev*100,1)}%" if vs_ev > 0 else f"{round(vs_ev*100,1)}%"
+        slip_body = (
+            f"{slip_emoji} **{platform}** wins — {n}-pick slip · **{mult}x**\n"
+            f"`P(all win): {round(p_win*100,1)}%  ·  Slip EV: {ev_str}`  ·  {bet_str}\n"
+            f"*(vs {vs_plat}: {vs_str})*\n\n"
+            + "\n".join(leg_lines)
+        )
+        fields.append({"name": f"📋 Best Slip — {platform}  ·  {mult}x Payout", "value": slip_body, "inline": False})
+
+    # ── Section 3: HardRock ───────────────────────────────────────────────────
+    if hr_games:
+        hr_lines = []
+        for g in hr_games[:4]:
+            sport    = _SPORT_LABEL.get(g.get("sport_key",""), g.get("sport_key","").split("_")[-1].upper())
+            odds     = g.get("best_odds","")
+            odds_str = (f"+{odds}" if isinstance(odds, int) and odds > 0 else str(odds)) if odds else ""
+            mkt      = {"h2h":"ML","spreads":"Spread","totals":"Total"}.get(g.get("market","h2h"), "ML")
+            sel      = g.get("selection","") or f"{g.get('away_team','?')} @ {g.get('home_team','?')}"
+            gt       = g.get("commence_time","")
+            time_str = ""
+            if gt:
+                try:
+                    from dateutil.parser import parse as _p
+                    import zoneinfo as _zi
+                    t = _p(gt).astimezone(_zi.ZoneInfo("America/New_York"))
+                    time_str = f" · {t.strftime('%-I:%M %p ET')}"
+                except Exception:
+                    pass
+            conf    = round((g.get("confidence") or 0) * 100)
+            ev      = round((g.get("ev_pct") or 0) * 100, 1)
+            bet_str = _recommended_bet(g.get("confidence") or 0, g.get("ev_pct") or 0, DEFAULT_BANKROLL)
+            meta    = f"\n  `{conf}% · +{ev}% edge`  ·  {bet_str}" if conf else ""
+            hr_lines.append(f"🪨 **{sel}**  ·  {sport}{time_str}  ·  {mkt}: {odds_str}{meta}")
+        fields.append({"name": "🪨 HardRock Bet  ·  ML / Spread / Total", "value": "\n\n".join(hr_lines), "inline": False})
+
+    # ── Section 4: Best Predictions (Kalshi vs Polymarket) ────────────────────
+    best_preds = _todays_game_predictions(kalshi or [], polymarket or [])
+    if best_preds:
+        pred_lines = []
+        for m in best_preds[:4]:
+            platform  = m.get("platform","Kalshi")
+            p_emoji   = "📈" if platform == "Kalshi" else "🟣"
+            title     = (m.get("title") or m.get("question") or "")[:55]
+            direction = (m.get("ai_direction") or "yes").upper()
+            yes_pct   = round(float(m.get("yes_price",0))*100) if m.get("yes_price") else "?"
+            no_pct    = round(float(m.get("no_price",0))*100)  if m.get("no_price")  else "?"
+            conf      = round((m.get("ai_confidence") or 0) * 100)
+            ev        = round((m.get("ai_ev_pct") or 0) * 100, 1)
+            bet_str   = _recommended_bet(m.get("ai_confidence") or 0, m.get("ai_ev_pct") or 0, DEFAULT_BANKROLL)
+            vs_plat   = m.get("vs_platform","")
+            vs_yes    = round(float(m.get("vs_yes_price",0))*100) if m.get("vs_yes_price") else None
+            vs_note   = f" *(vs {vs_plat} @ {vs_yes}¢)*" if vs_plat and vs_yes else ""
+            pred_lines.append(
+                f"{p_emoji} **{direction}** on **{platform}** — {title}{vs_note}\n"
+                f"  YES {yes_pct}¢ / NO {no_pct}¢"
+                + (f"\n  `{conf}% · +{ev}% edge`  ·  {bet_str}" if conf else "")
+            )
+        fields.append({"name": "🔮 Best Predictions — Today's Games  ·  Kalshi vs Polymarket", "value": "\n\n".join(pred_lines), "inline": False})
+
+    # ── Section 5: Line Shop (if any) ─────────────────────────────────────────
+    if discrepancies:
+        _emoji = {
+            "basketball_nba":"🏀","baseball_mlb":"⚾","americanfootball_nfl":"🏈",
+            "icehockey_nhl":"🏒","soccer_epl":"⚽","mma_mixed_martial_arts":"🥊",
+        }
+        shop_lines = []
+        for o in discrepancies[:4]:
+            emoji    = _emoji.get(o.get("sport_key",""), "🎯")
+            subject  = o.get("subject","?")
+            stat     = o.get("stat","")
+            pp_line  = o.get("pp_line")
+            ud_line  = o.get("ud_line")
+            gap      = o.get("gap", 0)
+            best_bk  = (o.get("best_book") or "").title()
+            direction = (o.get("direction") or "over").upper()
+            pp_str   = f"~~{pp_line}~~" if o.get("best_book") == "underdog" else f"**{pp_line}**"
+            ud_str   = f"~~{ud_line}~~" if o.get("best_book") == "prizepicks" else f"**{ud_line}**"
+            shop_lines.append(
+                f"{emoji} **{subject}** — {stat}  ·  PP: {pp_str}  UD: {ud_str}  Gap: **+{gap:.1f}**\n"
+                f"  ✅ Bet **{direction}** on **{best_bk}**"
+            )
+        fields.append({"name": "💰 Line Shop — Better Odds Found", "value": "\n\n".join(shop_lines), "inline": False})
+
+    fields.append({"name": "⚠️", "value": "Place manually on each platform. Bet responsibly.", "inline": False})
+
+    embed = {
+        "title": f"📋 Picks Entry — {datetime.now(et_tz).strftime('%A, %B %-d')}  ·  {now_str}",
+        "color": 0x1A237E,
+        "fields": [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
+            for f in fields
+        ],
+        "footer": {"text": "PrizePicks · Underdog · HardRock · Kalshi · Polymarket · Bet responsibly"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Picks entry post posted: %d picks", len(prop_picks))
+    except Exception as e:
+        logger.error("Failed to send picks entry post: %s", e)
+
+
+@app.task
 def send_prop_summary(picks: list[dict]):
     """Post ONE summary embed with all top picks — no per-pick spam."""
     from src.discord_bot.bot import _post

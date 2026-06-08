@@ -215,23 +215,150 @@ def generate_picks(self):
 @app.task
 def morning_picks_summary():
     """
-    9:30 AM ET — first combined picks summary of the day.
-    Fetches fresh props from all sources, runs AI scoring, posts:
-      - Top Prop Picks summary
-      - PP Entry, Underdog Entry, HardRock Entry, Kalshi Entry, Polymarket Entry
-      - Line Shop Alert if discrepancies exist
+    9:30 AM ET — ONE big morning summary post.
+    If fewer than 3 solid picks exist at 9:30, delays to 10:00 AM automatically.
+    Combines: Top Picks + Today's Entries (slip, HardRock, predictions) + Line Shop.
+    All in a single Discord embed — no separate posts.
     """
-    # Force the 5-min scan immediately with a fresh cache bust
     import json
+    from datetime import datetime, timedelta
+    import zoneinfo
     from src.core.config import REDIS_URL
     import redis as _redis
+
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-    # Clear last hash so picks always post fresh at 9:30 AM
+
+    # Clear hashes so it always posts fresh
     r.delete("props:last_picks_hash")
     r.delete("props:last_lineshop_hash")
-    # Trigger a fresh scan
-    scan_and_pick_props.delay()
-    logger.info("Morning picks summary triggered at 9:30 AM ET")
+
+    # Quick quality check — do we have enough solid picks right now?
+    raw = r.get("props:all")
+    ready = False
+    if raw:
+        try:
+            from src.engines.prop_engine import score_props
+            props = json.loads(raw)
+            if props:
+                picks, _ = score_props(props[:60])   # light sample, don't burn tokens
+                solid = [p for p in picks if p.confidence >= 0.65]
+                ready = len(solid) >= 3
+        except Exception:
+            pass
+
+    et_tz = zoneinfo.ZoneInfo("America/New_York")
+    now   = datetime.now(et_tz)
+
+    if ready:
+        # Enough quality picks — post the full morning summary now
+        logger.info("Morning summary: %d solid picks ready — posting at 9:30 AM", len(solid))
+        _run_morning_summary.delay()
+    else:
+        # Not enough yet — delay to 10:00 AM ET
+        ten_am = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if ten_am <= now:
+            ten_am = now + timedelta(minutes=5)   # already past 10 AM — post in 5 min
+        eta_utc = ten_am.astimezone(zoneinfo.ZoneInfo("UTC"))
+        _run_morning_summary.apply_async(eta=eta_utc)
+        logger.info("Morning summary: not enough picks yet — delayed to 10:00 AM ET")
+
+
+@app.task(bind=True, max_retries=1, default_retry_delay=300)
+def _run_morning_summary(self):
+    """
+    Executes the actual morning summary post — called by morning_picks_summary at 9:30 or 10 AM.
+    Single Discord post combining: Top Picks + Entry Card + Line Shop.
+    """
+    import json, dataclasses, hashlib
+    from datetime import datetime, timezone, timedelta
+    from dateutil.parser import parse as _parse
+    import zoneinfo
+    from src.core.config import REDIS_URL
+    import redis as _redis
+
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+    # ── 1. Fetch + score props ─────────────────────────────────────────────────
+    raw = r.get("props:all")
+    if not raw:
+        logger.warning("_run_morning_summary: no props in cache")
+        return
+
+    props = json.loads(raw)
+    props = [p for p in props if p.get("subject","").strip()]
+    props = [p for p in props if p.get("status","").lower() not in ("final","completed","in progress")]
+
+    # Today's games only
+    now    = datetime.now(timezone.utc)
+    et_tz  = zoneinfo.ZoneInfo("America/New_York")
+    et_now = datetime.now(et_tz)
+    def _today(p):
+        gt = p.get("game_time","")
+        if not gt:
+            return p.get("source") == "prizepicks"
+        try:
+            t = _parse(gt)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            t_et = t.astimezone(et_tz)
+            return t_et.date() == et_now.date() and t >= now + timedelta(minutes=30)
+        except Exception:
+            return True
+    props = [p for p in props if _today(p)]
+
+    from src.engines.prop_engine import score_props
+    picks, _ = score_props(props)
+    picks = picks[:6]
+    if not picks:
+        logger.info("_run_morning_summary: no picks after scoring")
+        return
+
+    pick_dicts = [dataclasses.asdict(p) for p in picks]
+    r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
+
+    # ── 2. HardRock games ──────────────────────────────────────────────────────
+    hr_games = []
+    try:
+        from src.engines.odds_engine import get_latest_snapshots_by_game
+        for gid, snap_list in list(get_latest_snapshots_by_game().items())[:4]:
+            if snap_list:
+                s = snap_list[0]
+                hr_games.append({
+                    "home_team": s.get("home_team",""), "away_team": s.get("away_team",""),
+                    "sport_key": s.get("sport_key",""), "commence_time": str(s.get("commence_time","")),
+                    "best_odds": s.get("best_odds",-110), "book": s.get("book","HardRock"),
+                    "market": s.get("market","h2h"), "selection": s.get("selection",""),
+                })
+    except Exception:
+        pass
+
+    # ── 3. Kalshi + Polymarket ─────────────────────────────────────────────────
+    kalshi_scored, poly_scored = [], []
+    from src.workers.picks_worker import _score_kalshi_markets
+    for key, store in (("kalshi:markets", kalshi_scored), ("polymarket:markets", poly_scored)):
+        try:
+            raw2 = r.get(key)
+            if raw2:
+                store.extend(_score_kalshi_markets(json.loads(raw2))[:4])
+        except Exception:
+            pass
+
+    # ── 4. Line shop ───────────────────────────────────────────────────────────
+    discrepancies = []
+    try:
+        from src.engines.line_shop_engine import find_discrepancies
+        pp_props = [p for p in props if p.get("source") == "prizepicks"]
+        ud_props = [p for p in props if p.get("source") == "underdog"]
+        if pp_props and ud_props:
+            discs = find_discrepancies(pp_props, ud_props)
+            discrepancies = [dataclasses.asdict(d) for d in discs[:5]]
+    except Exception:
+        pass
+
+    # ── 5. Fire single combined post ───────────────────────────────────────────
+    from src.workers.alert_worker import send_picks_entry_post
+    send_picks_entry_post.delay(pick_dicts, hr_games, kalshi_scored, poly_scored, discrepancies)
+    logger.info("Morning summary fired: %d picks", len(picks))
 
 
 @app.task
