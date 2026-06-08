@@ -249,9 +249,7 @@ Do NOT skip team props — they often have strong edge due to less public attent
     watchlist.sort(key=lambda p: p.confidence, reverse=True)
     logger.info("Prop engine: %d props analysed → %d picks, %d on watchlist", len(props), len(picks), len(watchlist))
 
-    # Store watchlist on the picks list as an attribute for picks_worker to access
-    picks._watchlist = watchlist  # type: ignore[attr-defined]
-    return picks
+    return picks, watchlist
 
 
 def record_prop_result(

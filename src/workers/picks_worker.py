@@ -267,7 +267,7 @@ def morning_props_brief():
     if all_props:
         try:
             from src.engines.prop_engine import score_props
-            picks = score_props(all_props)
+            picks, _ = score_props(all_props)
         except Exception as e:
             logger.warning("Morning prop scoring failed: %s", e)
 
@@ -405,8 +405,7 @@ def scan_and_pick_props(self):
         props = [p for p in props if _is_upcoming_today(p)]
 
         from src.engines.prop_engine import score_props
-        picks = score_props(props)
-        watchlist = getattr(picks, "_watchlist", [])
+        picks, watchlist = score_props(props)
 
         # ── Line shop: cross-reference PP vs Underdog for same prop ──────────
         try:
