@@ -485,19 +485,12 @@ def send_prop_change_alerts(changes: list[dict]):
 @app.task
 def send_pick_line_update(changes: list[dict]):
     """
-    🚨 ALERT ALERT — fires after 6:30 PM ET only.
-    Before that, line moves don't matter enough to interrupt — picks are stable.
+    🚨 ALERT ALERT — fires when any of our chosen picks moves line or goes off-board.
+    All changes batched into ONE summary embed.
     """
     from src.discord_bot.bot import _post
     import asyncio
-    from datetime import datetime
-    import zoneinfo
     if not changes:
-        return
-    # Only alert after 6:30 PM ET — games are approaching, lines matter now
-    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    if et.hour < 18 or (et.hour == 18 and et.minute < 30):
-        logger.debug("ALERT ALERT suppressed before 6:30 PM ET (%d changes)", len(changes))
         return
 
     lines = []
