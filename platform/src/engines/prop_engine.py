@@ -17,8 +17,8 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Minimum thresholds for a prop to be recommended
-MIN_PROP_CONFIDENCE = 0.60   # 60%
-MIN_PROP_EV        = 0.03    # 3% edge
+MIN_PROP_CONFIDENCE = 0.55   # 55% (was 60% — AI tends to be conservative)
+MIN_PROP_EV        = 0.02    # 2% edge (was 3%)
 
 
 @dataclass
@@ -96,15 +96,41 @@ Consider: recent form, season average vs line, injury status, matchup, pace, opp
     return _call_json(prompt, system)
 
 
+def _sample_props(props: list[dict], max_per_sport: int = 30) -> list[dict]:
+    """
+    Sample a manageable subset of props to avoid thousands of OpenAI calls.
+    Takes up to max_per_sport props per sport, prioritising game-day props.
+    """
+    from collections import defaultdict
+    by_sport: dict[str, list[dict]] = defaultdict(list)
+    for p in props:
+        by_sport[p.get("sport_key", "unknown")].append(p)
+
+    sampled = []
+    for sport_props in by_sport.values():
+        # Prefer props with a game_time set (active games)
+        with_time    = [p for p in sport_props if p.get("game_time")]
+        without_time = [p for p in sport_props if not p.get("game_time")]
+        combined = with_time + without_time
+        sampled.extend(combined[:max_per_sport])
+
+    return sampled
+
+
 def score_props(props: list[dict]) -> list[PropPick]:
     """
     Analyse a batch of props and return PropPick objects that pass the gate.
+    Samples up to 30 props per sport to keep OpenAI calls manageable.
     Enriches each prop with player context + past loss history before AI call.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from src.apis.data_hub import build_player_context
     from src.db.session import get_db
     from src.db.models import PropResult
+
+    # Sample to avoid thousands of OpenAI calls
+    props = _sample_props(props, max_per_sport=30)
+    logger.info("Prop engine: scoring %d sampled props", len(props))
 
     picks: list[PropPick] = []
 
