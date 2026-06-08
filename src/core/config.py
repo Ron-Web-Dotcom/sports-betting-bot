@@ -120,6 +120,20 @@ KALSHI_API_KEY_ID  = _optional("KALSHI_API_KEY_ID")
 KALSHI_PRIVATE_KEY = _optional("KALSHI_PRIVATE_KEY")
 # PrizePicks, Underdog, HardRock — no key required
 
+# ── Decodo Residential Proxy ───────────────────────────────────────────────────
+# Format: http://username:password@gate.decodo.com
+# Ports 10001-10010 are rotated automatically per request.
+# Leave blank to disable proxy (direct connection).
+DECODO_PROXY_URL = _optional("DECODO_PROXY_URL")   # e.g. http://user:pass@gate.decodo.com
+
+# Domains that must NEVER go through the proxy (proper APIs with keys)
+PROXY_BYPASS_HOSTS = {
+    "api.the-odds-api.com",
+    "external-api.kalshi.com",
+    "api.sleeper.app",
+    "api.openai.com",
+}
+
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
 OPENAI_MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_MAX_TOKENS = 2048

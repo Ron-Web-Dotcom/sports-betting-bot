@@ -3,11 +3,19 @@ Base HTTP client shared across all data source adapters.
 
 Uses httpx with connection pooling, retry logic, and consistent
 timeout/header defaults so every source behaves the same way.
+
+Proxy routing (Decodo residential):
+  - Enabled when DECODO_PROXY_URL is set in .env
+  - Rotates across 10 sticky endpoints (ports 10001-10010) per request
+  - Bypassed for proper keyed APIs (Odds API, Kalshi, OpenAI, Sleeper)
 """
 import logging
+import random
 import threading
+from urllib.parse import urlparse
+
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, retry_if_result
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +29,64 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-_client: httpx.Client | None = None
-_client_lock = threading.Lock()
+# Proxy port pool — Decodo sticky endpoints
+_PROXY_PORTS = list(range(10001, 10011))   # 10001–10010
+
+# Thread-local direct client (no proxy)
+_direct_client: httpx.Client | None = None
+_direct_lock = threading.Lock()
+
+# Per-port proxy clients — created on demand
+_proxy_clients: dict[int, httpx.Client] = {}
+_proxy_lock = threading.Lock()
 
 
-def get_client() -> httpx.Client:
-    global _client
-    with _client_lock:
-        if _client is None or _client.is_closed:
-            _client = httpx.Client(
+def _get_direct_client() -> httpx.Client:
+    global _direct_client
+    with _direct_lock:
+        if _direct_client is None or _direct_client.is_closed:
+            _direct_client = httpx.Client(
                 headers=_HEADERS,
                 timeout=httpx.Timeout(connect=5.0, read=20.0, write=5.0, pool=5.0),
                 follow_redirects=True,
                 max_redirects=3,
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             )
-        return _client
+        return _direct_client
+
+
+def _get_proxy_client(proxy_base_url: str) -> httpx.Client:
+    """Return a proxy client on a random sticky port, creating it if needed."""
+    port = random.choice(_PROXY_PORTS)
+    with _proxy_lock:
+        if port not in _proxy_clients or _proxy_clients[port].is_closed:
+            proxy_url = f"{proxy_base_url}:{port}"
+            _proxy_clients[port] = httpx.Client(
+                headers=_HEADERS,
+                timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
+                follow_redirects=True,
+                max_redirects=3,
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                proxy=proxy_url,
+            )
+        return _proxy_clients[port]
+
+
+def _should_proxy(url: str) -> bool:
+    """Return True if this URL should be routed through the proxy."""
+    from src.core.config import DECODO_PROXY_URL, PROXY_BYPASS_HOSTS
+    if not DECODO_PROXY_URL:
+        return False
+    host = urlparse(url).netloc.split(":")[0]
+    return host not in PROXY_BYPASS_HOSTS
+
+
+def get_client(url: str = "") -> httpx.Client:
+    """Return the appropriate client for the given URL (proxied or direct)."""
+    if url and _should_proxy(url):
+        from src.core.config import DECODO_PROXY_URL
+        return _get_proxy_client(DECODO_PROXY_URL)
+    return _get_direct_client()
 
 
 class _RetryOn5xx(Exception):
@@ -51,7 +101,7 @@ class _RetryOn5xx(Exception):
 )
 def get_json(url: str, params: dict | None = None, headers: dict | None = None) -> dict | list | None:
     try:
-        r = get_client().get(url, params=params, headers=headers)
+        r = get_client(url).get(url, params=params, headers=headers)
         if r.status_code >= 500:
             raise _RetryOn5xx(f"HTTP {r.status_code} from {url}")
         r.raise_for_status()
@@ -60,7 +110,6 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None) 
         raise
     except httpx.HTTPStatusError as e:
         code = e.response.status_code
-        # 429 = rate limit, 403 = blocked — debug only, not warnings (they spam logs)
         level = logging.DEBUG if code in (429, 403) else logging.WARNING
         logger.log(level, "HTTP %s from %s", code, url)
         return None
@@ -71,7 +120,7 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None) 
 
 def get_html(url: str, params: dict | None = None) -> str | None:
     try:
-        r = get_client().get(url, params=params)
+        r = get_client(url).get(url, params=params)
         r.raise_for_status()
         return r.text
     except httpx.HTTPStatusError as e:
