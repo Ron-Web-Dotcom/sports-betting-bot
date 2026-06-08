@@ -411,6 +411,27 @@ def scan_and_pick_props(self):
         picks = score_props(props)
         watchlist = getattr(picks, "_watchlist", [])
 
+        # ── Line shop: cross-reference PP vs Underdog for same prop ──────────
+        try:
+            from src.engines.line_shop_engine import find_discrepancies
+            pp_props = [p for p in props if p.get("source") == "prizepicks"]
+            ud_props = [p for p in props if p.get("source") == "underdog"]
+            if pp_props and ud_props:
+                discrepancies = find_discrepancies(pp_props, ud_props)
+                if discrepancies:
+                    import dataclasses as _dc
+                    disc_dicts = [_dc.asdict(d) for d in discrepancies[:10]]
+                    disc_hash = hashlib.md5(
+                        json.dumps(disc_dicts, sort_keys=True).encode()
+                    ).hexdigest()
+                    if r.get("props:last_lineshop_hash") != disc_hash:
+                        r.setex("props:last_lineshop_hash", 3600, disc_hash)
+                        from src.workers.alert_worker import send_line_shop_alert
+                        send_line_shop_alert.delay(disc_dicts)
+                        logger.info("Line shop: %d discrepancies posted", len(discrepancies))
+        except Exception as _lse:
+            logger.warning("Line shop check failed: %s", _lse)
+
         if not picks:
             # Still post watchlist if there are near-misses worth watching
             if watchlist:

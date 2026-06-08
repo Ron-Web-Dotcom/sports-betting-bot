@@ -456,6 +456,61 @@ def send_watchlist_update(watchlist: list[dict]):
 
 
 @app.task
+def send_line_shop_alert(opportunities: list[dict]):
+    """
+    💰 LINE SHOP — same prop, different lines on PP vs Underdog.
+    One embed showing all discrepancies, ranked by gap size.
+    """
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not opportunities:
+        return
+
+    _emoji = {
+        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
+        "icehockey_nhl": "🏒", "basketball_ncaab": "🏀", "americanfootball_ncaaf": "🏈",
+        "mma_mixed_martial_arts": "🥊", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
+        "soccer_fifa_world_cup": "⚽", "tennis_atp_french_open": "🎾",
+    }
+
+    lines = []
+    for o in opportunities[:10]:
+        emoji = _emoji.get(o.get("sport_key", ""), "🎯")
+        subject = o.get("subject", "?")
+        stat = o.get("stat", "")
+        pp_line = o.get("pp_line")
+        ud_line = o.get("ud_line")
+        gap = o.get("gap", 0)
+        best_book = o.get("best_book", "").title()
+        direction = o.get("direction", "over").upper()
+        edge_note = o.get("edge_note", "")
+
+        pp_str = f"~~{pp_line}~~" if o.get("best_book") == "underdog" else f"**{pp_line}**"
+        ud_str = f"~~{ud_line}~~" if o.get("best_book") == "prizepicks" else f"**{ud_line}**"
+
+        lines.append(
+            f"{emoji} **{subject}** — {stat}\n"
+            f"  PP: {pp_str}  ·  UD: {ud_str}  ·  Gap: **+{gap:.1f} pts**\n"
+            f"  ✅ Bet **{direction}** on **{best_book}** — {edge_note}"
+        )
+
+    embed = {
+        "title": "💰 Line Shop Alert — Better Odds Available",
+        "description": (
+            "Same prop, different lines. Take the easier side.\n\n"
+            + "\n\n".join(lines)
+        ),
+        "color": 0xFFD700,
+        "footer": {"text": f"{len(opportunities)} discrepancies found · PrizePicks vs Underdog · Bet responsibly"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Line shop alert posted: %d opportunities", len(opportunities))
+    except Exception as e:
+        logger.error("Failed to send line shop alert: %s", e)
+
+
+@app.task
 def send_result_alert(pick: dict, result: str):
     from src.discord_bot.bot import post_result
     try:
