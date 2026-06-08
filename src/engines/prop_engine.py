@@ -17,8 +17,8 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Minimum thresholds for a prop to be recommended
-MIN_PROP_CONFIDENCE = 0.55   # 55% (was 60% — AI tends to be conservative)
-MIN_PROP_EV        = 0.02    # 2% edge (was 3%)
+MIN_PROP_CONFIDENCE = 0.65   # 65% — only high-confidence picks
+MIN_PROP_EV        = 0.04    # 4% edge minimum
 
 
 @dataclass

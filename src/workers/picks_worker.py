@@ -379,6 +379,8 @@ def scan_and_pick_props(self):
         picks = score_props(props)
 
         if picks:
+            # Cap at top 5 picks per scan to avoid Discord spam
+            picks = picks[:5]
             pick_dicts = [dataclasses.asdict(p) for p in picks]
             from src.workers.alert_worker import (
                 send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
