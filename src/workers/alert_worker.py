@@ -174,6 +174,175 @@ def send_prop_result_alert(pick: dict, result: str, actual: float):
 
 
 @app.task
+def send_underdog_entry(picks: list[dict]):
+    """Post Underdog Fantasy entry card — Underdog-specific props only."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not picks:
+        return
+
+    _SPORT_LABELS = {
+        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
+        "icehockey_nhl": "NHL", "basketball_ncaab": "NCAAB", "americanfootball_ncaaf": "NCAAF",
+        "soccer_fifa_world_cup": "World Cup", "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
+        "mma_mixed_martial_arts": "UFC/MMA", "mma": "UFC/MMA",
+        "tennis_atp_french_open": "Tennis", "tennis": "Tennis",
+    }
+
+    n = min(len(picks), 6)
+    picks = picks[:n]
+    # Underdog uses flex payout tiers similar to PP
+    _UD_MULTIPLIERS = {2: 3, 3: 6, 4: 10, 5: 20, 6: 40}
+    mult = _UD_MULTIPLIERS.get(n, 40)
+    avg_conf = round(sum((p.get("confidence") or 0) for p in picks) / n * 100)
+
+    leg_blocks = []
+    for i, p in enumerate(picks, 1):
+        arrow = "↑" if (p.get("direction") or "over").lower() == "over" else "↓"
+        sport = _SPORT_LABELS.get(p.get("sport_key", ""), p.get("sport_key", "").split("_")[-1].upper())
+        subject = p.get("subject", "?")
+        stat = p.get("stat", "")
+        line = p.get("line", "?")
+        conf = round((p.get("confidence") or 0) * 100)
+        ev = round((p.get("ev_pct") or 0) * 100, 1)
+        factors = p.get("key_factors") or []
+        reasoning = (p.get("reasoning") or "").strip()
+        top_reason = factors[0] if factors else (reasoning.split(".")[0].strip() if reasoning else "—")
+        leg_blocks.append(
+            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}% conf  ·  +{ev}% edge\n"
+            f"     └ {top_reason}"
+        )
+
+    fields = [
+        {"name": "Legs",       "value": str(n),         "inline": True},
+        {"name": "Multiplier", "value": f"**{mult}x**", "inline": True},
+        {"name": "Avg Conf",   "value": f"{avg_conf}%", "inline": True},
+        {"name": "⚠️", "value": "Place manually on Underdog Fantasy. Max 6 picks.", "inline": False},
+    ]
+    embed = {
+        "title": f"🐶 Underdog Entry — {n} Picks  ·  {mult}x Payout",
+        "description": "\n".join(leg_blocks),
+        "color": 0xE65100,
+        "fields": [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", True)}
+            for f in fields
+        ],
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Underdog entry posted: %d picks", n)
+    except Exception as e:
+        logger.error("Failed to send Underdog entry: %s", e)
+
+
+@app.task
+def send_kalshi_entry(markets: list[dict]):
+    """Post Kalshi prediction market entry card."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not markets:
+        return
+
+    n = min(len(markets), 8)
+    markets = markets[:n]
+
+    lines = []
+    for m in markets:
+        ticker = m.get("ticker") or m.get("id") or "?"
+        title_text = m.get("title") or m.get("question") or ticker
+        yes_price = m.get("yes_price") or m.get("yes_bid") or m.get("price")
+        no_price = m.get("no_price") or m.get("no_bid")
+        if yes_price is not None:
+            try:
+                yes_pct = round(float(yes_price) * 100) if float(yes_price) <= 1 else int(yes_price)
+            except Exception:
+                yes_pct = yes_price
+            price_str = f"YES {yes_pct}¢"
+            if no_price is not None:
+                try:
+                    no_pct = round(float(no_price) * 100) if float(no_price) <= 1 else int(no_price)
+                except Exception:
+                    no_pct = no_price
+                price_str += f"  /  NO {no_pct}¢"
+        else:
+            price_str = "—"
+        lines.append(f"• **{title_text}**  ·  {price_str}")
+
+    embed = {
+        "title": f"📈 Kalshi Entry — {n} Markets",
+        "description": "\n".join(lines),
+        "color": 0x00ACC1,
+        "fields": [
+            {"name": "⚠️", "value": "Place manually on Kalshi. Prediction markets — not sports books.", "inline": False},
+        ],
+        "footer": {"text": "Kalshi · prediction market prices"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Kalshi entry posted: %d markets", n)
+    except Exception as e:
+        logger.error("Failed to send Kalshi entry: %s", e)
+
+
+@app.task
+def send_games_starting_soon(games: list[dict]):
+    """Post ONE embed: all games starting in ~30 min."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not games:
+        return
+
+    lines = []
+    for g in games:
+        home = g.get("home_team", "?")
+        away = g.get("away_team", "?")
+        sport = g.get("sport_key", "").split("_")[-1].upper()
+        mins = g.get("minutes_remaining")
+        time_str = f"~{int(mins)} min" if mins is not None else ""
+        lines.append(f"• **{away} @ {home}**  ·  {sport}" + (f"  ·  {time_str}" if time_str else ""))
+
+    embed = {
+        "title": "⚠️ Games Starting Soon",
+        "description": "\n".join(lines),
+        "color": 0xF57F17,
+        "footer": {"text": "Last chance to place your bets"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Games-starting-soon alert sent: %d games", len(games))
+    except Exception as e:
+        logger.error("Failed to send games-starting-soon alert: %s", e)
+
+
+@app.task
+def send_games_started(games: list[dict]):
+    """Post ONE embed: all games that just went live."""
+    from src.discord_bot.bot import _post
+    import asyncio
+    if not games:
+        return
+
+    lines = []
+    for g in games:
+        home = g.get("home_team", "?")
+        away = g.get("away_team", "?")
+        sport = g.get("sport_key", "").split("_")[-1].upper()
+        lines.append(f"• **{away} @ {home}**  ·  {sport}")
+
+    embed = {
+        "title": "🏀 Games Are Live Now",
+        "description": "\n".join(lines),
+        "color": 0x00C851,
+        "footer": {"text": "Games are underway — no more pre-game bets"},
+    }
+    try:
+        asyncio.run(_post({"embeds": [embed]}))
+        logger.info("Games-started alert sent: %d games", len(games))
+    except Exception as e:
+        logger.error("Failed to send games-started alert: %s", e)
+
+
+@app.task
 def send_prop_change_alerts(changes: list[dict]):
     # Disabled — floods Discord with thousands of line moves every scan
     logger.debug("send_prop_change_alerts suppressed (%d changes)", len(changes))
@@ -226,7 +395,7 @@ def send_result_alert(pick: dict, result: str):
 
 @app.task
 def send_pregame_alerts():
-    """Check all upcoming games and fire timed pre-game alerts."""
+    """Check all upcoming games and fire grouped pre-game alerts (one embed per window)."""
     from src.engines.timing_engine import upcoming_games_by_window, should_fire_alert, minutes_to_game
     from src.db.session import get_db
     from src.db.models import Game, AlertRecord
@@ -250,25 +419,34 @@ def send_pregame_alerts():
     ]
 
     windowed = upcoming_games_by_window(events)
-    from src.discord_bot.bot import post_game_alert
 
     for window, games in windowed.items():
+        # Collect all games in this window that haven't been alerted yet
+        games_to_alert = []
         for event in games:
             game_id = event["id"]
             if not should_fire_alert(game_id, window):
                 continue
-
             mins = minutes_to_game(event["commence_time"])
-            try:
-                _run_async(post_game_alert(event, mins))
-            except Exception as e:
-                logger.error("Failed to send pregame alert: %s", e)
-                continue
+            games_to_alert.append({**event, "minutes_remaining": mins})
 
-            with get_db() as db:
+        if not games_to_alert:
+            continue
+
+        # Group: ~30-min window → "starting soon"; ~0-min window → "started"
+        if window <= 5:
+            # Games that just started — post one grouped embed
+            send_games_started.delay(games_to_alert)
+        else:
+            # Games starting in ~30 min — post one grouped embed
+            send_games_starting_soon.delay(games_to_alert)
+
+        # Record alert so we don't re-fire
+        with get_db() as db:
+            for event in games_to_alert:
                 db.add(AlertRecord(
                     alert_type=f"pregame_{window}",
-                    channel=f"game-alerts:{game_id}",
+                    channel=f"game-alerts:{event['id']}",
                     priority="high" if window <= 15 else "medium",
                     sent_at=datetime.utcnow(),
                 ))
