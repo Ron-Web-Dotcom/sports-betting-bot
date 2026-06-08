@@ -89,12 +89,8 @@ def send_hardrock_parlay_alert(picks: list[dict]):
 
 @app.task
 def send_prop_pick_alerts(picks: list[dict]):
-    from src.discord_bot.bot import post_prop_pick
-    for pick in picks:
-        try:
-            _run_async(post_prop_pick(pick))
-        except Exception as e:
-            logger.error("Failed to send prop pick alert: %s", e)
+    # Disabled — individual pick cards replaced by send_prop_summary (one embed)
+    logger.debug("send_prop_pick_alerts suppressed (%d picks)", len(picks))
 
 
 @app.task

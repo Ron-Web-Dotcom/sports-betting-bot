@@ -330,12 +330,9 @@ def morning_props_brief():
             ],
         ))
 
-        # Individual pick alerts + parlay bundles
-        from src.workers.alert_worker import (
-            send_prop_pick_alerts, send_pp_parlay_alert, send_hardrock_parlay_alert
-        )
+        # Parlay bundles only — no individual pick spam
+        from src.workers.alert_worker import send_pp_parlay_alert, send_hardrock_parlay_alert
         pick_dicts = [dataclasses.asdict(p) for p in picks]
-        send_prop_pick_alerts.delay(pick_dicts)
         _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
 
     _run_async(_post({"embeds": embeds}))
