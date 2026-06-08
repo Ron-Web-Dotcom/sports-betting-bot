@@ -430,13 +430,42 @@ def scan_and_pick_props(self):
         # Store active picks so odds_worker can track line moves on them
         r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
 
-        # Build ONE summary embed
+        # Post A: Top Prop Picks summary (one embed, all picks)
         from src.workers.alert_worker import send_prop_summary
         send_prop_summary.delay(pick_dicts)
         logger.info("Prop picks: %d picks posted as summary", len(picks))
 
-        # Parlay bundle (single post)
-        _post_parlay_bundles(pick_dicts, *_get_parlay_senders())
+        # Post B: PrizePicks Entry card
+        from src.workers.alert_worker import send_pp_parlay_alert, send_hardrock_parlay_alert
+        pp_picks = [p for p in pick_dicts if p.get("source") == "prizepicks"]
+        if not pp_picks:
+            pp_picks = pick_dicts  # fallback: use all picks if no source tag
+        if len(pp_picks) >= 2:
+            send_pp_parlay_alert.delay(pp_picks[:6])
+
+        # Post C: Underdog Entry card
+        from src.workers.alert_worker import send_underdog_entry
+        ud_picks = [p for p in pick_dicts if p.get("source") == "underdog"]
+        if len(ud_picks) >= 2:
+            send_underdog_entry.delay(ud_picks[:6])
+
+        # Post D: HardRock Entry card (only if game picks with odds available)
+        hr_picks = [p for p in pick_dicts if p.get("american_odds") or p.get("odds")]
+        hr_picks = sorted(hr_picks, key=lambda p: p.get("confidence", 0), reverse=True)
+        if len(hr_picks) >= 2:
+            send_hardrock_parlay_alert.delay(hr_picks[:4])
+
+        # Post E: Kalshi Entry card (from Redis cache, only if markets exist)
+        try:
+            kalshi_raw = r.get("kalshi:markets")
+            if kalshi_raw:
+                kalshi_markets = json.loads(kalshi_raw)
+                if kalshi_markets:
+                    from src.workers.alert_worker import send_kalshi_entry
+                    send_kalshi_entry.delay(kalshi_markets)
+        except Exception as _ke:
+            logger.debug("Kalshi cache check failed: %s", _ke)
+
         return {"props_analysed": len(props), "picks": len(picks), "posted": True}
 
     except Exception as exc:

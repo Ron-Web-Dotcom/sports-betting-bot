@@ -144,14 +144,49 @@ def send_monthly_summary():
 
 @app.task
 def enter_sleep_mode():
-    """3 AM Eastern — pause scanning, post goodnight message, run self-improvement."""
+    """3 AM Eastern — pause scanning, post goodnight message with W/L/P summary, run self-improvement."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post, _embed
     from src.engines.self_improvement_engine import run_full_self_improvement
-    from datetime import datetime
+    from src.db.session import get_db
+    from src.db.models import PropResult
+    from datetime import datetime, timedelta
     import zoneinfo
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    today = et.date()
+
+    # Pull today's settled results (games that finished today before 3 AM)
+    try:
+        with get_db() as db:
+            rows = db.query(PropResult).filter(
+                PropResult.settled_at >= datetime.combine(today, datetime.min.time()),
+                PropResult.settled_at <  datetime.combine(today + timedelta(days=1), datetime.min.time()),
+            ).all()
+    except Exception as e:
+        logger.warning("enter_sleep_mode: DB query failed: %s", e)
+        rows = []
+
+    total  = len(rows)
+    wins   = sum(1 for r in rows if r.result == "won")
+    losses = sum(1 for r in rows if r.result == "lost")
+    pushes = sum(1 for r in rows if r.result == "push")
+
+    if total == 0:
+        record_str = "No settled picks today — results appear as games finish."
+        color = 0x1A237E
+    else:
+        pct = round(wins / total * 100) if total else 0
+        record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
+        color = 0x1A237E
+
+    # Top winners to list
+    winners = [r for r in rows if r.result == "won"][:5]
+
+    def _row(r):
+        return f"• **{r.subject}** {r.stat} {r.line} ({r.direction.upper()})"
+
+    win_text = "\n".join(_row(r) for r in winners) or "—"
 
     # Run self-improvement silently while sleeping
     try:
@@ -160,123 +195,40 @@ def enter_sleep_mode():
     except Exception as e:
         logger.warning("Self-improvement failed during sleep: %s", e)
 
+    fields = [
+        {"name": "Today's Record", "value": record_str, "inline": False},
+    ]
+    if winners:
+        fields.append({"name": "✅ Top Winners", "value": win_text, "inline": False})
+
     embed = _embed(
-        title="🌙 Sleep Mode — Scanning Paused",
+        title="🌙 Goodnight — See you at 5 AM",
         description=(
-            f"**{et.strftime('%-I:%M %p ET')}** — Going into sleep mode.\n\n"
-            "• All live scanning paused until **5:00 AM ET**\n"
-            "• Settlement and cleanup running in background\n"
-            "• Self-improvement cycle running on tonight's results\n\n"
-            "See you at 5 AM 👋"
+            f"Scanning paused until **5:00 AM ET**.\n"
+            "Self-improvement cycle running on tonight's results."
         ),
-        color=0x1A237E,
+        color=color,
+        fields=fields,
     )
     _run_async(_post({"embeds": [embed]}))
     logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
-    return {"sleep_entered": et.isoformat()}
+    return {"sleep_entered": et.isoformat(), "wins": wins, "losses": losses, "pushes": pushes}
 
 
 @app.task
 def wake_up_brief():
-    """5 AM Eastern — wake up, scan today's games, post morning brief."""
+    """5 AM Eastern — simple wake-up post. Game list is posted at 6 AM by yesterday_recap."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post, _embed
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from src.apis.espn import fetch_scoreboard, SPORT_MAP
-    from datetime import datetime
-    import zoneinfo
-
-    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    current_month = et.month
-
-    # Off-season sport keys — skip entirely in morning brief
-    _OFF_SEASON: dict[str, list[int]] = {
-        "americanfootball_nfl":           [3, 4, 5, 6, 7],
-        "americanfootball_ncaaf":         [1, 2, 3, 4, 5, 6, 7, 8],
-        "icehockey_nhl":                  [7, 8, 9],
-        "basketball_ncaab":               [4, 5, 6, 7, 8, 9, 10, 11],
-        "golf_masters_tournament_winner": [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12],
-    }
-
-    _SPORT_LABELS = {
-        "basketball_nba":                 "🏀 NBA",
-        "americanfootball_nfl":           "🏈 NFL",
-        "baseball_mlb":                   "⚾ MLB",
-        "icehockey_nhl":                  "🏒 NHL",
-        "soccer_epl":                     "⚽ Premier League",
-        "soccer_uefa_champs_league":      "⚽ Champions League",
-        "soccer_usa_mls":                 "⚽ MLS",
-        "soccer_fifa_world_cup":          "⚽ FIFA World Cup",
-        "basketball_ncaab":               "🏀 NCAAB",
-        "americanfootball_ncaaf":         "🏈 NCAAF",
-        "mma":                            "🥊 UFC/MMA",
-        "mma_mixed_martial_arts":         "🥊 UFC/MMA",
-        "tennis":                         "🎾 Tennis",
-        "tennis_atp_french_open":         "🎾 French Open",
-        "golf_masters_tournament_winner": "⛳ Golf",
-    }
-
-    # Active sport keys only
-    active_sport_keys = [
-        sk for sk in SPORT_MAP
-        if current_month not in _OFF_SEASON.get(sk, [])
-    ]
-
-    # Fetch scoreboards in parallel — active sports only
-    all_games: list[str] = []
-    sport_counts: dict[str, int] = {}
-    with ThreadPoolExecutor(max_workers=12) as pool:
-        futures = {pool.submit(fetch_scoreboard, sk): sk for sk in active_sport_keys}
-        for future in as_completed(futures, timeout=20):
-            sk = futures[future]
-            try:
-                games = future.result() or []
-                active = [g for g in games if not g.get("completed")]
-                if active:
-                    label = _SPORT_LABELS.get(sk, sk)
-                    sport_counts[label] = len(active)
-                    for g in active[:3]:
-                        home = g.get("home_team", "")
-                        away = g.get("away_team", "")
-                        if home and away:
-                            all_games.append(f"{label}: {away} @ {home}")
-            except Exception:
-                pass
-
-    total = sum(sport_counts.values())
-    if all_games:
-        games_text = "\n".join(f"• {g}" for g in sorted(all_games)[:20])
-        if total > 20:
-            games_text += f"\n*… and {total - 20} more*"
-    else:
-        games_text = "*No games scheduled yet — lines typically open by 8 AM ET.*"
-
-    sports_on = ", ".join(
-        f"{label} ({n})" for label, n in sorted(sport_counts.items(), key=lambda x: -x[1])
-    ) or "None scheduled"
-
-    # Dynamic next-update message based on current time
-    if et.hour < 8:
-        next_msg = "8:00 AM ET — Full props picks brief"
-    else:
-        next_msg = "Scanning every 5 min — picks posted when found"
 
     embed = _embed(
-        title=f"🟢 Bot Online · Good Morning — {et.strftime('%A, %B %-d')}",
-        description=(
-            f"Scanning live props every 5 minutes. Picks posted when high-confidence bets are found.\n\n"
-            f"**{total} games today** across {len(sport_counts)} sports.\n\n"
-            f"{games_text}"
-        ),
+        title="🟢 Bot is Up and Ready To Make Some Money Today",
+        description="Scanning live props every 5 minutes. Picks posted when high-confidence bets are found.",
         color=0x00C851,
-        fields=[
-            {"name": "Sports Active Today", "value": sports_on or "—", "inline": False},
-            {"name": "Next Update", "value": "6:00 AM ET — Yesterday's results & record", "inline": False},
-        ],
     )
     _run_async(_post({"embeds": [embed]}))
-    logger.info("Wake-up brief sent: %d games across %d sports", total, len(sport_counts))
-    return {"games_today": total, "sports": len(sport_counts)}
+    logger.info("Wake-up brief sent (5 AM)")
+    return {"woke_up": True}
 
 
 @app.task
@@ -454,6 +406,64 @@ def yesterday_recap():
     ]
     sport_breakdown = "  ".join(sport_lines) or "—"
 
+    # Today's games (active sports only, no off-season)
+    today_games_text = "—"
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+        from src.apis.espn import fetch_scoreboard, SPORT_MAP
+
+        _OFF_SEASON: dict[str, list[int]] = {
+            "americanfootball_nfl":           [3, 4, 5, 6, 7],
+            "americanfootball_ncaaf":         [1, 2, 3, 4, 5, 6, 7, 8],
+            "icehockey_nhl":                  [7, 8, 9],
+            "basketball_ncaab":               [4, 5, 6, 7, 8, 9, 10, 11],
+            "golf_masters_tournament_winner": [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12],
+        }
+        _SPORT_LABELS = {
+            "basketball_nba":                 "🏀 NBA",
+            "americanfootball_nfl":           "🏈 NFL",
+            "baseball_mlb":                   "⚾ MLB",
+            "icehockey_nhl":                  "🏒 NHL",
+            "soccer_epl":                     "⚽ EPL",
+            "soccer_uefa_champs_league":      "⚽ UCL",
+            "soccer_usa_mls":                 "⚽ MLS",
+            "soccer_fifa_world_cup":          "⚽ World Cup",
+            "basketball_ncaab":               "🏀 NCAAB",
+            "americanfootball_ncaaf":         "🏈 NCAAF",
+            "mma":                            "🥊 MMA",
+            "mma_mixed_martial_arts":         "🥊 MMA",
+            "tennis":                         "🎾 Tennis",
+            "tennis_atp_french_open":         "🎾 French Open",
+            "golf_masters_tournament_winner": "⛳ Golf",
+        }
+        current_month = et.month
+        active_keys = [sk for sk in SPORT_MAP if current_month not in _OFF_SEASON.get(sk, [])]
+        all_today: list[str] = []
+        with ThreadPoolExecutor(max_workers=12) as _pool:
+            _futs = {_pool.submit(fetch_scoreboard, sk): sk for sk in active_keys}
+            for _fut in _as_completed(_futs, timeout=20):
+                sk = _futs[_fut]
+                try:
+                    games = _fut.result() or []
+                    active = [g for g in games if not g.get("completed")]
+                    label = _SPORT_LABELS.get(sk, sk)
+                    for g in active[:3]:
+                        home = g.get("home_team", "")
+                        away = g.get("away_team", "")
+                        if home and away:
+                            all_today.append(f"{label}: {away} @ {home}")
+                except Exception:
+                    pass
+        if all_today:
+            today_games_text = "\n".join(f"• {g}" for g in sorted(all_today)[:15])
+            if len(all_today) > 15:
+                today_games_text += f"\n*… and {len(all_today) - 15} more*"
+        else:
+            today_games_text = "*No games scheduled yet — check back later.*"
+    except Exception as e:
+        logger.warning("yesterday_recap: today's games fetch failed: %s", e)
+        today_games_text = "—"
+
     embed = {
         "title": f"📊 Yesterday's Results — {yesterday.strftime('%A, %B %-d')}",
         "description": record_str,
@@ -462,6 +472,7 @@ def yesterday_recap():
             {"name": "✅ Winners",        "value": win_text,        "inline": True},
             {"name": "❌ Losers",         "value": loss_text,       "inline": True},
             {"name": "By Sport",          "value": sport_breakdown, "inline": False},
+            {"name": "📅 Today's Games",  "value": today_games_text, "inline": False},
             {"name": "Next Picks",        "value": "Props scanning every 5 min — posted when found", "inline": False},
         ],
         "footer": {"text": f"6:00 AM ET recap · {et.strftime('%B %-d, %Y')}"},
