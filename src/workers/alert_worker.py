@@ -139,9 +139,10 @@ def send_prop_summary(picks: list[dict]):
                 time_str = f" · {t.strftime('%-I:%M %p ET')}"
             except Exception:
                 pass
+        pick_type = "🏟️ Team" if p.get("is_team_prop") else "👤 Player"
         lines.append(
             f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow} {direction}\n"
-            f"  `{conf}% conf | +{ev}% edge | {sport_label} · {source}{time_str}`"
+            f"  `{conf}% conf | +{ev}% edge | {sport_label} · {source} · {pick_type}{time_str}`"
         )
 
     import zoneinfo

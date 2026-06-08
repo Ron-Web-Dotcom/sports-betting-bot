@@ -98,8 +98,9 @@ Consider: recent form, season average vs line, injury status, matchup, pace, opp
 
 def _sample_props(props: list[dict], max_per_sport: int = 30) -> list[dict]:
     """
-    Sample a manageable subset of props to avoid thousands of OpenAI calls.
-    Takes up to max_per_sport props per sport, prioritising game-day props.
+    Sample a manageable subset of props per sport.
+    Guarantees team props are included alongside player props.
+    Prioritises game-day props (game_time set).
     """
     from collections import defaultdict
     by_sport: dict[str, list[dict]] = defaultdict(list)
@@ -108,11 +109,20 @@ def _sample_props(props: list[dict], max_per_sport: int = 30) -> list[dict]:
 
     sampled = []
     for sport_props in by_sport.values():
-        # Prefer props with a game_time set (active games)
-        with_time    = [p for p in sport_props if p.get("game_time")]
-        without_time = [p for p in sport_props if not p.get("game_time")]
-        combined = with_time + without_time
-        sampled.extend(combined[:max_per_sport])
+        team_props   = [p for p in sport_props if p.get("is_team_prop")]
+        player_props = [p for p in sport_props if not p.get("is_team_prop")]
+
+        # Guarantee up to 8 team props per sport, rest filled with player props
+        max_team   = min(len(team_props), 8)
+        max_player = max_per_sport - max_team
+
+        # Within each group, prefer props with a game_time
+        def _prioritise(lst):
+            return [p for p in lst if p.get("game_time")] + \
+                   [p for p in lst if not p.get("game_time")]
+
+        sampled.extend(_prioritise(team_props)[:max_team])
+        sampled.extend(_prioritise(player_props)[:max_player])
 
     return sampled
 
@@ -136,8 +146,11 @@ def score_props(props: list[dict]) -> list[PropPick]:
     for p in sampled:
         by_sport[p.get("sport_key", "unknown")].append(p)
 
-    system = """You are an elite sports prop analyst. Given a list of player/team prop lines,
-identify the BEST bets (OVER or UNDER). Only recommend props with genuine statistical edge.
+    system = """You are an elite sports prop analyst. Given a list of player AND team prop lines,
+identify the BEST bets (OVER or UNDER). Analyse BOTH player props and team props equally.
+
+For PLAYER props consider: season averages vs line, recent form, matchup, injuries, usage, pace.
+For TEAM props consider: team scoring average, opponent defence, pace, home/away splits, recent form.
 
 Return ONLY valid JSON array of picks (empty array [] if none qualify):
 [
@@ -153,7 +166,7 @@ Return ONLY valid JSON array of picks (empty array [] if none qualify):
 ]
 
 Only include props where confidence >= 0.55 and ev_pct >= 0.02.
-Consider: season averages vs line, recent form, matchup, injuries, pace."""
+Do NOT skip team props — they often have strong edge due to less public attention."""
 
     picks: list[PropPick] = []
     watchlist: list[PropPick] = []  # near-miss picks: 55–64% conf
