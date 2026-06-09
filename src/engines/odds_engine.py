@@ -37,9 +37,13 @@ _SOCCER_LEAGUES = {
 
 # All sports that support player props on Odds API
 PLAYER_PROP_SPORTS = {
-    "basketball_nba", "americanfootball_nfl", "baseball_mlb",
-    "icehockey_nhl", "basketball_ncaab", "americanfootball_ncaaf",
-    "tennis_atp_french_open", "mma_mixed_martial_arts",
+    "basketball_nba", "basketball_wnba", "basketball_ncaab", "basketball_wncaab",
+    "americanfootball_nfl", "americanfootball_ncaaf",
+    "baseball_mlb",
+    "icehockey_nhl",
+    "tennis_atp_french_open", "tennis_wta_french_open",
+    "mma_mixed_martial_arts",
+    "soccer_usa_nwsl", "soccer_fifa_womens_world_cup",
 } | _SOCCER_LEAGUES
 
 
@@ -87,17 +91,24 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     if sport_key not in PLAYER_PROP_SPORTS:
         return []
 
-    _SOCCER_MARKETS = ["player_shots_on_target", "player_goals", "player_assists", "player_cards"]
+    _SOCCER_MARKETS     = ["player_shots_on_target", "player_goals", "player_assists", "player_cards"]
+    _BASKETBALL_MARKETS = ["player_points", "player_rebounds", "player_assists", "player_threes"]
+    _TENNIS_MARKETS     = ["player_games_won", "player_sets_won"]
     _sport_markets = {
-        "basketball_nba":               ["player_points", "player_rebounds", "player_assists", "player_threes"],
+        "basketball_nba":               _BASKETBALL_MARKETS,
+        "basketball_wnba":              _BASKETBALL_MARKETS,
         "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists"],
+        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"],
         "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
         "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"],
         "baseball_mlb":                 ["player_hits", "player_total_bases", "player_strikeouts", "player_home_runs"],
         "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"],
-        "tennis_atp_french_open":       ["player_games_won", "player_sets_won"],
+        "tennis_atp_french_open":       _TENNIS_MARKETS,
+        "tennis_wta_french_open":       _TENNIS_MARKETS,
         "mma_mixed_martial_arts":       ["player_method_of_victory", "player_total_rounds"],
-        # Soccer — all leagues share the same markets
+        "soccer_usa_nwsl":              _SOCCER_MARKETS,
+        "soccer_fifa_womens_world_cup": _SOCCER_MARKETS,
+        # All other soccer leagues
         **{league: _SOCCER_MARKETS for league in _SOCCER_LEAGUES},
     }
     markets = _sport_markets.get(sport_key, [])

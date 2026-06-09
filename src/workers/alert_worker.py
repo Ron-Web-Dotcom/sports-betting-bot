@@ -88,29 +88,13 @@ def send_prop_summary(picks: list[dict]):
     if not picks:
         return
 
-    # Sport display maps
-    _emoji = {
-        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
-        "icehockey_nhl": "🏒", "basketball_ncaab": "🏀", "americanfootball_ncaaf": "🏈",
-        "soccer_fifa_world_cup": "⚽", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
-        "soccer_uefa_champs_league": "⚽", "mma_mixed_martial_arts": "🥊", "mma": "🥊",
-        "tennis_atp_french_open": "🎾", "tennis": "🎾",
-        "golf_masters_tournament_winner": "⛳",
-    }
-    _sport_name = {
-        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
-        "icehockey_nhl": "NHL", "basketball_ncaab": "NCAAB", "americanfootball_ncaaf": "NCAAF",
-        "soccer_fifa_world_cup": "World Cup", "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
-        "soccer_uefa_champs_league": "UCL", "mma_mixed_martial_arts": "UFC/MMA", "mma": "UFC/MMA",
-        "tennis_atp_french_open": "French Open", "tennis": "Tennis",
-        "golf_masters_tournament_winner": "Golf",
-    }
+    from src.core.sport_labels import get_emoji as _get_emoji, get_name as _get_name
 
     lines = []
     for p in picks:
         sport = p.get("sport_key", "")
-        emoji = _emoji.get(sport, "🎯")
-        sport_label = _sport_name.get(sport, sport.replace("_", " ").title())
+        emoji = _get_emoji(sport)
+        sport_label = _get_name(sport)
         direction = p.get("direction", "").upper()
         arrow = "⬆️" if direction == "OVER" else "⬇️"
         conf = round(p.get("confidence", 0) * 100)
@@ -163,14 +147,7 @@ def send_underdog_entry(picks: list[dict]):
     if not picks:
         return
 
-    _SPORT_LABELS = {
-        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
-        "icehockey_nhl": "NHL", "basketball_ncaab": "NCAAB", "americanfootball_ncaaf": "NCAAF",
-        "soccer_fifa_world_cup": "World Cup", "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
-        "mma_mixed_martial_arts": "UFC/MMA", "mma": "UFC/MMA",
-        "tennis_atp_french_open": "Tennis", "tennis": "Tennis",
-    }
-
+    from src.core.sport_labels import get_name as _get_name
     n = min(len(picks), 6)
     picks = picks[:n]
     # Underdog uses flex payout tiers similar to PP
@@ -181,7 +158,7 @@ def send_underdog_entry(picks: list[dict]):
     leg_blocks = []
     for i, p in enumerate(picks, 1):
         arrow = "↑" if (p.get("direction") or "over").lower() == "over" else "↓"
-        sport = _SPORT_LABELS.get(p.get("sport_key", ""), p.get("sport_key", "").split("_")[-1].upper())
+        sport = _get_name(p.get("sport_key", ""))
         subject = p.get("subject", "?")
         stat = p.get("stat", "")
         line = p.get("line", "?")
@@ -224,12 +201,7 @@ def send_hardrock_entry(games: list[dict]):
     if not games:
         return
 
-    _SPORT_LABELS = {
-        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
-        "icehockey_nhl": "NHL", "basketball_ncaab": "NCAAB", "americanfootball_ncaaf": "NCAAF",
-        "soccer_epl": "EPL", "soccer_usa_mls": "MLS", "soccer_fifa_world_cup": "World Cup",
-        "mma_mixed_martial_arts": "UFC/MMA", "tennis_atp_french_open": "Tennis",
-    }
+    from src.core.sport_labels import get_name as _get_name
     _MARKET_LABELS = {"h2h": "Moneyline", "spreads": "Spread", "totals": "Total"}
 
     n = min(len(games), 4)
@@ -239,7 +211,7 @@ def send_hardrock_entry(games: list[dict]):
     for i, g in enumerate(games, 1):
         home  = g.get("home_team", "?")
         away  = g.get("away_team", "?")
-        sport = _SPORT_LABELS.get(g.get("sport_key", ""), g.get("sport_key", "").split("_")[-1].upper())
+        sport = _get_name(g.get("sport_key", ""))
         odds  = g.get("best_odds", "")
         book  = g.get("book", "")
         mkt   = _MARKET_LABELS.get(g.get("market", "h2h"), g.get("market", "h2h").title())
@@ -468,23 +440,13 @@ def send_watchlist_update(watchlist: list[dict]):
     if not watchlist:
         return
 
-    _emoji = {
-        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
-        "icehockey_nhl": "🏒", "soccer_fifa_world_cup": "⚽", "soccer_epl": "⚽",
-        "soccer_usa_mls": "⚽", "mma_mixed_martial_arts": "🥊", "tennis_atp_french_open": "🎾",
-    }
-    _sport_name = {
-        "basketball_nba": "NBA", "baseball_mlb": "MLB", "americanfootball_nfl": "NFL",
-        "icehockey_nhl": "NHL", "soccer_fifa_world_cup": "World Cup",
-        "soccer_epl": "EPL", "soccer_usa_mls": "MLS",
-        "mma_mixed_martial_arts": "UFC/MMA", "tennis_atp_french_open": "Tennis",
-    }
+    from src.core.sport_labels import get_emoji as _get_emoji, get_name as _get_name
 
     lines = []
     for p in watchlist[:8]:  # max 8 on radar
         sport  = p.get("sport_key", "")
-        emoji  = _emoji.get(sport, "🎯")
-        label  = _sport_name.get(sport, sport.split("_")[-1].upper())
+        emoji  = _get_emoji(sport)
+        label  = _get_name(sport)
         conf   = round(p.get("confidence", 0) * 100)
         ev     = round(p.get("ev_pct", 0) * 100, 1)
         arrow  = "⬆️" if p.get("direction", "").lower() == "over" else "⬇️"
@@ -580,16 +542,11 @@ def send_line_shop_alert(opportunities: list[dict]):
     if not opportunities:
         return
 
-    _emoji = {
-        "basketball_nba": "🏀", "baseball_mlb": "⚾", "americanfootball_nfl": "🏈",
-        "icehockey_nhl": "🏒", "basketball_ncaab": "🏀", "americanfootball_ncaaf": "🏈",
-        "mma_mixed_martial_arts": "🥊", "soccer_epl": "⚽", "soccer_usa_mls": "⚽",
-        "soccer_fifa_world_cup": "⚽", "tennis_atp_french_open": "🎾",
-    }
+    from src.core.sport_labels import get_emoji as _get_emoji
 
     lines = []
     for o in opportunities[:10]:
-        emoji = _emoji.get(o.get("sport_key", ""), "🎯")
+        emoji = _get_emoji(o.get("sport_key", ""))
         subject = o.get("subject", "?")
         stat = o.get("stat", "")
         pp_line = o.get("pp_line")

@@ -124,6 +124,15 @@ SPORTS = {
     # ── Tennis ───────────────────────────────────────────────────────────────
     "tennis":       "tennis_atp_french_open",
     "atp":          "tennis_atp_french_open",
+    "wta":          "tennis_wta_french_open",
+    "wtennis":      "tennis_wta_french_open",
+    # ── Women's Sports ───────────────────────────────────────────────────────
+    "wnba":         "basketball_wnba",
+    "nwsl":         "soccer_usa_nwsl",
+    "wwc":          "soccer_fifa_womens_world_cup",
+    "womenswc":     "soccer_fifa_womens_world_cup",
+    "ncaaw":        "basketball_wncaab",
+    "wncaab":       "basketball_wncaab",
     # golf removed — US Open not yet in Odds API, add back when available
 }
 
