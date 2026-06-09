@@ -40,7 +40,7 @@ _SPORT_MAP: dict[str, str] = {
     "soccer_usa_mls":                 "SOCCER",
     "soccer_fifa_world_cup":          "SOCCER",
     "mma_mixed_martial_arts":         "MMA",
-    "golf_masters_tournament_winner": "GOLF",
+    "golf_us_open_winner":            "GOLF",
     "tennis_atp_french_open":         "TENNIS",
 }
 

@@ -42,7 +42,7 @@ _SPORT_TAGS = {
     "soccer_fifa_world_cup":          ["WORLD CUP", "FIFA", "SOCCER", "FOOTBALL"],
     "tennis_atp_french_open":         ["TENNIS"],
     "mma_mixed_martial_arts":         ["UFC", "MMA"],
-    "golf_masters_tournament_winner": ["GOLF", "PGA"],
+    "golf_us_open_winner":            ["GOLF", "PGA", "US OPEN"],
     "motorsport_formula_1":           ["F1", "FORMULA1"],
 }
 

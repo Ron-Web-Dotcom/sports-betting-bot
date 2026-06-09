@@ -50,7 +50,7 @@ _LEAGUE_IDS: dict[str, int] = {
     "soccer_fifa_world_cup":         37,   # FIFA World Cup 2026 — verify via /leagues
     "tennis_atp_french_open":        16,
     "mma_mixed_martial_arts":        10,
-    "golf_masters_tournament_winner":12,
+    "golf_us_open_winner":            12,   # Masters ended; US Open next
     "esports_lol":                   15,
 }
 
