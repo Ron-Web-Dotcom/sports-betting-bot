@@ -122,11 +122,7 @@ DECODO_PROXY_URL = _optional("DECODO_PROXY_URL")   # e.g. http://user:pass@gate.
 
 # Domains that must NEVER go through the proxy (proper APIs with keys)
 PROXY_BYPASS_HOSTS = {
-    "api.the-odds-api.com",
-    "external-api.kalshi.com",
-    "api.openai.com",
-    "gamma-api.polymarket.com",
-    "clob.polymarket.com",
+    "api.openai.com",   # OpenAI only — key-authenticated, latency-sensitive
 }
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
