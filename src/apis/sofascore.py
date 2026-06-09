@@ -31,20 +31,33 @@ _BASE = "https://api.sofascore.com/api/v1"
 
 # Maps our internal sport_key → SofaScore sport slug
 SPORT_MAP = {
-    "americanfootball_nfl":      "american-football",
-    "basketball_nba":            "basketball",
-    "basketball_ncaab":          "basketball",
-    "baseball_mlb":              "baseball",
-    "icehockey_nhl":             "ice-hockey",
-    "soccer_epl":                "football",
-    "soccer_uefa_champs_league": "football",
-    "soccer_usa_mls":            "football",
-    "soccer_bundesliga":         "football",
-    "soccer_la_liga":            "football",
-    "soccer_serie_a":            "football",
-    "soccer_ligue_1":            "football",
-    "tennis":                    "tennis",
-    "mma":                       "mma",
+    # US Sports
+    "americanfootball_nfl":             "american-football",
+    "americanfootball_ncaaf":           "american-football",
+    "basketball_nba":                   "basketball",
+    "basketball_wnba":                  "basketball",
+    "basketball_ncaab":                 "basketball",
+    "basketball_wncaab":                "basketball",
+    "baseball_mlb":                     "baseball",
+    "icehockey_nhl":                    "ice-hockey",
+    # Soccer
+    "soccer_epl":                       "football",
+    "soccer_spain_la_liga":             "football",
+    "soccer_germany_bundesliga":        "football",
+    "soccer_italy_serie_a":             "football",
+    "soccer_france_ligue_one":          "football",
+    "soccer_usa_mls":                   "football",
+    "soccer_netherlands_eredivisie":    "football",
+    "soccer_portugal_primeira_liga":    "football",
+    "soccer_uefa_champs_league":        "football",
+    "soccer_uefa_europa_league":        "football",
+    "soccer_fifa_world_cup":            "football",
+    "soccer_conmebol_copa_america":     "football",
+    "soccer_conmebol_copa_libertadores":"football",
+    # Combat + Tennis
+    "mma_mixed_martial_arts":           "mma",
+    "tennis_atp_french_open":           "tennis",
+    "tennis_wta_french_open":           "tennis",
 }
 
 _HEADERS = {
