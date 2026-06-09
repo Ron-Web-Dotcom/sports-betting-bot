@@ -23,7 +23,7 @@ import logging
 from datetime import datetime, timedelta
 from urllib.parse import quote
 from src.apis.base import get_json
-from src.core.timezone import et_naive
+from src.core.timezone import et_naive, ET
 
 logger = logging.getLogger(__name__)
 
