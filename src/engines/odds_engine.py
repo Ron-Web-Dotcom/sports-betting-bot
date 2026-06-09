@@ -28,7 +28,8 @@ PLAYER_PROP_MARKETS = [
 # Sports that support player props on Odds API
 PLAYER_PROP_SPORTS = {
     "basketball_nba", "americanfootball_nfl", "baseball_mlb",
-    "icehockey_nhl",
+    "icehockey_nhl", "soccer_epl", "soccer_fifa_world_cup",
+    "tennis_atp_french_open", "mma_mixed_martial_arts",
 }
 
 
@@ -76,17 +77,20 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     if sport_key not in PLAYER_PROP_SPORTS:
         return []
 
-    # Filter markets relevant to the sport
-    if sport_key == "basketball_nba":
-        markets = ["player_points", "player_rebounds", "player_assists", "player_threes"]
-    elif sport_key == "americanfootball_nfl":
-        markets = ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
-    elif sport_key == "baseball_mlb":
-        markets = ["player_hits", "player_total_bases", "player_strikeouts"]
-    elif sport_key == "icehockey_nhl":
-        markets = ["player_shots_on_target"]
-    else:
-        markets = []
+    # Markets per sport
+    _sport_markets = {
+        "basketball_nba":           ["player_points", "player_rebounds", "player_assists", "player_threes"],
+        "americanfootball_nfl":     ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
+        "baseball_mlb":             ["player_hits", "player_total_bases", "player_strikeouts", "player_home_runs"],
+        "icehockey_nhl":            ["player_shots_on_target", "player_points", "player_goals"],
+        "soccer_epl":               ["player_shots_on_target", "player_goals", "player_assists"],
+        "soccer_fifa_world_cup":    ["player_shots_on_target", "player_goals", "player_assists"],
+        "tennis_atp_french_open":   ["player_games_won", "player_sets_won"],
+        "mma_mixed_martial_arts":   ["player_method_of_victory", "player_total_rounds"],
+    }
+    markets = _sport_markets.get(sport_key, [])
+    if not markets:
+        return []
 
     data = _get(f"/sports/{sport_key}/events/{event_id}/odds", {
         "regions":    "us",
