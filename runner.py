@@ -78,7 +78,7 @@ INTERVAL_TASKS = [
     # (interval_seconds, task_name)
     (60,   "send_pregame_alerts"),
     (300,  "scan_and_save_odds"),
-    (900,  "scan_player_props"),
+    (1200, "scan_player_props"),
     (300,  "scan_and_pick_props"),
     (600,  "generate_picks"),
     (900,  "fetch_and_save_news"),
