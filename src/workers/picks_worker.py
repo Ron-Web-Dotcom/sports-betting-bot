@@ -61,7 +61,11 @@ def generate_picks():
         injuries   = get_recent_injuries()
         game_pool  = []
 
-        for game_id, snap_list in snapshots.items():
+        # Cap games processed per run to avoid OOM on 1GB VPS.
+        # Snapshots are already sorted best-odds first; take top 20 games.
+        snapshot_items = list(snapshots.items())[:20]
+
+        for game_id, snap_list in snapshot_items:
             if not snap_list:
                 continue
             best_snap = snap_list[0]
@@ -387,7 +391,7 @@ def scan_todays_games():
     day_games: list[dict] = []
     night_games: list[dict] = []
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
         for fut in futures:
             for ev in fut.result():
@@ -453,7 +457,8 @@ def _build_hardrock_candidates(
     injuries  = get_recent_injuries()
     candidates: list[dict] = []
 
-    for game_id, snap_list in snapshots.items():
+    # Cap at 25 games per HardRock entry build to stay within 1GB RAM
+    for game_id, snap_list in list(snapshots.items())[:25]:
         if not snap_list:
             continue
         best_snap = snap_list[0]

@@ -69,8 +69,8 @@ def build_game_context(
         tasks["sleeper_injuries"] = (_fetch_sleeper_injuries, (sport_key,))
         tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
-    # Run all fetches in parallel with a 30s wall-clock budget
-    with ThreadPoolExecutor(max_workers=10) as pool:
+    # Run all fetches in parallel — max 4 workers to stay within 1GB VPS RAM
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
         try:
             for future in as_completed(futures, timeout=30):
