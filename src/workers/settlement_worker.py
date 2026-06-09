@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from src.workers.celery_app import app
 from src.db.session import get_db
 from src.db.models import Pick, Game, Sport, BetResult
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def settle_completed_picks(self):
             open_picks = db.query(Pick).filter(
                 or_(Pick.result == BetResult.PENDING, Pick.result.is_(None)),
                 Pick.recommendation == "BET",
-                Pick.generated_at >= datetime.utcnow() - timedelta(days=14),
+                Pick.generated_at >= et_naive() - timedelta(days=14),
             ).all()
 
             if not open_picks:
@@ -104,7 +105,7 @@ def settle_completed_picks(self):
                 pnl = _calculate_pnl(db_pick, result)
                 db_pick.result = result
                 db_pick.actual_pnl_units = pnl
-                db_pick.settled_at = datetime.utcnow()
+                db_pick.settled_at = et_naive()
                 settled_count += 1
 
                 # Collect data as plain dict BEFORE commit so the session

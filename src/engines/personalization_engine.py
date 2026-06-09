@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
+from src.core.timezone import et_naive
 
 RISK_PROFILES = {
     "conservative": {"max_units": 2, "min_ev": 0.03},
@@ -21,8 +22,8 @@ class UserProfile:
     sports: list[str] = field(default_factory=list)
     max_units: int = 3
     min_ev: float = 0.02
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=et_naive)
+    updated_at: datetime = field(default_factory=et_naive)
 
 
 def _parse_sports(val) -> list:
@@ -70,7 +71,7 @@ def save_profile(profile: UserProfile) -> None:
         row.sports = profile.sports
         row.max_units = profile.max_units
         row.min_ev = profile.min_ev
-        row.updated_at = datetime.utcnow()
+        row.updated_at = et_naive()
 
 
 def apply_profile(picks: list[dict], profile: UserProfile) -> list[dict]:

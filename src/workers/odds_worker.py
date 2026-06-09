@@ -2,6 +2,7 @@
 import logging
 from src.workers.celery_app import app
 from src.engines.odds_engine import run_full_odds_scan, get_latest_snapshots_by_game
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def scan_and_save_odds(self):
             # Group snapshots by game_id inside session to avoid DetachedInstanceError
             by_game: dict[int, dict] = {}
             with get_db() as db:
-                cutoff = datetime.utcnow() - timedelta(hours=2)
+                cutoff = et_naive() - timedelta(hours=2)
                 recent = (
                     db.query(OddsSnapshot, Game.external_id, Game.home_team, Game.away_team)
                     .join(Game, OddsSnapshot.game_id == Game.id)

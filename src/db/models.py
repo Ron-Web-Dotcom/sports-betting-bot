@@ -10,6 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship, declarative_base
 import enum
+from src.core.timezone import et_naive
 
 Base = declarative_base()
 
@@ -72,7 +73,7 @@ class Team(Base):
     name        = Column(String(200), nullable=False)
     abbrev      = Column(String(10))
     city        = Column(String(100))
-    created_at  = Column(DateTime, default=datetime.utcnow)
+    created_at  = Column(DateTime, default=et_naive)
     __table_args__ = (Index("ix_teams_sport", "sport_id"),)
 
 
@@ -87,8 +88,8 @@ class Player(Base):
     injury_detail   = Column(Text)
     injury_updated  = Column(DateTime)
     external_id     = Column(String(100))  # ESPN / platform player ID
-    created_at      = Column(DateTime, default=datetime.utcnow)
-    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at      = Column(DateTime, default=et_naive)
+    updated_at      = Column(DateTime, default=et_naive, onupdate=et_naive)
     __table_args__ = (
         Index("ix_players_sport",  "sport_id"),
         Index("ix_players_team",   "team_id"),
@@ -113,8 +114,8 @@ class Game(Base):
     weather_temp  = Column(Float)
     weather_wind  = Column(Float)
     weather_precip= Column(Float)
-    created_at    = Column(DateTime, default=datetime.utcnow)
-    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at    = Column(DateTime, default=et_naive)
+    updated_at    = Column(DateTime, default=et_naive, onupdate=et_naive)
 
     sport   = relationship("Sport", back_populates="games")
     odds    = relationship("OddsSnapshot", back_populates="game")
@@ -128,7 +129,7 @@ class OddsSnapshot(Base):
     __tablename__ = "odds_snapshots"
     id            = Column(Integer, primary_key=True)
     game_id       = Column(Integer, ForeignKey("games.id"), nullable=False)
-    captured_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
+    captured_at   = Column(DateTime, default=et_naive, nullable=False)
     book          = Column(String(50), nullable=False)
     market        = Column(String(50), nullable=False)
     selection     = Column(String(200), nullable=False)
@@ -150,7 +151,7 @@ class Pick(Base):
     """A generated recommendation — immutable audit record."""
     __tablename__ = "picks"
     id                  = Column(Integer, primary_key=True)
-    generated_at        = Column(DateTime, default=datetime.utcnow, nullable=False)
+    generated_at        = Column(DateTime, default=et_naive, nullable=False)
     game_id             = Column(Integer, ForeignKey("games.id"), nullable=False)
     sport               = Column(String(50), nullable=False)
     market              = Column(String(50), nullable=False)
@@ -208,7 +209,7 @@ class Pick(Base):
 class Parlay(Base):
     __tablename__ = "parlays"
     id              = Column(Integer, primary_key=True)
-    created_at      = Column(DateTime, default=datetime.utcnow)
+    created_at      = Column(DateTime, default=et_naive)
     parlay_type     = Column(String(30), default="standard")  # standard|sgp|round_robin
     combined_odds   = Column(Float, nullable=False)
     units           = Column(Float, nullable=False)
@@ -235,7 +236,7 @@ class CLVRecord(Base):
     implied_at_pick = Column(Float,   nullable=False)
     implied_at_close= Column(Float,   nullable=False)
     clv_pct         = Column(Float,   nullable=False)  # positive = beat closing line
-    recorded_at     = Column(DateTime, default=datetime.utcnow)
+    recorded_at     = Column(DateTime, default=et_naive)
 
     __table_args__ = (
         Index("ix_clv_sport",  "sport"),
@@ -246,7 +247,7 @@ class CLVRecord(Base):
 class BankrollSnapshot(Base):
     __tablename__ = "bankroll_snapshots"
     id           = Column(Integer, primary_key=True)
-    recorded_at  = Column(DateTime, default=datetime.utcnow)
+    recorded_at  = Column(DateTime, default=et_naive)
     balance      = Column(Float, nullable=False)
     units_total  = Column(Float, default=0.0)
     note         = Column(String(500))
@@ -258,7 +259,7 @@ class DailyPortfolio(Base):
     __tablename__ = "daily_portfolios"
     id              = Column(Integer, primary_key=True)
     date            = Column(String(10), nullable=False, unique=True)  # YYYY-MM-DD
-    generated_at    = Column(DateTime, default=datetime.utcnow)
+    generated_at    = Column(DateTime, default=et_naive)
     safe_pick_ids   = Column(JSON)   # list of pick IDs
     medium_pick_ids = Column(JSON)
     high_pick_ids   = Column(JSON)
@@ -273,7 +274,7 @@ class DailyPortfolio(Base):
 class NewsEvent(Base):
     __tablename__ = "news_events"
     id           = Column(Integer, primary_key=True)
-    fetched_at   = Column(DateTime, default=datetime.utcnow)
+    fetched_at   = Column(DateTime, default=et_naive)
     sport        = Column(String(50))
     category     = Column(String(50))  # injury|lineup|trade|weather|suspension
     headline     = Column(String(500), nullable=False)
@@ -289,7 +290,7 @@ class LineMovement(Base):
     """Detected significant line movements — steam moves, sharp action."""
     __tablename__ = "line_movements"
     id              = Column(Integer, primary_key=True)
-    detected_at     = Column(DateTime, default=datetime.utcnow)
+    detected_at     = Column(DateTime, default=et_naive)
     game_id         = Column(Integer, ForeignKey("games.id"))
     market          = Column(String(50))
     selection       = Column(String(200))
@@ -314,7 +315,7 @@ class ModelConsensus(Base):
     market_rec      = Column(String(10))
     trend_rec       = Column(String(10))
     consensus_pct   = Column(Float)        # fraction of models agreeing
-    generated_at    = Column(DateTime, default=datetime.utcnow)
+    generated_at    = Column(DateTime, default=et_naive)
 
 
 class ConfidenceCalibration(Base):
@@ -328,7 +329,7 @@ class ConfidenceCalibration(Base):
     actual_win_rate   = Column(Float)
     sample_size       = Column(Integer, default=0)
     calibration_error = Column(Float)   # abs(predicted - actual)
-    updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at        = Column(DateTime, default=et_naive, onupdate=et_naive)
     __table_args__ = (UniqueConstraint("sport", "market", "confidence_bucket"),)
 
 
@@ -350,7 +351,7 @@ class PerformanceMetrics(Base):
     avg_ev_pct      = Column(Float)
     hit_rate        = Column(Float)
     profit_factor   = Column(Float)  # gross_win / gross_loss
-    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at      = Column(DateTime, default=et_naive, onupdate=et_naive)
     __table_args__ = (
         UniqueConstraint("dimension", "dimension_value", "period", "period_start"),
         Index("ix_perf_dimension", "dimension", "dimension_value"),
@@ -361,7 +362,7 @@ class AuditTrail(Base):
     """Immutable record of every system action — never modified."""
     __tablename__ = "audit_trail"
     id          = Column(Integer, primary_key=True)
-    occurred_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    occurred_at = Column(DateTime, default=et_naive, nullable=False)
     event_type  = Column(String(100), nullable=False)   # pick_generated|bet_placed|odds_updated|alert_sent
     entity_type = Column(String(50))   # pick|parlay|odds|news
     entity_id   = Column(Integer)
@@ -378,8 +379,8 @@ class UserProfile(Base):
     sports       = Column(JSON, default=lambda: [])
     max_units    = Column(Integer, default=3)
     min_ev       = Column(Float, default=0.02)
-    created_at   = Column(DateTime, default=datetime.utcnow)
-    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at   = Column(DateTime, default=et_naive)
+    updated_at   = Column(DateTime, default=et_naive, onupdate=et_naive)
 
 
 class UserFeedback(Base):
@@ -390,14 +391,14 @@ class UserFeedback(Base):
     rating             = Column(String(20), nullable=False)  # helpful|not_helpful
     explanation_rating = Column(Integer, default=3)          # 1-5
     comment            = Column(Text, default="")
-    submitted_at       = Column(DateTime, default=datetime.utcnow)
+    submitted_at       = Column(DateTime, default=et_naive)
     __table_args__ = (Index("ix_feedback_pick_id", "pick_id"),)
 
 
 class AlertRecord(Base):
     __tablename__ = "alert_records"
     id              = Column(Integer, primary_key=True)
-    sent_at         = Column(DateTime, default=datetime.utcnow)
+    sent_at         = Column(DateTime, default=et_naive)
     priority        = Column(String(20))   # critical|high|medium|low
     channel         = Column(String(100))
     alert_type      = Column(String(100))  # new_pick|line_move|pregame|result|value_expiring
@@ -420,7 +421,7 @@ class PropResult(Base):
     result       = Column(String(10),  nullable=True)    # "won" | "lost" | "push"
     game_time    = Column(String(50),  nullable=True)
     settled_at   = Column(DateTime,    nullable=True)
-    created_at   = Column(DateTime,    default=datetime.utcnow)
+    created_at   = Column(DateTime,    default=et_naive)
     __table_args__ = (
         Index("ix_prop_results_subject_stat", "subject", "stat"),
         Index("ix_prop_results_sport",        "sport_key"),

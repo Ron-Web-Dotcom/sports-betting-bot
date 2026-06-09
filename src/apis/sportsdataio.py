@@ -16,6 +16,7 @@ import os
 from datetime import datetime
 
 from src.apis.base import get_json
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def _get(sport_key: str, path: str, params: dict | None = None) -> list | dict |
 
 def _current_season(sdio_sport: str) -> str:
     """Return the current season string for use in endpoint URLs."""
-    now = datetime.utcnow()
+    now = et_naive()
     year = now.year
     if sdio_sport == "nfl":
         # NFL season starts Sep; use current year if Aug+, else prev year

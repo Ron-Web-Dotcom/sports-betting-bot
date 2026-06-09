@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from datetime import datetime
+from src.core.timezone import et_naive
 
 router = APIRouter()
 
@@ -31,7 +32,7 @@ def submit(body: FeedbackSubmit):
         rating=body.rating,
         explanation_rating=body.explanation_rating,
         comment=body.comment,
-        submitted_at=datetime.utcnow(),
+        submitted_at=et_naive(),
     )
     submit_feedback(fb)
     return {"status": "ok", "pick_id": body.pick_id}

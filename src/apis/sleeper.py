@@ -13,6 +13,7 @@ that Sleeper's own Player Picks pick'em product surfaces).
 import logging
 from datetime import datetime
 from src.apis.base import get_json
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ def _current_season_week(sport: str) -> tuple[int, str, int]:
     Uses Sleeper state API — falls back to current year + week 1 if unavailable.
     """
     state = get_json(f"{_BASE}/state/{sport}") or {}
-    season      = int(state.get("season", datetime.utcnow().year))
+    season      = int(state.get("season", et_naive().year))
     season_type = state.get("season_type", "regular")  # regular | post | pre | off
     week        = int(state.get("week", 1))
     # Use display_week if available (more accurate for current games)

@@ -23,6 +23,7 @@ import logging
 from datetime import datetime, timedelta
 from urllib.parse import quote
 from src.apis.base import get_json
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
     slug = _slug(sport_key)
     if not slug:
         return []
-    date = date or datetime.utcnow().strftime("%Y-%m-%d")
+    date = date or et_naive().strftime("%Y-%m-%d")
     data = _get(f"/sport/{slug}/scheduled-events/{date}")
     if not data:
         return []
@@ -121,7 +122,7 @@ def _epoch_to_iso(ts: int | None) -> str:
     if not ts:
         return ""
     try:
-        return datetime.utcfromtimestamp(ts).isoformat()
+        return datetime.fromtimestamp(ts, tz=ET).replace(tzinfo=None).isoformat()
     except (OSError, ValueError):
         return ""
 
@@ -318,7 +319,7 @@ def enrich_game_context(
 
     Matches by team name substring — best-effort.
     """
-    date = game_time[:10] if game_time else datetime.utcnow().strftime("%Y-%m-%d")
+    date = game_time[:10] if game_time else et_naive().strftime("%Y-%m-%d")
     events = get_scheduled_events(sport_key, date)
 
     matched = None

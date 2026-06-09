@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 from datetime import datetime
+from src.core.timezone import et_naive
 
 router = APIRouter()
 
 
 @router.get("/")
 def health_check():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "timestamp": et_naive().isoformat()}
 
 
 @router.get("/system")

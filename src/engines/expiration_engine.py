@@ -18,7 +18,7 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
     from src.db.session import get_db
     from src.db.models import Pick, Game
 
-    now = datetime.now(timezone.utc)
+    now = et_now()
     minutes_to_game = float("inf")
 
     with get_db() as db:

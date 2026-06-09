@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from src.db.session import get_db
 from src.db.models import Pick
 from src.core.config import SPORTS
+from src.core.timezone import et_naive
 
 router = APIRouter()
 _VALID_SPORTS = set(SPORTS.keys()) | set(SPORTS.values())
@@ -21,9 +22,9 @@ def list_picks(
         raise HTTPException(status_code=400, detail=f"Unknown sport '{sport}'")
 
     cutoffs = {
-        "daily":    datetime.utcnow() - timedelta(days=1),
-        "weekly":   datetime.utcnow() - timedelta(weeks=1),
-        "monthly":  datetime.utcnow() - timedelta(days=30),
+        "daily":    et_naive() - timedelta(days=1),
+        "weekly":   et_naive() - timedelta(weeks=1),
+        "monthly":  et_naive() - timedelta(days=30),
         "lifetime": datetime(2000, 1, 1),
     }
     cutoff = cutoffs[period]

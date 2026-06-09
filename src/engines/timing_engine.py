@@ -7,6 +7,7 @@ Tracks time-to-game for all upcoming events.
 import logging
 from datetime import datetime, timedelta
 from src.core.config import PREGAME_ALERT_WINDOWS
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ def minutes_to_game(commence_time_str: str) -> float:
         # naive datetimes raises TypeError in Python 3.
         if hasattr(game_time, "tzinfo") and game_time.tzinfo is not None:
             game_time = game_time.replace(tzinfo=None)
-        delta = game_time - datetime.utcnow()
+        delta = game_time - et_naive()
         return delta.total_seconds() / 60
     except Exception:
         return 9999.0

@@ -1,6 +1,7 @@
 """Analytics worker — daily/weekly summaries, self-improvement, portfolio snapshots."""
 import logging
 from src.workers.celery_app import app
+from src.core.timezone import et_naive, et_day_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +33,13 @@ def send_daily_summary():
             Pick.selection, Pick.sport, Pick.american_odds_at_gen,
             Pick.ev_pct, Pick.units, Pick.recommendation,
         ).filter(
-            Pick.generated_at >= datetime.utcnow() - timedelta(hours=24),
+            Pick.generated_at >= et_naive() - timedelta(hours=24),
             Pick.recommendation == "BET",
         ).limit(20).all()
         settled = db.query(
             Pick.selection, Pick.sport, Pick.result, Pick.actual_pnl_units,
         ).filter(
-            Pick.settled_at >= datetime.utcnow() - timedelta(hours=24),
+            Pick.settled_at >= et_naive() - timedelta(hours=24),
             Pick.result.isnot(None),
         ).limit(20).all()
 
@@ -122,7 +123,7 @@ def send_monthly_summary():
     from src.engines.summary_engine import get_monthly_summary
     from datetime import datetime
 
-    now = datetime.utcnow()
+    now = et_naive()
     monthly = get_monthly_summary(year=now.year, month=now.month)
 
     lines = [
@@ -150,21 +151,19 @@ def enter_sleep_mode():
     from src.engines.self_improvement_engine import run_full_self_improvement
     from src.db.session import get_db
     from src.db.models import PropResult
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     import zoneinfo, json
 
     et_tz  = zoneinfo.ZoneInfo("America/New_York")
     et     = datetime.now(et_tz)
-    today  = et.date()
-    day_start_utc = datetime(today.year, today.month, today.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
-    day_end_utc   = datetime(today.year, today.month, today.day + 1, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    day_start, day_end = et_day_bounds(days_ago=0)
 
     # ── Settled picks today ─────────────────────────────────────────────────────
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
-                PropResult.settled_at >= day_start_utc,
-                PropResult.settled_at <  day_end_utc,
+                PropResult.settled_at >= day_start,
+                PropResult.settled_at <  day_end,
             ).order_by(PropResult.settled_at.desc()).all()
     except Exception as e:
         logger.warning("enter_sleep_mode: DB query failed: %s", e)
@@ -375,21 +374,19 @@ def todays_recap():
     from src.discord_bot.bot import _post
     from src.db.session import get_db
     from src.db.models import PropResult
-    from datetime import datetime, timedelta, date, timezone
+    from datetime import datetime, timedelta, date
     import zoneinfo, json
 
     et_tz  = zoneinfo.ZoneInfo("America/New_York")
     et_now = datetime.now(et_tz)
-    today  = et_now.date()
-    day_start_utc = datetime(today.year, today.month, today.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
-    day_end_utc   = datetime(today.year, today.month, today.day + 1, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    day_start, day_end = et_day_bounds(days_ago=0)
 
     # ── Pull all prop results settled today ─────────────────────────────────────
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
-                PropResult.settled_at >= day_start_utc,
-                PropResult.settled_at <  day_end_utc,
+                PropResult.settled_at >= day_start,
+                PropResult.settled_at <  day_end,
             ).order_by(PropResult.settled_at.desc()).all()
     except Exception as e:
         logger.warning("todays_recap: DB query failed: %s", e)
@@ -513,7 +510,7 @@ def snapshot_portfolio():
     daily_stats = get_performance_stats("daily")
     with get_db() as db:
         db.add(BankrollSnapshot(
-            recorded_at  = datetime.utcnow(),
+            recorded_at  = et_naive(),
             balance      = stats.get("net_units", 0),
             units_total  = daily_stats.get("net_units", 0),
             note         = "auto",
@@ -532,8 +529,8 @@ def cleanup_old_snapshots():
     from src.db.models import OddsSnapshot, LineMovement, AlertRecord
     from datetime import datetime, timedelta
 
-    cutoff_snapshots = datetime.utcnow() - timedelta(days=7)
-    cutoff_alerts    = datetime.utcnow() - timedelta(days=30)
+    cutoff_snapshots = et_naive() - timedelta(days=7)
+    cutoff_alerts    = et_naive() - timedelta(days=30)
 
     with get_db() as db:
         deleted_snaps = db.query(OddsSnapshot).filter(
@@ -614,21 +611,18 @@ def yesterday_recap():
     from src.discord_bot.bot import _post
     from src.db.session import get_db
     from src.db.models import PropResult
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     import zoneinfo, json
 
     et_tz     = zoneinfo.ZoneInfo("America/New_York")
     et        = datetime.now(et_tz)
-    yesterday = (et - timedelta(days=1)).date()
-    today     = et.date()
-    yest_start_utc = datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
-    yest_end_utc   = datetime(today.year, today.month, today.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    yest_start, yest_end = et_day_bounds(days_ago=1)
 
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
-                PropResult.settled_at >= yest_start_utc,
-                PropResult.settled_at <  yest_end_utc,
+                PropResult.settled_at >= yest_start,
+                PropResult.settled_at <  yest_end,
             ).all()
     except Exception as e:
         logger.warning("yesterday_recap: DB query failed: %s", e)

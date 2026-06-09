@@ -1344,7 +1344,7 @@ def send_pregame_alerts():
     if not active_picks:
         return
 
-    now    = datetime.now(timezone.utc)
+    now    = et_now()
     et_tz  = zoneinfo.ZoneInfo("America/New_York")
     et_now = datetime.now(et_tz)
 

@@ -13,6 +13,7 @@ from src.engines.confidence_engine import ConfidenceResult
 from src.engines.risk_engine import RiskAssessment
 from src.engines.comparison_engine import BookComparison
 from src.core.config import DEFAULT_BANKROLL, UNIT_SIZE_PCT
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class PickRecommendation:
     trend_score:       float = 0.0
 
     # Timestamps
-    generated_at:   str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    generated_at:   str = field(default_factory=lambda: et_naive().isoformat())
 
 
 def _opportunity_score(ev_pct: float, confidence: float, units: int, clv_potential: float) -> float:

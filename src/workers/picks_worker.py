@@ -12,6 +12,7 @@ import logging
 from src.workers.celery_app import app
 from src.db.session import get_db
 from src.db.models import Game
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def generate_picks(self):
         import redis as _redis
         from datetime import datetime
         _r = _redis.from_url(REDIS_URL, socket_connect_timeout=2, decode_responses=True)
-        _lock_key = f"pick_gen_lock:{datetime.utcnow().strftime('%Y%m%d%H')}"
+        _lock_key = f"pick_gen_lock:{et_naive().strftime('%Y%m%d%H')}"
         if not _r.set(_lock_key, "1", nx=True, ex=650):
             logger.info("generate_picks: another instance already running, skipping")
             return {"skipped": True}
@@ -380,7 +381,7 @@ def scan_and_pick_props(self):
         logger.info("Active sports with props: %s", sorted(active_sports))
 
         # Filter: games starting 30 min from now up to 6 hours away, today ET only
-        now = datetime.now(timezone.utc)
+        now = et_now()
         from datetime import timedelta
         from dateutil.parser import parse as _parse
         import zoneinfo
@@ -596,7 +597,7 @@ def generate_parlays():
                 Pick.market, Pick.best_book, Pick.american_odds_at_gen,
                 Pick.confidence_pct, Pick.ev_pct,
             ).filter(
-                Pick.generated_at >= datetime.utcnow() - timedelta(hours=12),
+                Pick.generated_at >= et_naive() - timedelta(hours=12),
                 Pick.recommendation == "BET",
             ).all()
 

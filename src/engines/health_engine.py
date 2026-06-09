@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
+from src.core.timezone import et_naive
 
 
 @dataclass
@@ -18,7 +19,7 @@ class ServiceStatus:
 class SystemHealth:
     overall: Literal["ok", "degraded", "down"]
     services: list[ServiceStatus]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=et_naive)
 
 
 def check_odds_api() -> ServiceStatus:
@@ -33,13 +34,13 @@ def check_odds_api() -> ServiceStatus:
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read(64)
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
+        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=et_naive())
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
         # Redact API key from error message to prevent secret leakage in logs
         api_key = os.getenv("ODDS_API_KEY", "")
         safe_err = str(e).replace(api_key, "***") if api_key else str(e)
-        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=datetime.utcnow(), error=safe_err)
+        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=et_naive(), error=safe_err)
 
 
 def check_redis() -> ServiceStatus:
@@ -51,10 +52,10 @@ def check_redis() -> ServiceStatus:
         r = redis_lib.from_url(REDIS_URL, socket_connect_timeout=3)
         r.ping()
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
+        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=et_naive())
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=datetime.utcnow(), error=str(e))
+        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=et_naive(), error=str(e))
 
 
 def check_database() -> ServiceStatus:
@@ -66,10 +67,10 @@ def check_database() -> ServiceStatus:
         with get_db() as db:
             db.query(Pick).limit(1).all()
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
+        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=et_naive())
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=datetime.utcnow(), error=str(e))
+        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=et_naive(), error=str(e))
 
 
 def check_discord() -> ServiceStatus:
@@ -82,7 +83,7 @@ def check_discord() -> ServiceStatus:
         if not webhook:
             return ServiceStatus(
                 name=name, status="ok", latency_ms=0,
-                last_check=datetime.utcnow(), error="Not configured (optional)",
+                last_check=et_naive(), error="Not configured (optional)",
             )
         # Discord webhooks only accept POST — GET returns 405. Send an empty POST
         # with ?wait=false so Discord doesn't queue a message, just validates the URL.
@@ -99,11 +100,11 @@ def check_discord() -> ServiceStatus:
             else:
                 raise
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
+        return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=et_naive())
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
         status = "degraded" if "not set" in str(e) else "down"
-        return ServiceStatus(name=name, status=status, latency_ms=latency, last_check=datetime.utcnow(), error=str(e))
+        return ServiceStatus(name=name, status=status, latency_ms=latency, last_check=et_naive(), error=str(e))
 
 
 def check_celery_workers() -> ServiceStatus:
@@ -115,11 +116,11 @@ def check_celery_workers() -> ServiceStatus:
         active = inspector.ping()
         latency = (time.monotonic() - t0) * 1000
         if active:
-            return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=datetime.utcnow())
-        return ServiceStatus(name=name, status="degraded", latency_ms=latency, last_check=datetime.utcnow(), error="No workers responded")
+            return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=et_naive())
+        return ServiceStatus(name=name, status="degraded", latency_ms=latency, last_check=et_naive(), error="No workers responded")
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
-        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=datetime.utcnow(), error=str(e))
+        return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=et_naive(), error=str(e))
 
 
 def get_system_health() -> SystemHealth:
@@ -143,7 +144,7 @@ def get_system_health() -> SystemHealth:
 def format_health_report(health: SystemHealth) -> str:
     icons = {"ok": "✅", "degraded": "⚠️", "down": "❌"}
     lines = [f"**System Health: {icons[health.overall]} {health.overall.upper()}**"]
-    lines.append(f"Checked at {health.timestamp.strftime('%H:%M:%S UTC')}")
+    lines.append(f"Checked at {health.timestamp.strftime('%H:%M:%S ET')}")
     lines.append("")
     for svc in health.services:
         icon = icons[svc.status]

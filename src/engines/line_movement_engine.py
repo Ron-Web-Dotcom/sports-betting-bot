@@ -124,7 +124,7 @@ def score_for_confidence(game_id: int | str, market: str, selection: str, hours:
         from src.db.session import get_db
         from src.db.models import LineMovement
 
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = et_naive() - timedelta(hours=hours)
         with get_db() as db:
             rows = db.query(LineMovement).filter(
                 LineMovement.market    == market,

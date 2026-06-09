@@ -7,6 +7,7 @@ Positive CLV proves long-term skill — we're consistently beating the efficient
 import logging
 from datetime import datetime, timedelta
 from src.engines.ev_engine import implied_prob
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def record_clv(pick_id: int, odds_at_pick: int, odds_at_close: int) -> None:
             existing.odds_at_close    = odds_at_close
             existing.implied_at_close = implied_prob(odds_at_close)
             existing.clv_pct          = clv
-            existing.recorded_at      = datetime.utcnow()
+            existing.recorded_at      = et_naive()
         else:
             rec = CLVRecord(
                 pick_id         = pick_id,
@@ -71,7 +72,7 @@ def record_clv(pick_id: int, odds_at_pick: int, odds_at_close: int) -> None:
                     existing.odds_at_close    = odds_at_close
                     existing.implied_at_close = implied_prob(odds_at_close)
                     existing.clv_pct          = clv
-                    existing.recorded_at      = datetime.utcnow()
+                    existing.recorded_at      = et_naive()
 
 
 def aggregate_clv(period: str = "daily", sport: str | None = None) -> dict:
@@ -82,7 +83,7 @@ def aggregate_clv(period: str = "daily", sport: str | None = None) -> dict:
     from src.db.session import get_db
     from src.db.models import CLVRecord
 
-    now = datetime.utcnow()
+    now = et_naive()
     cutoffs = {
         "daily":    now - timedelta(days=1),
         "weekly":   now - timedelta(weeks=1),
@@ -118,7 +119,7 @@ def clv_by_dimension(dimension: str = "sport", period: str = "lifetime") -> dict
     from src.db.models import CLVRecord
     from sqlalchemy import func
 
-    now = datetime.utcnow()
+    now = et_naive()
     cutoffs = {
         "daily":    now - timedelta(days=1),
         "weekly":   now - timedelta(weeks=1),

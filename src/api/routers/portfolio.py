@@ -1,6 +1,7 @@
 """Portfolio endpoints — daily portfolio, bankroll snapshots."""
 from fastapi import APIRouter, Query
 from src.engines.portfolio_engine import get_performance_stats
+from src.core.timezone import et_naive
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ def bankroll_history(days: int = Query(30, ge=1, le=365)):
     from src.db.models import BankrollSnapshot
     from datetime import datetime, timedelta
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = et_naive() - timedelta(days=days)
     with get_db() as db:
         rows = db.query(BankrollSnapshot).filter(
             BankrollSnapshot.recorded_at >= cutoff
