@@ -76,14 +76,14 @@ def _import_tasks():
 
 INTERVAL_TASKS = [
     # (interval_seconds, task_name)
-    (60,   "send_pregame_alerts"),
-    (300,  "scan_and_save_odds"),
-    (1200, "scan_player_props"),
-    (300,  "scan_and_pick_props"),
-    (600,  "generate_picks"),
-    (900,  "fetch_and_save_news"),
-    (1800, "settle_completed_picks"),
-    (3600, "record_closing_lines"),
+    (60,   "send_pregame_alerts"),    # time-critical — keep sharp
+    (600,  "scan_and_save_odds"),     # 10 min — odds don't move every 5 min
+    (1200, "scan_player_props"),      # 20 min — props are stable
+    (900,  "scan_and_pick_props"),    # 15 min
+    (1200, "generate_picks"),         # 20 min — no need to regenerate faster
+    (1800, "fetch_and_save_news"),    # 30 min — injuries don't change by the minute
+    (1800, "settle_completed_picks"), # 30 min — keep
+    (3600, "record_closing_lines"),   # 60 min — keep
 ]
 
 CRON_TASKS = [
