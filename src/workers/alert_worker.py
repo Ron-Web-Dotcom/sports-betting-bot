@@ -1383,7 +1383,7 @@ def send_pregame_alerts():
             t_et = t.astimezone(et_tz)
 
             # Only today's games
-            if t_et.date() != et_now.date():
+            if t_et.date() != now.date():
                 continue
 
             m["game_time_et"] = t_et.strftime("%-I:%M %p ET")
