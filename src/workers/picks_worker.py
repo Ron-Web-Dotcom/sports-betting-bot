@@ -684,7 +684,7 @@ def _generate_hardrock_entry(period: str) -> dict:
     - Same game can only appear once (no ML + prop from same game)
     - No player appears twice
     Ranks by confidence score, takes 2–5 picks.
-    Posts to Discord only if at least 2 qualifying picks exist.
+    Posts to Discord if at least 1 qualifying pick exists (max 5).
     """
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
@@ -720,9 +720,9 @@ def _generate_hardrock_entry(period: str) -> dict:
 
             entry.append(pick)
 
-        if len(entry) < 2:
-            logger.info("HardRock %s entry: only %d picks qualify — need at least 2", period, len(entry))
-            return {"picks": len(entry), "period": period, "posted": False}
+        if len(entry) < 1:
+            logger.info("HardRock %s entry: no qualifying picks", period)
+            return {"picks": 0, "period": period, "posted": False}
 
         _post_hardrock_embed(period, entry)
         return {"period": period, "picks": len(entry), "posted": True}
