@@ -102,7 +102,7 @@ SPORTS = {
     "tennis":   "tennis_atp_french_open",
     "ufc":      "mma_mixed_martial_arts",
     "mma":      "mma_mixed_martial_arts",
-    "golf":     "golf_us_open_winner",   # Masters ended — US Open is next major (June)
+    # golf removed — US Open not yet in Odds API, add back when available
 }
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
