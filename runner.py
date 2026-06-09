@@ -101,12 +101,15 @@ CRON_TASKS = [
     (5,  0,  "wake_up_brief",            None, None),
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
     (6,  0,  "yesterday_recap",         None, None),
-    (8,  0,  "scan_todays_games",          None, None),  # full Sofascore scan — split day/night
-    (8,  0,  "morning_props_brief",       None, None),
-    (9,  0,  "generate_parlays",          None, None),
-    (9,  30, "scan_and_pick_props",       None, None),  # force-fresh morning scan
-    (10, 0,  "generate_hardrock_day_entry",   None, None),  # day games entry
-    (16, 0,  "generate_hardrock_night_entry", None, None),  # night games entry
+    (8,  0,  "scan_todays_games",               None, None),  # Sofascore full scan — split day/night, cache
+    (8,  0,  "morning_props_brief",            None, None),
+    (9,  0,  "generate_parlays",               None, None),
+    (9,  30, "scan_and_pick_props",            None, None),  # fresh morning props + odds
+    (10, 30, "generate_hardrock_day_entry",    None, None),  # day entry — lines settled by 10:30
+    (14, 0,  "scan_todays_games",              None, None),  # re-scan Sofascore for night games
+    (14, 0,  "scan_and_save_odds",             None, None),  # pull night game odds fresh at 2 PM
+    (14, 0,  "scan_player_props",              None, None),  # pull night props fresh at 2 PM
+    (16, 30, "generate_hardrock_night_entry",  None, None),  # night entry — lines settled by 4:30
     (23, 0,  "send_daily_summary",      None, None),
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday

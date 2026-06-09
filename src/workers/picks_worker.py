@@ -763,13 +763,10 @@ def _build_hardrock_candidates(
     return candidates
 
 
-def _build_prop_candidates(period: str, sofascore_events: list[dict]) -> list[dict]:
-    """
-    Pull player props from Redis (populated by scan_player_props).
-    Filter to today's period games, deduplicate by player+team, score by confidence.
-    """
+def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
+    """Pull player props from Redis, score them. Deduplication happens in the entry builder."""
     from src.core.config import REDIS_URL
-    from src.engines.ev_engine import evaluate, implied_prob
+    from src.engines.ev_engine import implied_prob
     import json, redis as _redis
 
     try:
@@ -780,42 +777,15 @@ def _build_prop_candidates(period: str, sofascore_events: list[dict]) -> list[di
         return []
 
     candidates: list[dict] = []
-    seen_players: set[str] = set()
-    seen_teams:   set[str] = set()
-
     for prop in all_props:
-        player   = (prop.get("player") or prop.get("subject") or "").strip()
-        stat     = prop.get("stat", "")
+        player    = (prop.get("player") or prop.get("subject") or "").strip()
+        stat      = prop.get("stat", "")
         sport_key = prop.get("sport_key", "")
         event_id  = prop.get("event_id", "")
         line      = prop.get("line")
-
         if not player or not stat:
             continue
 
-        # Only props for games in this period's Sofascore schedule
-        if sofascore_events:
-            matched = any(
-                ev.get("id") == event_id or
-                player.lower() in ev.get("home_team", "").lower() or
-                player.lower() in ev.get("away_team", "").lower()
-                for ev in sofascore_events
-            )
-            if not matched and sofascore_events:
-                # sofascore event_id won't match odds API event_id — skip this strict check
-                pass  # fall through: we can't reliably match prop→sofascore event, let it pass
-
-        # Uniqueness: one pick per player, one pick per team in prop picks
-        player_key = player.lower()
-        # derive team from sport/event context — use sport_key as proxy team bucket
-        team_bucket = f"{sport_key}:{event_id}"
-
-        if player_key in seen_players:
-            continue
-        if team_bucket in seen_teams:
-            continue
-
-        # Best over or under odds across books
         over_odds  = prop.get("over_odds", {})
         under_odds = prop.get("under_odds", {})
         best_over  = max(over_odds.values(),  default=None) if over_odds  else None
@@ -832,49 +802,44 @@ def _build_prop_candidates(period: str, sofascore_events: list[dict]) -> list[di
         if direction is None or best_odds_val is None:
             continue
 
-        prob  = implied_prob(best_odds_val)
-        score = prob  # simple confidence proxy for props
-
-        if score < 0.52:
+        conf = implied_prob(best_odds_val)
+        if conf < 0.52:
             continue
 
-        seen_players.add(player_key)
-        seen_teams.add(team_bucket)
-
         candidates.append({
-            "type":         "prop",
-            "score":        score,
-            "player":       player,
-            "stat":         stat,
-            "line":         line,
-            "direction":    direction,
-            "sport_key":    sport_key,
-            "best_odds":    best_odds_val,
-            "books_odds":   all_book_odds,
-            "confidence":   score,
-            "ev_pct":       0.0,
-            "units":        1.0,
+            "type":      "prop",
+            "score":     conf,
+            "player":    player,
+            "stat":      stat,
+            "line":      line,
+            "direction": direction,
+            "sport_key": sport_key,
+            "event_id":  event_id,
+            "best_odds": best_odds_val,
+            "books_odds":all_book_odds,
+            "confidence":conf,
+            "ev_pct":    0.0,
+            "units":     1.0,
         })
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
     return candidates
 
 
-def _post_hardrock_embed(period: str, team_picks: list[dict], prop_picks: list[dict]) -> None:
-    """Build and post the Discord embed for one HardRock entry."""
+def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
+    """Build and post the Discord embed for one unified HardRock entry."""
     from src.core.sport_labels import get_emoji, get_name
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
     import zoneinfo
     from datetime import datetime
 
-    ET       = zoneinfo.ZoneInfo("America/New_York")
-    now_et   = datetime.now(ET)
-    now_str  = now_et.strftime("%I:%M %p ET")
-    date_str = now_et.strftime("%A, %B %-d")
-    label    = "☀️ Day" if period == "day" else "🌙 Night"
-
-    _MARKET = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
+    ET           = zoneinfo.ZoneInfo("America/New_York")
+    now_et       = datetime.now(ET)
+    now_str      = now_et.strftime("%I:%M %p ET")
+    date_str     = now_et.strftime("%A, %B %-d")
+    period_label = "☀️ Day" if period == "day" else "🌙 Night"
+    _MARKET      = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
 
     def _fmt(v) -> str:
         return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
@@ -883,8 +848,8 @@ def _post_hardrock_embed(period: str, team_picks: list[dict], prop_picks: list[d
         best_book = (best_book or "").lower()
         parts = []
         for bk, odds in sorted(books_odds.items(), key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
-            label_bk = bk.upper().replace("_", " ")
-            parts.append(f"**{label_bk} {_fmt(odds)}**" if bk.lower() == best_book else f"{label_bk} {_fmt(odds)}")
+            bk_label = bk.upper().replace("_", " ")
+            parts.append(f"**{bk_label} {_fmt(odds)}**" if bk.lower() == best_book else f"{bk_label} {_fmt(odds)}")
         return "  ·  ".join(parts[:5]) or "—"
 
     def _game_time(commence: str) -> str:
@@ -894,102 +859,109 @@ def _post_hardrock_embed(period: str, team_picks: list[dict], prop_picks: list[d
         except Exception:
             return ""
 
-    lines: list[str] = []
-
-    # ── Team picks ──────────────────────────────────────────────────────────
-    if team_picks:
-        lines.append("**🏟️  TEAM PICKS**")
-        for i, p in enumerate(team_picks, 1):
-            sport  = p["sport_key"]
+    pick_lines: list[str] = []
+    for i, p in enumerate(entry, 1):
+        conf  = round(p["confidence"] * 100)
+        sport = p["sport_key"]
+        if p["type"] == "prop":
+            pick_lines.append(
+                f"**{i}.** {get_emoji(sport)} **{p['player']}**  ·  {p['stat']} {p['direction']} **{p['line']}**  `{_fmt(p['best_odds'])}`  ·  {conf}% conf\n"
+                f"> {get_name(sport)}\n"
+                f"> 📚 {_books_line(p['books_odds'], '')}"
+            )
+        else:
             market = _MARKET.get(p["market"], p["market"].upper())
-            conf   = round(p["confidence"] * 100)
-            ev     = round(p["ev_pct"] * 100, 1)
-            units  = round(p["units"], 1)
+            ev     = round(p.get("ev_pct", 0) * 100, 1)
+            units  = round(p.get("units", 1), 1)
             gt     = _game_time(p["commence_time"])
             inj    = "  ⚠️" if p.get("injuries", 0) > 0 else ""
-            factors = p.get("key_factors") or []
+            factors   = p.get("key_factors") or []
             reasoning = (p.get("reasoning") or "").strip()
-            insight = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
-
-            lines.append(
+            insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
+            pick_lines.append(
                 f"**{i}.** {get_emoji(sport)} **{p['away_team']} @ {p['home_team']}**  `{gt}`{inj}\n"
                 f"> {get_name(sport)}  ·  {market}: **{p['selection']} {_fmt(p['best_odds'])}**  ·  {conf}% conf  ·  +{ev}% EV  ·  {units}u\n"
-                f"> 📚 {_books_line(p['books_odds'], p.get('best_book',''))}"
+                f"> 📚 {_books_line(p['books_odds'], p.get('best_book', ''))}"
                 + (f"\n> *{insight}*" if insight else "")
             )
 
-    # ── Player prop picks ────────────────────────────────────────────────────
-    if prop_picks:
-        lines.append("\n**🎯  PLAYER PROPS**")
-        for i, p in enumerate(prop_picks, 1):
-            conf  = round(p["confidence"] * 100)
-            lines.append(
-                f"**{i}.** {get_emoji(p['sport_key'])} **{p['player']}** — {p['stat']} {p['direction']} **{p['line']}**  `{_fmt(p['best_odds'])}`  ·  {conf}% conf\n"
-                f"> 📚 {_books_line(p['books_odds'], '')}"
-            )
-
-    all_picks  = team_picks + prop_picks
-    total_u    = round(sum(p.get("units", 1) for p in all_picks), 1)
-    avg_conf   = round(sum(p["confidence"] for p in all_picks) / len(all_picks) * 100) if all_picks else 0
-    divider    = "─" * 34
+    avg_conf = round(sum(p["confidence"] for p in entry) / len(entry) * 100)
+    total_u  = round(sum(p.get("units", 1) for p in entry), 1)
+    divider  = "─" * 34
 
     embed = {
-        "title":       f"🪨  HardRock {label} Entry  ·  {date_str}",
-        "description": f"{divider}\n\n" + f"\n\n{divider}\n\n".join(lines) + f"\n\n{divider}",
+        "title":       f"🪨  HardRock {period_label} Entry  ·  {date_str}",
+        "description": f"{divider}\n\n" + f"\n\n{divider}\n\n".join(pick_lines) + f"\n\n{divider}",
         "color":       0x1565C0 if period == "day" else 0x4A148C,
         "fields": [
-            {"name": "Team Picks",    "value": f"**{len(team_picks)}** / 5",  "inline": True},
-            {"name": "Prop Picks",    "value": f"**{len(prop_picks)}** / 5",  "inline": True},
-            {"name": "Total Units",   "value": f"**{total_u}u**",             "inline": True},
-            {"name": "Avg Confidence","value": f"**{avg_conf}%**",            "inline": True},
-            {"name": "Generated",     "value": now_str,                       "inline": True},
-            {"name": "Action",        "value": "📲 Place on HardRock Bet",    "inline": True},
+            {"name": "Picks",       "value": f"**{len(entry)}**",   "inline": True},
+            {"name": "Avg Conf",    "value": f"**{avg_conf}%**",    "inline": True},
+            {"name": "Total Units", "value": f"**{total_u}u**",     "inline": True},
+            {"name": "Generated",   "value": now_str,               "inline": True},
+            {"name": "Action",      "value": "📲 Place on HardRock Bet", "inline": True},
         ],
         "footer": {"text": "Odds API · Sofascore · AI research · Bet responsibly"},
     }
 
     _run_async(_post({"embeds": [embed]}))
-    logger.info("HardRock %s entry posted: %d team + %d props, %.1fu", period, len(team_picks), len(prop_picks), total_u)
+    logger.info("HardRock %s entry posted: %d picks, %.1fu", period, len(entry), total_u)
 
 
 def _generate_hardrock_entry(period: str) -> dict:
-    """Core logic shared by day and night entry generators."""
+    """
+    Core logic for day/night entries.
+
+    Builds a unified pool of game picks + player props. Applies uniqueness:
+    - Same game can only appear once (no ML + prop from same game)
+    - No player appears twice
+    Ranks by confidence score, takes 2–5 picks.
+    Posts to Discord only if at least 2 qualifying picks exist.
+    """
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
     try:
         sofascore_events = _load_todays_games(period)
         if not sofascore_events:
-            logger.info("HardRock %s entry: no Sofascore games cached — run scan_todays_games first", period)
-            # Proceed anyway — scan_todays_games may not have run yet
+            logger.info("HardRock %s entry: no Sofascore cache yet — proceeding anyway", period)
 
-        # ── Team picks: max 5, unique teams ─────────────────────────────────
-        raw_team   = _build_hardrock_candidates(period, sofascore_events)
-        raw_team.sort(key=lambda x: x["score"], reverse=True)
-        team_picks: list[dict] = []
-        seen_teams: set[str]   = set()
-        for c in raw_team:
-            teams = {c["home_team"].lower(), c["away_team"].lower()}
-            if teams & seen_teams:
-                continue  # a team in this game already has a pick
-            seen_teams.update(teams)
-            team_picks.append(c)
-            if len(team_picks) == 5:
+        raw_game  = _build_hardrock_candidates(period, sofascore_events)
+        raw_props = _build_prop_candidates(sofascore_events)
+        pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
+
+        entry: list[dict]          = []
+        blocked_event_keys: set[str] = set()
+        seen_players: set[str]       = set()
+
+        for pick in pool:
+            if len(entry) == 5:
                 break
+            if pick["type"] == "prop":
+                player_key = pick["player"].lower()
+                event_key  = pick.get("event_id", "")
+                if event_key and event_key in blocked_event_keys:
+                    continue
+                if player_key in seen_players:
+                    continue
+                seen_players.add(player_key)
+            else:
+                event_key = f"{pick['home_team']}:{pick['away_team']}".lower()
+                if event_key in blocked_event_keys:
+                    continue
+                blocked_event_keys.add(event_key)
 
-        # ── Player prop picks: max 5, unique player + unique team ────────────
-        raw_props  = _build_prop_candidates(period, sofascore_events)
-        prop_picks = raw_props[:5]
+            entry.append(pick)
 
-        if not team_picks and not prop_picks:
-            logger.info("HardRock %s entry: no qualifying picks", period)
-            return {"picks": 0, "period": period}
+        if len(entry) < 2:
+            logger.info("HardRock %s entry: only %d picks qualify — need at least 2", period, len(entry))
+            return {"picks": len(entry), "period": period, "posted": False}
 
-        _post_hardrock_embed(period, team_picks, prop_picks)
-        return {"period": period, "team_picks": len(team_picks), "prop_picks": len(prop_picks)}
+        _post_hardrock_embed(period, entry)
+        return {"period": period, "picks": len(entry), "posted": True}
 
     except Exception as exc:
         logger.error("HardRock %s entry failed: %s", period, exc)
         return {"error": str(exc)}
+
 
 
 def generate_hardrock_day_entry():
