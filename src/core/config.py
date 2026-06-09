@@ -92,16 +92,38 @@ PREGAME_ALERT_WINDOWS = [60, 30, 15, 10, 5, 0]
 
 # ── Sports tracked ─────────────────────────────────────────────────────────────
 SPORTS = {
-    "nba":      "basketball_nba",
-    "nfl":      "americanfootball_nfl",
-    "mlb":      "baseball_mlb",
-    "nhl":      "icehockey_nhl",
-    "soccer":   "soccer_epl",
-    "worldcup": "soccer_fifa_world_cup",
-    "wc":       "soccer_fifa_world_cup",
-    "tennis":   "tennis_atp_french_open",
-    "ufc":      "mma_mixed_martial_arts",
-    "mma":      "mma_mixed_martial_arts",
+    # ── US Sports ─────────────────────────────────────────────────────────────
+    "nba":          "basketball_nba",
+    "nfl":          "americanfootball_nfl",
+    "mlb":          "baseball_mlb",
+    "nhl":          "icehockey_nhl",
+    "ncaab":        "basketball_ncaab",
+    "ncaaf":        "americanfootball_ncaaf",
+    # ── Soccer — Top Leagues ──────────────────────────────────────────────────
+    "epl":          "soccer_epl",               # England Premier League
+    "soccer":       "soccer_epl",
+    "laliga":       "soccer_spain_la_liga",      # Spain
+    "bundesliga":   "soccer_germany_bundesliga", # Germany
+    "seriea":       "soccer_italy_serie_a",      # Italy
+    "ligue1":       "soccer_france_ligue_one",   # France
+    "mls":          "soccer_usa_mls",            # USA
+    "eredivisie":   "soccer_netherlands_eredivisie",
+    "portugal":     "soccer_portugal_primeira_liga",
+    # ── Soccer — Cups & International ────────────────────────────────────────
+    "ucl":          "soccer_uefa_champs_league",
+    "champions":    "soccer_uefa_champs_league",
+    "europa":       "soccer_uefa_europa_league",
+    "worldcup":     "soccer_fifa_world_cup",
+    "wc":           "soccer_fifa_world_cup",
+    "concacaf":     "soccer_concacaf_nations_league",
+    "copaamerica":  "soccer_conmebol_copa_america",
+    "conmebol":     "soccer_conmebol_copa_libertadores",
+    # ── Combat Sports ────────────────────────────────────────────────────────
+    "ufc":          "mma_mixed_martial_arts",
+    "mma":          "mma_mixed_martial_arts",
+    # ── Tennis ───────────────────────────────────────────────────────────────
+    "tennis":       "tennis_atp_french_open",
+    "atp":          "tennis_atp_french_open",
     # golf removed — US Open not yet in Odds API, add back when available
 }
 
