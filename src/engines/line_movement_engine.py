@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from src.engines.ev_engine import implied_prob
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def detect_movements(
     Returns list of detected movements.
     """
     alerts = []
-    cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
+    cutoff = et_naive() - timedelta(minutes=window_minutes)
 
     # Group snapshots by market+selection+book
     by_key: dict[str, list[dict]] = {}
@@ -77,7 +78,7 @@ def detect_movements(
             odds_after   = newest["american_odds"],
             delta_pct    = round(abs(delta), 4),
             movement_type= movement_type,
-            detected_at  = datetime.utcnow(),
+            detected_at  = et_naive(),
         ))
 
     return alerts

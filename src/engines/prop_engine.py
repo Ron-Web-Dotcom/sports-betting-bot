@@ -13,6 +13,7 @@ Full cycle:
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class PropPick:
     game_time:    str         = ""
     opponent:     str         = ""
     team:         str         = ""
-    generated_at: str         = field(default_factory=lambda: datetime.utcnow().isoformat())
+    generated_at: str         = field(default_factory=lambda: et_naive().isoformat())
 
 
 def analyse_prop(prop: dict, player_context: dict | None = None, loss_history: list[dict] | None = None) -> dict | None:
@@ -288,7 +289,7 @@ def record_prop_result(
                 actual_value = actual_value,
                 result       = outcome,
                 game_time    = game_time,
-                settled_at   = datetime.utcnow(),
+                settled_at   = et_naive(),
             ))
     except Exception as e:
         logger.warning("Failed to save prop result: %s", e)

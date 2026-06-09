@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
+from src.core.timezone import et_naive
 
 
 @dataclass
@@ -11,7 +12,7 @@ class PickFeedback:
     rating: Literal["helpful", "not_helpful"]
     explanation_rating: int  # 1-5
     comment: str = ""
-    submitted_at: datetime = field(default_factory=datetime.utcnow)
+    submitted_at: datetime = field(default_factory=et_naive)
 
 
 def submit_feedback(feedback: PickFeedback) -> None:
@@ -65,7 +66,7 @@ def get_overall_satisfaction(period: str = "weekly") -> dict:
         "monthly": timedelta(days=30),
     }
     delta = cutoffs.get(period, timedelta(weeks=1))
-    since = datetime.utcnow() - delta
+    since = et_naive() - delta
 
     with get_db() as db:
         rows = db.query(UserFeedback).filter(UserFeedback.submitted_at >= since).all()

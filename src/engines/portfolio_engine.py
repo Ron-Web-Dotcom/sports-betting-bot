@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from src.core.config import MAX_DAILY_UNITS, MAX_SPORT_EXPOSURE_PCT
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +98,9 @@ def get_performance_stats(period: str = "lifetime") -> dict:
     from datetime import timedelta
 
     cutoffs = {
-        "daily":    datetime.utcnow() - timedelta(days=1),
-        "weekly":   datetime.utcnow() - timedelta(weeks=1),
-        "monthly":  datetime.utcnow() - timedelta(days=30),
+        "daily":    et_naive() - timedelta(days=1),
+        "weekly":   et_naive() - timedelta(weeks=1),
+        "monthly":  et_naive() - timedelta(days=30),
         "lifetime": datetime(2000, 1, 1),
     }
     cutoff = cutoffs.get(period, cutoffs["lifetime"])

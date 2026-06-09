@@ -7,6 +7,7 @@ Identifies which categories are performing and adjusts weights accordingly.
 """
 import logging
 from datetime import datetime, timedelta
+from src.core.timezone import et_naive
 from src.db.session import get_db
 from src.db.models import Pick, PerformanceMetrics
 
@@ -22,9 +23,9 @@ def compute_roi_by_dimension(dimension: str, period: str = "lifetime") -> list[d
     period: "daily" | "weekly" | "monthly" | "lifetime"
     """
     cutoffs = {
-        "daily":    datetime.utcnow() - timedelta(days=1),
-        "weekly":   datetime.utcnow() - timedelta(weeks=1),
-        "monthly":  datetime.utcnow() - timedelta(days=30),
+        "daily":    et_naive() - timedelta(days=1),
+        "weekly":   et_naive() - timedelta(weeks=1),
+        "monthly":  et_naive() - timedelta(days=30),
         "lifetime": datetime(2000, 1, 1),
     }
     cutoff = cutoffs.get(period, cutoffs["lifetime"])
@@ -106,13 +107,13 @@ def persist_metrics(metrics: list[dict], period: str) -> None:
                 existing.avg_ev_pct    = m["avg_ev"]
                 existing.hit_rate      = m["hit_rate"]
                 existing.profit_factor = m["units_won"] / max(m["units_lost"], 0.01)
-                existing.updated_at    = datetime.utcnow()
+                existing.updated_at    = et_naive()
             else:
                 db.add(PerformanceMetrics(
                     dimension       = m["dimension"],
                     dimension_value = str(m["value"]),
                     period          = period,
-                    period_start    = datetime.utcnow(),
+                    period_start    = et_naive(),
                     total_picks     = m["total"],
                     wins            = m["wins"],
                     losses          = m["losses"],

@@ -1,13 +1,14 @@
 """Summary engine — daily, weekly, monthly performance summaries."""
 from datetime import datetime, timedelta
 from typing import Optional
+from src.core.timezone import et_naive
 
 
 def get_daily_summary(date: Optional[datetime] = None) -> dict:
     from src.db.session import get_db
     from src.db.models import Pick
 
-    date = date or datetime.utcnow()
+    date = date or et_naive()
     start = date.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
@@ -89,7 +90,7 @@ def get_weekly_summary(week_start: Optional[datetime] = None) -> dict:
     from src.db.models import Pick
 
     if week_start is None:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = et_naive().replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=7)
 
@@ -219,7 +220,7 @@ def get_monthly_summary(year: Optional[int] = None, month: Optional[int] = None)
     from src.db.models import Pick, Parlay
     import calendar
 
-    now = datetime.utcnow()
+    now = et_naive()
     year = year or now.year
     month = month or now.month
     start = datetime(year, month, 1)

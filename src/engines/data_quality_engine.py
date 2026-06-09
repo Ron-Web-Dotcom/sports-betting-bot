@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+from src.core.timezone import et_now, et_naive
 
 
 @dataclass
@@ -29,7 +30,7 @@ def assess_event_quality(event: dict, odds_snapshots: list, injuries: list) -> D
     # data age check
     data_age_seconds = 0.0
     if odds_snapshots:
-        now = datetime.now(timezone.utc)
+        now = et_now()
         latest_ts = None
         for snap in odds_snapshots:
             ts = snap.get("captured_at")
@@ -99,7 +100,7 @@ def run_system_quality_check() -> dict:
     from src.db.models import Game, OddsSnapshot
     from datetime import timedelta
 
-    now = datetime.utcnow()
+    now = et_naive()
     cutoff = now - timedelta(hours=6)
 
     with get_db() as db:

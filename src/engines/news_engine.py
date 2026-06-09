@@ -10,6 +10,7 @@ import logging
 import httpx
 from datetime import datetime
 from src.core.config import ESPN_API_BASE, SPORTS
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def fetch_injuries(sport_key: str) -> list[dict]:
             "team":        item.get("team", {}).get("displayName", ""),
             "status":      item.get("status", ""),
             "detail":      item.get("longComment", item.get("shortComment", "")),
-            "fetched_at":  datetime.utcnow().isoformat(),
+            "fetched_at":  et_naive().isoformat(),
         })
     return injuries
 
@@ -140,9 +141,9 @@ def get_recent_injuries(hours: int = 24) -> list[dict]:
     """Return recent injuries from DB as flat list — used by picks_worker."""
     from src.db.session import get_db
     from src.db.models import NewsEvent
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = et_naive() - timedelta(hours=hours)
     with get_db() as db:
         rows = db.query(NewsEvent).filter(
             NewsEvent.category == "injury",

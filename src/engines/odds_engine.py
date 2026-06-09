@@ -9,6 +9,7 @@ import logging
 import httpx
 from datetime import datetime
 from src.core.config import ODDS_API_KEY, ODDS_API_BASE, SPORTS, SPORTSBOOKS
+from src.core.timezone import et_naive
 from src.engines.ev_engine import american_to_decimal, implied_prob
 
 logger = logging.getLogger(__name__)
@@ -161,14 +162,14 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     """
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     result: dict[int, list[dict]] = {}
     with get_db() as db:
         rows = (
             db.query(OddsSnapshot, Game)
             .join(Game, Game.id == OddsSnapshot.game_id)
-            .filter(OddsSnapshot.captured_at >= datetime.utcnow() - timedelta(hours=2))
+            .filter(OddsSnapshot.captured_at >= et_naive() - timedelta(hours=2))
             .all()
         )
         for snap, game in rows:
