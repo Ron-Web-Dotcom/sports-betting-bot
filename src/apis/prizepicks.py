@@ -23,8 +23,16 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.prizepicks.com"
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Referer": "https://app.prizepicks.com/",
+    "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept":          "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin":          "https://app.prizepicks.com",
+    "Referer":         "https://app.prizepicks.com/",
+    "sec-ch-ua":       '"Chromium";v="124", "Google Chrome";v="124"',
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest":  "empty",
+    "sec-fetch-mode":  "cors",
+    "sec-fetch-site":  "same-site",
 }
 
 # Maps our internal sport_key → PrizePicks league_id
@@ -80,6 +88,8 @@ def _parse_projections(data: dict, sport_key: int, is_team: bool) -> list[dict]:
         item["id"]: item
         for item in (data.get("included", []) if isinstance(data, dict) else [])
     }
+    logger.info("PrizePicks raw: %d projections, %d included (%s, team=%s)",
+                len(raw), len(included), sport_key, is_team)
 
     out = []
     for proj in raw:
@@ -143,6 +153,11 @@ def get_projections(sport_key: str) -> list[dict]:
         f_team   = pool.submit(_get, "/projections", {**base_params, "is_team_prop": "true"})
         player_data = f_player.result()
         team_data   = f_team.result()
+
+    if not player_data:
+        logger.warning("PrizePicks: NULL response for %s player props (league_id=%s) — blocked or API down", sport_key, league_id)
+    if not team_data:
+        logger.warning("PrizePicks: NULL response for %s team props (league_id=%s)", sport_key, league_id)
 
     out = []
     if player_data:
