@@ -125,9 +125,7 @@ PROXY_BYPASS_HOSTS = {
     "api.the-odds-api.com",
     "external-api.kalshi.com",
     "api.openai.com",
-    "api.underdogfantasy.com",      # works fine direct — proxy breaks it
-    "api.prizepicks.com",           # proxy IPs also blocked — go direct, fallback gracefully
-    "gamma-api.polymarket.com",     # keyed API
+    "gamma-api.polymarket.com",
     "clob.polymarket.com",
 }
 
