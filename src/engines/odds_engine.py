@@ -55,6 +55,12 @@ def _get(path: str, params: dict) -> dict | list | None:
         r.raise_for_status()
         logger.debug("OddsAPI %s remaining=%s", path, r.headers.get("x-requests-remaining"))
         return r.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (404, 422):
+            logger.debug("OddsAPI %s → %s (off-season or unsupported market)", path, e.response.status_code)
+        else:
+            logger.error("OddsAPI error %s: %s", path, e)
+        return None
     except httpx.HTTPError as e:
         logger.error("OddsAPI error %s: %s", path, e)
         return None
@@ -162,46 +168,23 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     return props
 
 
-def _sport_is_active(sport_key: str) -> bool:
-    """
-    Check Sofascore for live or scheduled events today.
-    Returns True if the sport has any activity — skip Odds API call if False.
-    """
-    try:
-        from src.apis.sofascore import get_live_events, get_scheduled_events
-        if get_live_events(sport_key):
-            return True
-        if get_scheduled_events(sport_key):
-            return True
-        return False
-    except Exception:
-        return True  # fail open — don't block on Sofascore errors
-
-
 def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     """
     Fetch player props for all active events.
-    Uses Sofascore to confirm a sport is live/active before calling Odds API —
-    avoids 404s for off-season leagues and wastes no credits.
+    Skips sports with no events in the Odds API response (off-season).
+    404s are silently swallowed — no extra Sofascore requests needed.
     """
     from concurrent.futures import ThreadPoolExecutor
     from datetime import timezone, timedelta
     from dateutil.parser import parse as _parse
 
-    # Check which sports are active today via Sofascore
-    active_sport_keys = set()
-    for sport_key in set(all_events.keys()):
-        if sport_key not in PLAYER_PROP_SPORTS:
-            continue
-        if _sport_is_active(sport_key):
-            active_sport_keys.add(sport_key)
-        else:
-            logger.debug("Skipping player props for %s — no active events on Sofascore", sport_key)
-
     cutoff = datetime.now(timezone.utc) + timedelta(hours=24)
     tasks  = []
     for sport_key, events in all_events.items():
-        if sport_key not in active_sport_keys:
+        if sport_key not in PLAYER_PROP_SPORTS:
+            continue
+        if not events:  # Odds API returned 0 events — sport is off-season
+            logger.debug("Skipping player props for %s — no events in Odds API", sport_key)
             continue
         for ev in events:
             ct = ev.get("commence_time")
