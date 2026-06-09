@@ -1,0 +1,36 @@
+[Unit]
+Description=Sports Bot — Celery Worker + Beat Scheduler
+After=network.target
+
+[Service]
+Type=forking
+User=root
+WorkingDirectory=/root/sports-bot
+EnvironmentFile=/root/sports-bot/.env
+
+ExecStart=/bin/bash -c '\
+  /root/sports-bot/venv/bin/celery -A src.workers.celery_app worker \
+    --loglevel=info --detach \
+    --pidfile=/tmp/sports-bot-worker.pid \
+    --logfile=/var/log/sports-bot/worker.log && \
+  /root/sports-bot/venv/bin/celery -A src.workers.celery_app beat \
+    --loglevel=info --detach \
+    --pidfile=/tmp/sports-bot-beat.pid \
+    --logfile=/var/log/sports-bot/beat.log \
+    --scheduler celery.beat.PersistentScheduler \
+    --schedule /tmp/sports-bot-beat.db'
+
+ExecStop=/bin/bash -c '\
+  kill $(cat /tmp/sports-bot-worker.pid 2>/dev/null) 2>/dev/null; \
+  kill $(cat /tmp/sports-bot-beat.pid 2>/dev/null) 2>/dev/null; \
+  rm -f /tmp/sports-bot-worker.pid /tmp/sports-bot-beat.pid'
+
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sports-bot
+
+[Install]
+WantedBy=multi-user.target
