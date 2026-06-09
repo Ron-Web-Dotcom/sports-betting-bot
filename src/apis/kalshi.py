@@ -173,6 +173,13 @@ _SPORTS_KEYWORDS = [
     "world series", "wimbledon", "us open", "french open", "masters", "pga",
     "formula 1", "f1", "ncaa", "march madness", "playoffs", "finals",
     "win the", "championship", "series", "advance", "qualify",
+    # broader team/game terms
+    "game ", "match", "points", "score", "innings", "quarter",
+    "heat", "celtics", "lakers", "warriors", "knicks", "nuggets",  # NBA teams
+    "yankees", "dodgers", "mets", "red sox", "cubs", "astros",    # MLB teams
+    "oilers", "panthers", "rangers", "avalanche", "lightning",    # NHL teams
+    "basketball", "baseball", "hockey", "soccer", "football",
+    "will the", "total ", "over ", "under ",
 ]
 
 

@@ -124,8 +124,11 @@ DECODO_PROXY_URL = _optional("DECODO_PROXY_URL")   # e.g. http://user:pass@gate.
 PROXY_BYPASS_HOSTS = {
     "api.the-odds-api.com",
     "external-api.kalshi.com",
-    "api.sleeper.app",
     "api.openai.com",
+    "api.underdogfantasy.com",      # works fine direct — proxy breaks it
+    "api.prizepicks.com",           # proxy IPs also blocked — go direct, fallback gracefully
+    "gamma-api.polymarket.com",     # keyed API
+    "clob.polymarket.com",
 }
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
