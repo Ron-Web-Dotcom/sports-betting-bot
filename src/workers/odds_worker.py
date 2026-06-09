@@ -164,6 +164,26 @@ def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> lis
     return changes
 
 
+def refresh_active_sports():
+    """
+    Bust the Sofascore active-sports cache so the next props scan
+    re-checks what leagues have games today. Runs at 5:30 AM ET daily.
+    """
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        r.delete("sofascore:active_sports")
+        # Eagerly re-populate so first scan of the day is instant
+        from src.engines.odds_engine import _get_active_sports_cached
+        active = _get_active_sports_cached()
+        logger.info("Active sports refreshed: %s", sorted(active))
+        return {"active_sports": sorted(active)}
+    except Exception as e:
+        logger.error("refresh_active_sports failed: %s", e)
+        return {"error": str(e)}
+
+
 def scan_player_props():
     """
     Scan all prop and market sources.

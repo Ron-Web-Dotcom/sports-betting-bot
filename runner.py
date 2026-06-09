@@ -35,7 +35,7 @@ logger = logging.getLogger("runner")
 # ── Task imports ───────────────────────────────────────────────────────────────
 
 def _import_tasks():
-    from src.workers.odds_worker       import scan_and_save_odds, scan_player_props
+    from src.workers.odds_worker       import scan_and_save_odds, scan_player_props, refresh_active_sports
     from src.workers.news_worker       import fetch_and_save_news
     from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays
     from src.workers.alert_worker      import send_pregame_alerts
@@ -49,6 +49,7 @@ def _import_tasks():
     return {
         "scan_and_save_odds":     scan_and_save_odds,
         "scan_player_props":      scan_player_props,
+        "refresh_active_sports":  refresh_active_sports,
         "fetch_and_save_news":    fetch_and_save_news,
         "generate_picks":         generate_picks,
         "scan_and_pick_props":    scan_and_pick_props,
@@ -94,7 +95,8 @@ CRON_TASKS = [
     (2,  0,  "run_self_improvement",    None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),
     (3,  0,  "enter_sleep_mode",        None, None),
-    (5,  0,  "wake_up_brief",           None, None),
+    (5,  0,  "wake_up_brief",            None, None),
+    (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
     (6,  0,  "yesterday_recap",         None, None),
     (8,  0,  "morning_props_brief",     None, None),
     (9,  0,  "generate_parlays",        None, None),

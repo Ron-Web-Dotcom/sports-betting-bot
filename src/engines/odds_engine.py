@@ -168,23 +168,59 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     return props
 
 
+def _get_active_sports_cached() -> set[str]:
+    """
+    Get today's active sports from Redis cache.
+    If cache is empty, call Sofascore and cache result until midnight ET.
+    """
+    import json
+    from datetime import timezone
+    from src.core.config import REDIS_URL
+    try:
+        import redis as _redis
+        from src.core.timezone import et_naive
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        cached = r.get("sofascore:active_sports")
+        if cached:
+            return set(json.loads(cached))
+
+        # Cache miss — fetch from Sofascore
+        from src.apis.sofascore import get_active_sports_today
+        active = get_active_sports_today()
+
+        # TTL = seconds until midnight ET
+        now_et = et_naive()
+        from datetime import datetime as _dt, timedelta
+        midnight = (_dt.combine(now_et.date(), _dt.min.time()) + timedelta(days=1))
+        ttl = max(int((midnight - now_et).total_seconds()), 3600)
+        r.setex("sofascore:active_sports", ttl, json.dumps(list(active)))
+        return active
+    except Exception as e:
+        logger.warning("Active sports cache failed: %s — defaulting to all sports", e)
+        return set(PLAYER_PROP_SPORTS)  # fail open
+
+
 def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     """
-    Fetch player props for all active events.
-    Skips sports with no events in the Odds API response (off-season).
-    404s are silently swallowed — no extra Sofascore requests needed.
+    Fetch player props only for sports Sofascore confirms have games today.
+    Active sports are cached in Redis until midnight — Sofascore is only
+    called once per day, not on every props scan.
     """
     from concurrent.futures import ThreadPoolExecutor
     from datetime import timezone, timedelta
     from dateutil.parser import parse as _parse
+
+    active_sports = _get_active_sports_cached()
 
     cutoff = datetime.now(timezone.utc) + timedelta(hours=24)
     tasks  = []
     for sport_key, events in all_events.items():
         if sport_key not in PLAYER_PROP_SPORTS:
             continue
-        if not events:  # Odds API returned 0 events — sport is off-season
-            logger.debug("Skipping player props for %s — no events in Odds API", sport_key)
+        if sport_key not in active_sports:
+            logger.debug("Skipping player props for %s — not active today per Sofascore", sport_key)
+            continue
+        if not events:
             continue
         for ev in events:
             ct = ev.get("commence_time")

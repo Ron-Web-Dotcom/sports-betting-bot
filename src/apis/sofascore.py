@@ -131,6 +131,41 @@ def _normalise_event(e: dict, sport_key: str) -> dict:
     }
 
 
+def get_active_sports_today() -> set[str]:
+    """
+    Check Sofascore for ALL sports that have games scheduled or live today.
+    Runs in parallel across all sport_keys in SPORT_MAP.
+    Returns a set of Odds API sport_keys that are active.
+    Used to gate Odds API calls — only fetch for confirmed active sports.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    today = et_naive().strftime("%Y-%m-%d")
+    active: set[str] = set()
+
+    def _check(sport_key: str) -> str | None:
+        slug = SPORT_MAP.get(sport_key)
+        if not slug:
+            return None
+        # Check scheduled events first (cheaper), then live
+        data = _get(f"/sport/{slug}/scheduled-events/{today}")
+        events = (data or {}).get("events", []) if isinstance(data, dict) else (data or [])
+        if events:
+            return sport_key
+        data = _get(f"/sport/{slug}/events/live")
+        events = (data or {}).get("events", []) if isinstance(data, dict) else (data or [])
+        return sport_key if events else None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_check, sk): sk for sk in SPORT_MAP}
+        for fut in futures:
+            result = fut.result()
+            if result:
+                active.add(result)
+
+    logger.info("Sofascore active sports today: %s", sorted(active))
+    return active
+
+
 def _epoch_to_iso(ts: int | None) -> str:
     if not ts:
         return ""
