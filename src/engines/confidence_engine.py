@@ -15,13 +15,14 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Signal weights — must sum to 1.0 so perfect inputs yield raw_score of 1.0.
-# Calibration is an additive correction applied separately (not a weight).
+# Signal weights — ai_prob is primary; secondary signals are additive modifiers.
+# line_movement and news_impact are centered at 0.5 (neutral) so when no sharp
+# data exists they don't drag the AI's conviction down.
 WEIGHTS = {
-    "ai_prob":        0.40,
-    "model_consensus":0.25,
-    "line_movement":  0.20,
-    "news_impact":    0.15,
+    "ai_prob":        0.60,   # AI deep-research conviction is the anchor
+    "model_consensus":0.20,
+    "line_movement":  0.12,   # centered: 0.5=neutral, >0.5=boost, <0.5=penalty
+    "news_impact":    0.08,   # centered: 0.5=neutral, >0.5=boost, <0.5=penalty
     "calibration":    0.10,   # kept for backward compat — not used in raw sum
 }
 
@@ -80,11 +81,15 @@ def compute_confidence(
     line_movement_score = 0=against, 0.5=neutral, 1=sharp money aligned
     news_impact_score  = 0=bad news, 0.5=neutral, 1=good news
     """
+    # Secondary signals are centered at 0.5: subtract 0.5 so neutral inputs
+    # contribute 0 rather than dragging the score toward 50%.
+    lm_delta   = (line_movement_score - 0.5) * WEIGHTS["line_movement"]
+    news_delta = (news_impact_score   - 0.5) * WEIGHTS["news_impact"]
+
     raw = (
         WEIGHTS["ai_prob"]         * ai_win_prob +
         WEIGHTS["model_consensus"] * model_consensus +
-        WEIGHTS["line_movement"]   * line_movement_score +
-        WEIGHTS["news_impact"]     * news_impact_score
+        lm_delta + news_delta
     )
     raw = max(0.0, min(1.0, raw))
 
