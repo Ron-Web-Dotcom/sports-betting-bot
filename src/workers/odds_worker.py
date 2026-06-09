@@ -1,6 +1,5 @@
 """Odds worker — scans all sports and persists snapshots."""
 import logging
-from src.workers.celery_app import app
 from src.engines.odds_engine import run_full_odds_scan, get_latest_snapshots_by_game
 from src.core.timezone import et_naive
 
@@ -15,8 +14,7 @@ def _is_sleep_time() -> bool:
     return 3 <= et.hour < 5
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=30)
-def scan_and_save_odds(self):
+def scan_and_save_odds():
     if _is_sleep_time():
         logger.debug("scan_and_save_odds: sleep window active, skipping")
         return {"skipped": "sleep_mode"}
@@ -76,12 +74,12 @@ def scan_and_save_odds(self):
         if all_movements:
             from src.workers.alert_worker import send_line_movement_alerts
             import dataclasses
-            send_line_movement_alerts.delay([dataclasses.asdict(m) for m in all_movements])
+            send_line_movement_alerts([dataclasses.asdict(m) for m in all_movements])
 
         return {"snapshots": len(snapshots), "movements": len(all_movements)}
     except Exception as exc:
         logger.error("Odds scan failed: %s", exc)
-        raise self.retry(exc=exc)
+        raise
 
 
 def _prop_key(prop: dict) -> str:
@@ -118,7 +116,7 @@ def _alert_active_pick_changes(r, all_changes: list[dict]):
         return
 
     from src.workers.alert_worker import send_pick_line_update
-    send_pick_line_update.delay(relevant)
+    send_pick_line_update(relevant)
 
 
 def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> list[dict]:
@@ -166,8 +164,7 @@ def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> lis
     return changes
 
 
-@app.task(bind=True, max_retries=2, default_retry_delay=60)
-def scan_player_props(self):
+def scan_player_props():
     """
     Scan betting apps for live odds, props, and markets every 10 min.
 
@@ -259,4 +256,4 @@ def scan_player_props(self):
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)
-        raise self.retry(exc=exc)
+        raise

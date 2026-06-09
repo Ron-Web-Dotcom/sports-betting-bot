@@ -1,6 +1,5 @@
 """News/injury worker — fetches ESPN + Sleeper data, detects status changes, alerts on prop impact."""
 import logging
-from src.workers.celery_app import app
 from src.engines.news_engine import fetch_all_injuries, save_injuries
 from src.apis.sleeper import get_all_injured_players
 
@@ -220,8 +219,7 @@ def _merge_injury_sources(espn_injuries: list[dict], sleeper_injuries: list[dict
     return list(merged.values())
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60)
-def fetch_and_save_news(self):
+def fetch_and_save_news():
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
     try:
@@ -286,7 +284,7 @@ def fetch_and_save_news(self):
 
         if all_alerts:
             from src.workers.alert_worker import send_lineup_alerts
-            send_lineup_alerts.delay(all_alerts)
+            send_lineup_alerts(all_alerts)
             logger.info("Lineup alerts fired: %d changes affect active props", len(all_alerts))
 
         logger.info("News worker: %d injuries (ESPN:%d + Sleeper:%d), %d prop-impacting changes",
@@ -300,4 +298,4 @@ def fetch_and_save_news(self):
 
     except Exception as exc:
         logger.error("News fetch failed: %s", exc)
-        raise self.retry(exc=exc)
+        raise

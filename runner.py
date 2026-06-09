@@ -1,0 +1,181 @@
+"""
+Sports Bot Runner — replaces Celery entirely.
+
+Single process, no broker, no worker. Runs all tasks directly on a
+schedule using a simple time-tracking loop. Same as how simple bots work.
+"""
+import logging
+import signal
+import sys
+import time
+import traceback
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+ET = ZoneInfo("America/New_York")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("/var/log/sports-bot/runner.log"),
+    ],
+)
+# Silence noisy libs
+for _log in ("httpx", "httpcore", "openai._base_client", "tenacity"):
+    logging.getLogger(_log).setLevel(logging.WARNING)
+
+logger = logging.getLogger("runner")
+
+# ── Task imports ───────────────────────────────────────────────────────────────
+
+def _import_tasks():
+    from src.workers.odds_worker       import scan_and_save_odds, scan_player_props
+    from src.workers.news_worker       import fetch_and_save_news
+    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_picks_summary, morning_props_brief, generate_parlays
+    from src.workers.alert_worker      import send_pregame_alerts
+    from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
+    from src.workers.analytics_worker  import (
+        enter_sleep_mode, wake_up_brief, send_daily_summary,
+        send_weekly_summary, send_weekly_fresh_start, run_self_improvement,
+        snapshot_portfolio, send_monthly_summary, yesterday_recap,
+        cleanup_old_snapshots,
+    )
+    return {
+        "scan_and_save_odds":     scan_and_save_odds,
+        "scan_player_props":      scan_player_props,
+        "fetch_and_save_news":    fetch_and_save_news,
+        "generate_picks":         generate_picks,
+        "scan_and_pick_props":    scan_and_pick_props,
+        "morning_picks_summary":  morning_picks_summary,
+        "morning_props_brief":    morning_props_brief,
+        "generate_parlays":       generate_parlays,
+        "send_pregame_alerts":    send_pregame_alerts,
+        "settle_completed_picks": settle_completed_picks,
+        "record_closing_lines":   record_closing_lines,
+        "enter_sleep_mode":       enter_sleep_mode,
+        "wake_up_brief":          wake_up_brief,
+        "send_daily_summary":     send_daily_summary,
+        "send_weekly_summary":    send_weekly_summary,
+        "send_weekly_fresh_start":send_weekly_fresh_start,
+        "run_self_improvement":   run_self_improvement,
+        "snapshot_portfolio":     snapshot_portfolio,
+        "send_monthly_summary":   send_monthly_summary,
+        "yesterday_recap":        yesterday_recap,
+        "cleanup_old_snapshots":  cleanup_old_snapshots,
+    }
+
+
+# ── Schedule definition ────────────────────────────────────────────────────────
+# interval tasks: run every N seconds
+# cron tasks:     run at specific (hour, minute) ET — optionally day_of_week / day_of_month
+
+INTERVAL_TASKS = [
+    # (interval_seconds, task_name)
+    (60,   "send_pregame_alerts"),
+    (300,  "scan_and_save_odds"),
+    (300,  "scan_player_props"),
+    (300,  "scan_and_pick_props"),
+    (600,  "generate_picks"),
+    (900,  "fetch_and_save_news"),
+    (1800, "settle_completed_picks"),
+    (3600, "record_closing_lines"),
+]
+
+CRON_TASKS = [
+    # (hour, minute, task_name, day_of_week=None, day_of_month=None)
+    # day_of_week: 0=Monday … 6=Sunday  (Python weekday())
+    (0,  5,  "snapshot_portfolio",      None, None),
+    (0,  1,  "send_monthly_summary",    None, 1),     # 1st of month
+    (2,  0,  "run_self_improvement",    None, None),
+    (2,  55, "cleanup_old_snapshots",   None, None),
+    (3,  0,  "enter_sleep_mode",        None, None),
+    (5,  0,  "wake_up_brief",           None, None),
+    (6,  0,  "yesterday_recap",         None, None),
+    (8,  0,  "morning_props_brief",     None, None),
+    (9,  0,  "generate_parlays",        None, None),
+    (9,  30, "morning_picks_summary",   None, None),
+    (23, 0,  "send_daily_summary",      None, None),
+    (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
+    (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday
+]
+
+
+def _run(fn, name: str):
+    """Call a task function, swallowing exceptions so the loop never dies."""
+    try:
+        logger.info("► %s", name)
+        # Tasks may be plain functions or Celery tasks with a .run() method
+        result = fn() if callable(fn) else fn.run()
+        logger.info("✓ %s → %s", name, result)
+    except Exception:
+        logger.error("✗ %s failed:\n%s", name, traceback.format_exc())
+
+
+def _cron_matches(hour: int, minute: int, day_of_week, day_of_month, now: datetime) -> bool:
+    if now.hour != hour or now.minute != minute:
+        return False
+    if day_of_week is not None and now.weekday() != day_of_week:
+        return False
+    if day_of_month is not None and now.day != day_of_month:
+        return False
+    return True
+
+
+# ── Main loop ──────────────────────────────────────────────────────────────────
+
+def main():
+    logger.info("Sports Bot runner starting — loading tasks…")
+    tasks = _import_tasks()
+    logger.info("Tasks loaded: %s", sorted(tasks.keys()))
+
+    # Track last-run time for interval tasks
+    last_run: dict[str, float] = {name: 0.0 for _, name in INTERVAL_TASKS}
+    # Track which cron minute was last fired to avoid double-firing
+    last_cron_fired: dict[str, str] = {}
+
+    # Graceful shutdown
+    _running = [True]
+    def _stop(sig, frame):
+        logger.info("Shutdown signal received — stopping…")
+        _running[0] = False
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+
+    logger.info("Runner loop started")
+
+    while _running[0]:
+        now   = datetime.now(ET)
+        ts    = time.monotonic()
+        now_key = now.strftime("%Y-%m-%d %H:%M")   # unique per minute
+
+        # ── Interval tasks ──────────────────────────────────────────────────
+        for interval, name in INTERVAL_TASKS:
+            if ts - last_run[name] >= interval:
+                fn = tasks.get(name)
+                if fn:
+                    _run(fn, name)
+                last_run[name] = ts
+
+        # ── Cron tasks ──────────────────────────────────────────────────────
+        for hour, minute, name, dow, dom in CRON_TASKS:
+            fired_key = f"{name}:{now_key}"
+            if fired_key not in last_cron_fired and _cron_matches(hour, minute, dow, dom, now):
+                fn = tasks.get(name)
+                if fn:
+                    _run(fn, name)
+                last_cron_fired[fired_key] = now_key
+                # Prune old keys to avoid unbounded growth
+                if len(last_cron_fired) > 500:
+                    oldest = sorted(last_cron_fired)[:-200]
+                    for k in oldest:
+                        del last_cron_fired[k]
+
+        time.sleep(1)
+
+    logger.info("Runner stopped cleanly")
+
+
+if __name__ == "__main__":
+    main()

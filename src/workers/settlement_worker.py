@@ -2,7 +2,6 @@
 import logging
 import re
 from datetime import datetime, timedelta
-from src.workers.celery_app import app
 from src.db.session import get_db
 from src.db.models import Pick, Game, Sport, BetResult
 from src.core.timezone import et_naive
@@ -23,8 +22,7 @@ def _normalize_team_name(name: str) -> str:
     return re.sub(r'\s+', ' ', name).lower().strip()
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=120)
-def settle_completed_picks(self):
+def settle_completed_picks():
     """
     Fetch completed games, match against open picks, settle W/L/Push,
     compute actual P&L, and fire result alerts.
@@ -124,7 +122,7 @@ def settle_completed_picks(self):
         from src.workers.alert_worker import send_result_alert
         for pick_data, result in alerts_to_send:
             try:
-                send_result_alert.delay(pick_data, result)
+                send_result_alert(pick_data, result)
             except Exception as e:
                 logger.error("Alert dispatch failed for result %s: %s", result, e)
 
@@ -133,7 +131,7 @@ def settle_completed_picks(self):
 
     except Exception as exc:
         logger.error("Settlement failed: %s", exc)
-        raise self.retry(exc=exc)
+        raise
 
 
 def _extract_winner(score_item: dict) -> str | None:
@@ -258,7 +256,6 @@ def _calculate_pnl(pick: Pick, result: str) -> float:
     return 0.0  # push or void
 
 
-@app.task
 def record_closing_lines():
     """Snapshot current odds for open picks — used later for CLV calculation."""
     from src.engines.clv_engine import record_clv
