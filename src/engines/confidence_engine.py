@@ -48,7 +48,16 @@ def _bucket(score: float) -> str:
 def get_calibration_adjustment(sport: str, market: str, bucket: str) -> float:
     """
     Look up historical calibration correction for this sport/market/bucket.
-    Returns adjustment as additive correction to confidence (can be negative).
+
+    The adjustment scales with sample size — the more wins/losses recorded,
+    the more aggressively the bot corrects toward its proven actual win rate.
+    This is how the bot builds genuine confidence from its track record.
+
+    Sample size scaling:
+      < 10  picks : small nudge  (0.25× weight) — too early to trust fully
+      10-29 picks : medium nudge (0.50× weight)
+      30-49 picks : strong nudge (0.75× weight)
+      50+   picks : full correction (1.00×) — track record is definitive
     """
     try:
         from src.db.session import get_db
@@ -57,8 +66,24 @@ def get_calibration_adjustment(sport: str, market: str, bucket: str) -> float:
             rec = db.query(ConfidenceCalibration).filter_by(
                 sport=sport, market=market, confidence_bucket=bucket,
             ).first()
-            if rec and rec.actual_win_rate is not None and rec.sample_size >= 20:
-                return rec.actual_win_rate - rec.predicted_win_rate
+            if rec and rec.actual_win_rate is not None and rec.sample_size >= 5:
+                raw_adj = rec.actual_win_rate - rec.predicted_win_rate
+                n = rec.sample_size
+                if n >= 50:
+                    scale = 1.00
+                elif n >= 30:
+                    scale = 0.75
+                elif n >= 10:
+                    scale = 0.50
+                else:
+                    scale = 0.25
+                adj = raw_adj * scale
+                logger.debug(
+                    "Calibration [%s/%s/%s]: actual=%.1f%% predicted=%.1f%% n=%d adj=%+.3f",
+                    sport, market, bucket,
+                    rec.actual_win_rate * 100, rec.predicted_win_rate * 100, n, adj,
+                )
+                return adj
     except Exception as e:
         logger.warning("Calibration lookup failed: %s", e)
     return 0.0

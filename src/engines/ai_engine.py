@@ -69,24 +69,39 @@ Analyse the provided betting opportunity and return ONLY valid JSON — no markd
   "parlay_friendly": true|false
 }
 
-CONFIDENCE GUIDELINES — be honest and bold when the data supports it:
-- 0.50-0.55: Slight lean, data is mixed or thin. Consider PASS.
+CONFIDENCE GUIDELINES — use ALL available data and express your true conviction:
+- 0.50-0.55: Data is thin or contradictory. PASS unless a clear signal exists.
 - 0.55-0.65: Moderate edge — one or two clear signals (injury, form, line value).
-- 0.65-0.75: Strong edge — multiple signals aligned (sharp money + injury + form + value).
-- 0.75-0.85: Very strong — overwhelming evidence, dominant team, key opponent injury.
-- 0.85+: Rare. Reserved for exceptional situations with near-certain edge.
+- 0.65-0.75: Strong edge — multiple signals aligned (sharp money + injury + form).
+- 0.75-0.85: Very strong — overwhelming evidence, dominant matchup, key injury.
+- 0.85-0.92: Elite conviction — nearly all signals agree, market is mispriced.
+- 0.92-1.00: Maximum certainty — every available signal points the same direction,
+             the line is significantly off true probability, historical data is definitive.
 
-SIGNAL CHECKLIST — if 3 or more of these align, confidence should be 0.65+:
-- Key injury to opposing star player
-- Sharp line movement in our direction (steam move)
-- Team on a 5+ game winning streak or dominant recent form
-- Historical H2H dominance (7+ of last 10)
-- Significant odds value vs true probability
-- Weather/venue strongly favours one side
-- Rest advantage (back-to-back vs rested)
+SIGNAL CHECKLIST — count how many align, then set confidence accordingly:
+- Key injury to opposing star player (starter out or severely limited)
+- Sharp line movement in our direction (steam move, line dropped 2+ points)
+- Team on a 5+ game winning streak or dominant recent form (7-3 last 10)
+- Historical H2H dominance (7+ of last 10 head-to-head wins)
+- Significant odds value vs true probability (5%+ edge)
+- Weather/venue strongly favours one side (home court, wind, altitude)
+- Rest advantage (opponent on back-to-back, we are rested)
+- Public betting % heavily on the other side (fade the public setup)
+- Line opening movement that reversed (sharp reversal signal)
 
-Do NOT default to 0.5 or 0.6 out of caution. If the data says 72%, say 72%.
-If the data is genuinely unclear, PASS rather than force a low-confidence bet."""
+Signals aligned → confidence target:
+  2 signals  → 0.60-0.68
+  3 signals  → 0.68-0.76
+  4 signals  → 0.76-0.84
+  5 signals  → 0.84-0.90
+  6+ signals → 0.90-0.97
+
+CRITICAL RULES:
+- Use every piece of data you are given. Injury reports, sharp action, H2H, form, weather — all of it.
+- Do NOT default to 0.5 or 0.6 out of caution. If the data says 80%, say 80%.
+- Do NOT cap yourself. If 6 signals align and the data is definitive, go to 0.93 or higher.
+- If the data is genuinely unclear and fewer than 2 signals exist, PASS. Do not force a low-confidence bet.
+- Your confidence score is the foundation the bot uses to build its track record. Be accurate, not safe."""
 
 _DISCUSSION_SYSTEM = """You are the AI analyst for a Sports Intelligence Platform.
 Answer questions about EV, risk, confidence, injuries, matchups, market movement, CLV, and statistical reasoning.

@@ -100,7 +100,7 @@ def generate_picks():
                 sport               = sport_key,
                 market              = "h2h",
             )
-            if confidence.calibrated_score < 0.52 or ev_result.ev_pct < 0.005:
+            if confidence.calibrated_score < 0.52:
                 continue
             market    = ai.get("market", best_snap.get("market", "h2h"))
             selection = ai.get("selection", "")
