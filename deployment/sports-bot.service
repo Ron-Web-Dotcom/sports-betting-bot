@@ -11,6 +11,7 @@ EnvironmentFile=/root/sports-bot/.env
 ExecStart=/bin/bash -c '\
   /root/sports-bot/venv/bin/celery -A src.workers.celery_app worker \
     --loglevel=info --detach \
+    -Q odds,news,picks,alerts,settlement,analytics,celery \
     --pidfile=/tmp/sports-bot-worker.pid \
     --logfile=/var/log/sports-bot/worker.log && \
   /root/sports-bot/venv/bin/celery -A src.workers.celery_app beat \
