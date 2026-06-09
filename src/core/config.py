@@ -120,13 +120,16 @@ KALSHI_PRIVATE_KEY = _optional("KALSHI_PRIVATE_KEY")
 # Leave blank to disable proxy (direct connection).
 DECODO_PROXY_URL = _optional("DECODO_PROXY_URL")   # e.g. http://user:pass@gate.decodo.com
 
-# Domains that must NEVER go through the proxy (proper APIs with keys)
+# Domains that must NEVER go through the proxy
+# Rule: bypass if (a) key-authenticated API, or (b) free public API that blocks proxies
 PROXY_BYPASS_HOSTS = {
     "api.the-odds-api.com",
     "external-api.kalshi.com",
     "api.openai.com",
     "gamma-api.polymarket.com",
     "clob.polymarket.com",
+    "api.sleeper.app",       # free public API — no auth, proxy causes 502
+    "site.api.espn.com",     # ESPN public API — no auth needed
 }
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
