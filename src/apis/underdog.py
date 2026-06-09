@@ -63,8 +63,13 @@ def get_over_under_lines(sport_key: str | None = None) -> list[dict]:
       → appearances[id] → appearances[player_id] → players[id]
     """
     data = _get("/beta/v5/over_under_lines")
-    if not data or not isinstance(data, dict):
+    if not data:
+        logger.warning("Underdog: NULL response — proxy may be blocking or SSL error")
         return []
+    if not isinstance(data, dict):
+        logger.warning("Underdog: unexpected response type %s — keys: %s", type(data).__name__, str(data)[:200])
+        return []
+    logger.info("Underdog response keys: %s", list(data.keys()))
 
     # Index by both str and raw id to handle mixed int/str keys from the API
     players_raw = data.get("players", [])

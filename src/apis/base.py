@@ -74,6 +74,7 @@ def _get_proxy_client(proxy_base_url: str) -> httpx.Client:
                 timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
                 follow_redirects=True,
                 max_redirects=3,
+                verify=False,   # residential proxy does MITM — disable SSL verify for proxied requests
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
                 proxy=f"{proxy_base_url}:{port}",
             )
