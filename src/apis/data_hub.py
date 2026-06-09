@@ -56,9 +56,6 @@ def build_game_context(
         "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
         # SportsData.io — checks for its own API key, returns {} if unconfigured
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
-        # Player prop lines — PrizePicks and Underdog (public, no key needed)
-        "prizepicks_props":    (_fetch_prizepicks_props,  (sport_key, home_team, away_team)),
-        "underdog_props":      (_fetch_underdog_props,    (sport_key, home_team, away_team)),
         # Exchange / prediction markets
         "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
     }
@@ -271,8 +268,6 @@ def _score_completeness(context: dict) -> float:
     # Bonus sources (each adds depth without penalising missing keys)
     bonus = 0.0
     if context.get("sportsdataio"):     bonus += 0.10  # standings + injuries + team stats
-    if context.get("prizepicks_props"): bonus += 0.04  # PrizePicks prop lines
-    if context.get("underdog_props"):   bonus += 0.03  # Underdog prop lines
     if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
     core_score = sum(core) / len(core)
     return min(1.0, round(core_score + bonus, 4))

@@ -357,8 +357,8 @@ Consider: implied probability vs your assessment, team form, injuries, matchup."
 
 
 def _get_parlay_senders():
-    from src.workers.alert_worker import send_pp_parlay_alert, send_hardrock_parlay_alert
-    return send_pp_parlay_alert, send_hardrock_parlay_alert
+    from src.workers.alert_worker import send_hardrock_parlay_alert
+    return send_hardrock_parlay_alert
 
 
 def scan_todays_games():

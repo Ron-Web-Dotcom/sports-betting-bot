@@ -135,7 +135,7 @@ def send_weekly_summary():
         if props.get("pushes"):
             record += f" - {props['pushes']}P"
         prop_section = (
-            f"\n\n**PrizePicks Props:** {record} ({hit:.1f}% hit rate)"
+            f"\n\n**Props Record:** {record} ({hit:.1f}% hit rate)"
         )
         if props.get("best_sport"):
             sport = props["best_sport"].split("_")[-1].upper()
@@ -357,11 +357,12 @@ def health_check():
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
         # Prop counts from cache
-        all_raw = r.get("props:all")
-        props = json.loads(all_raw) if all_raw else []
-        pp_count  = sum(1 for p in props if p.get("source") == "prizepicks")
-        ud_count  = sum(1 for p in props if p.get("source") == "underdog")
-        last_hash = r.get("props:last_picks_hash")
+        odds_raw = r.get("props:odds_api")
+        odds_props = json.loads(odds_raw) if odds_raw else []
+        kalshi_raw = r.get("kalshi:markets")
+        kalshi_props = json.loads(kalshi_raw) if kalshi_raw else []
+        poly_raw = r.get("polymarket:markets")
+        poly_props = json.loads(poly_raw) if poly_raw else []
         active_picks_raw = r.get("props:active_picks")
         active_picks = json.loads(active_picks_raw) if active_picks_raw else []
         picks_count = len(active_picks)
@@ -372,14 +373,15 @@ def health_check():
         embed = {
             "title": "🟢 Bot Online",
             "description": (
-                f"Scanning live props every 5 minutes.\n"
-                f"Top picks posted when new high-confidence bets are found."
+                f"Scanning odds every 10 min · Props every 20 min · Picks every 20 min.\n"
+                f"Top picks posted when high-confidence edges are found."
             ),
             "color": 0x00C851,
             "fields": [
-                {"name": "PrizePicks",  "value": f"{pp_count:,} props", "inline": True},
-                {"name": "Underdog",    "value": f"{ud_count:,} props", "inline": True},
-                {"name": "Active Picks", "value": f"{picks_count} picks ✅" if picks_count else "None yet ⏳", "inline": True},
+                {"name": "Odds API Props",  "value": f"{len(odds_props):,}", "inline": True},
+                {"name": "Kalshi",          "value": f"{len(kalshi_props):,}", "inline": True},
+                {"name": "Polymarket",      "value": f"{len(poly_props):,}", "inline": True},
+                {"name": "Active Picks",    "value": f"{picks_count} picks ✅" if picks_count else "None yet ⏳", "inline": True},
             ],
             "footer": {"text": f"Health check · {time_str}"},
         }

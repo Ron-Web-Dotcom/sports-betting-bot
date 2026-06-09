@@ -98,7 +98,7 @@ def _find_affected_props(player_name: str, team: str, sport_key: str, r) -> list
     """
     import json
     affected = []
-    raw = r.get("props:prizepicks")
+    raw = r.get("props:odds_api")
     if not raw:
         return []
 
@@ -181,7 +181,7 @@ def _build_injury_alert(change: dict, affected_props: list[dict]) -> dict | None
 
     return {
         "title": f"🚨 Lineup Alert: {player} — {status.upper()}",
-        "description": f"Status update affecting your active PrizePicks props.",
+        "description": f"Status update affecting your active props.",
         "color": color,
         "fields": fields,
     }
