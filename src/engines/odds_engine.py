@@ -172,9 +172,9 @@ def _get_active_sports_cached() -> set[str]:
     """
     Get today's active sports from Redis cache.
     If cache is empty, call Sofascore and cache result until midnight ET.
+    Returns ALL sport_keys that are active — including player prop variants.
     """
     import json
-    from datetime import timezone
     from src.core.config import REDIS_URL
     try:
         import redis as _redis
@@ -185,15 +185,36 @@ def _get_active_sports_cached() -> set[str]:
             return set(json.loads(cached))
 
         # Cache miss — fetch from Sofascore
-        from src.apis.sofascore import get_active_sports_today
-        active = get_active_sports_today()
+        from src.apis.sofascore import get_active_sports_today, SPORT_MAP
+        active_from_sofascore = get_active_sports_today()
+
+        # Expand: if a sport_key is active, also mark all its player-prop variants active.
+        # e.g. basketball_nba active → basketball_wnba, basketball_ncaab also included
+        # because Sofascore checks by slug ("basketball") which covers all variants.
+        from src.apis.sofascore import SPORT_MAP as _SM
+        slug_to_keys: dict[str, list[str]] = {}
+        for sk, slug in _SM.items():
+            slug_to_keys.setdefault(slug, []).append(sk)
+
+        active: set[str] = set(active_from_sofascore)
+        for sk in active_from_sofascore:
+            slug = _SM.get(sk)
+            if slug:
+                active.update(slug_to_keys.get(slug, []))
+
+        # Also include ALL PLAYER_PROP_SPORTS that share a slug with any active sport
+        for sk in list(PLAYER_PROP_SPORTS):
+            slug = _SM.get(sk)
+            if slug and any(_SM.get(a) == slug for a in active_from_sofascore):
+                active.add(sk)
 
         # TTL = seconds until midnight ET
         now_et = et_naive()
         from datetime import datetime as _dt, timedelta
-        midnight = (_dt.combine(now_et.date(), _dt.min.time()) + timedelta(days=1))
+        midnight = _dt.combine(now_et.date(), _dt.min.time()) + timedelta(days=1)
         ttl = max(int((midnight - now_et).total_seconds()), 3600)
         r.setex("sofascore:active_sports", ttl, json.dumps(list(active)))
+        logger.info("Active sports cached (%d): %s", len(active), sorted(active))
         return active
     except Exception as e:
         logger.warning("Active sports cache failed: %s — defaulting to all sports", e)

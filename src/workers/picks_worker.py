@@ -732,6 +732,9 @@ def generate_hardrock_entry():
         now_str  = now_et.strftime("%I:%M %p ET")
         date_str = now_et.strftime("%A, %B %-d")
 
+        def _fmt_odds(v) -> str:
+            return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
+
         leg_lines = []
         for i, p in enumerate(picks, 1):
             sport    = p["sport_key"]
@@ -741,59 +744,56 @@ def generate_hardrock_entry():
             conf     = round(p["confidence"] * 100)
             ev       = round(p["ev_pct"] * 100, 1)
             units    = round(p["units"], 1)
-            odds_val = p["best_odds"]
-            odds_str = f"+{odds_val}" if isinstance(odds_val, int) and odds_val > 0 else str(odds_val)
+            odds_str = _fmt_odds(p["best_odds"])
 
             # Game time
             time_str = ""
             try:
                 from dateutil.parser import parse as _parse
                 t = _parse(p["commence_time"]).astimezone(zoneinfo.ZoneInfo("America/New_York"))
-                time_str = f" · {t.strftime('%-I:%M %p ET')}"
+                time_str = t.strftime("%-I:%M %p ET")
             except Exception:
                 pass
 
-            # Book comparison — bold the best
+            # Book comparison — best book bolded, sorted best→worst
             best_book = (p.get("best_book") or "").lower()
             book_parts = []
-            for bk, bk_odds in sorted(p["books_odds"].items(), key=lambda x: -(x[1] if isinstance(x[1], (int,float)) else -999)):
-                bk_str = f"+{bk_odds}" if isinstance(bk_odds, (int,float)) and bk_odds > 0 else str(bk_odds)
-                if bk.lower() == best_book:
-                    book_parts.append(f"**{bk.title()}: {bk_str}**")
-                else:
-                    book_parts.append(f"{bk.title()}: {bk_str}")
-            book_line = "  |  ".join(book_parts[:5])
+            for bk, bk_odds in sorted(p["books_odds"].items(), key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
+                tag = f"**{bk.upper()}** {_fmt_odds(bk_odds)}" if bk.lower() == best_book else f"{bk.upper()} {_fmt_odds(bk_odds)}"
+                book_parts.append(tag)
+            books_line = " · ".join(book_parts[:5]) if book_parts else "—"
 
-            # Top reason
+            # Key insight — first factor or first sentence of reasoning
             factors   = p.get("key_factors") or []
             reasoning = (p.get("reasoning") or "").strip()
-            top_reason = factors[0] if factors else (reasoning.split(".")[0][:120] if reasoning else "—")
-
-            # Injury flag
-            inj_flag = " ⚠️ injury alert" if p["injuries"] > 0 else ""
+            insight   = factors[0] if factors else (reasoning.split(".")[0][:100] if reasoning else "")
+            inj_note  = "  ⚠️ injuries" if p["injuries"] > 0 else ""
 
             leg_lines.append(
-                f"`{i}.` {emoji} **{p['away_team']} @ {p['home_team']}**  ·  {league}{time_str}{inj_flag}\n"
-                f"     └ {market}: **{p['selection']}**  ·  {odds_str}  ·  {conf}% conf  ·  +{ev}% EV  ·  {units}u\n"
-                f"     └ {book_line}\n"
-                f"     └ _{top_reason}_"
+                f"**{i}. {emoji} {p['away_team']} @ {p['home_team']}**  {time_str}{inj_note}\n"
+                f"> {league}  ·  {market}: **{p['selection']} {odds_str}**  ·  {conf}% conf  ·  +{ev}% EV  ·  {units}u\n"
+                f"> 📚 {books_line}\n"
+                + (f"> *{insight}*" if insight else "")
             )
 
         total_units = round(sum(p["units"] for p in picks), 1)
         avg_conf    = round(sum(p["confidence"] for p in picks) / len(picks) * 100)
         avg_ev      = round(sum(p["ev_pct"] for p in picks) / len(picks) * 100, 1)
 
+        divider = "─" * 36
         embed = {
-            "title":       f"🪨 HardRock Entry — {len(picks)} Picks  ·  {date_str}",
-            "description": "\n\n".join(leg_lines),
+            "title":       f"🪨  HardRock Entry  ·  {date_str}",
+            "description": f"\n{divider}\n\n" + f"\n\n{divider}\n\n".join(leg_lines) + f"\n\n{divider}",
             "color":       0xB71C1C,
             "fields": [
-                {"name": "Total Units",  "value": f"**{total_units}u**",  "inline": True},
-                {"name": "Avg Conf",     "value": f"**{avg_conf}%**",     "inline": True},
-                {"name": "Avg EV",       "value": f"**+{avg_ev}%**",      "inline": True},
-                {"name": "⚠️ Reminder",  "value": "Place manually on HardRock Bet. Research-based — bet responsibly.", "inline": False},
+                {"name": "Picks",       "value": f"**{len(picks)}**",      "inline": True},
+                {"name": "Total Units", "value": f"**{total_units}u**",    "inline": True},
+                {"name": "Avg EV",      "value": f"**+{avg_ev}%**",        "inline": True},
+                {"name": "Avg Conf",    "value": f"**{avg_conf}%**",       "inline": True},
+                {"name": "Generated",   "value": now_str,                  "inline": True},
+                {"name": "Action",      "value": "📲 Place on HardRock Bet", "inline": True},
             ],
-            "footer": {"text": f"Generated {now_str} · Odds API · AI-scored · HardRock Bet"},
+            "footer": {"text": "Odds API · Sofascore · AI research · Bet responsibly"},
         }
 
         _run_async(_post({"embeds": [embed]}))
