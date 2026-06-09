@@ -100,7 +100,7 @@ def generate_picks():
                 sport               = sport_key,
                 market              = "h2h",
             )
-            if confidence.calibrated_score < 0.55 or ev_result.ev_pct < 0.01:
+            if confidence.calibrated_score < 0.52 or ev_result.ev_pct < 0.005:
                 continue
             market    = ai.get("market", best_snap.get("market", "h2h"))
             selection = ai.get("selection", "")
@@ -159,7 +159,7 @@ def generate_picks():
                 if direction is None or best_odds_val is None:
                     continue
                 conf = implied_prob(best_odds_val)
-                if conf < 0.55:
+                if conf < 0.52:
                     continue
                 prop_pool.append({
                     "type":      "prop",
@@ -200,9 +200,9 @@ def generate_picks():
                 blocked_game_keys.add(pick["game_key"])
             entry.append(pick)
 
-        if len(entry) < 2:
-            logger.info("generate_picks: %d qualifying picks -- need at least 2", len(entry))
-            return {"picks": len(entry), "posted": False}
+        if len(entry) < 1:
+            logger.info("generate_picks: no qualifying picks today")
+            return {"picks": 0, "posted": False}
 
         # -- 4. Only post if entry changed --------------------------------
         entry_hash = hashlib.md5(json.dumps(
@@ -500,7 +500,7 @@ def _build_hardrock_candidates(
             market              = "h2h",
         )
 
-        if confidence.calibrated_score < 0.55 or ev_result.ev_pct < 0.01:
+        if confidence.calibrated_score < 0.52 or ev_result.ev_pct < 0.005:
             continue
 
         market    = ai.get("market", best_snap.get("market", "h2h"))
