@@ -150,18 +150,21 @@ def enter_sleep_mode():
     from src.engines.self_improvement_engine import run_full_self_improvement
     from src.db.session import get_db
     from src.db.models import PropResult
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     import zoneinfo, json
 
-    et    = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    today = et.date()
+    et_tz  = zoneinfo.ZoneInfo("America/New_York")
+    et     = datetime.now(et_tz)
+    today  = et.date()
+    day_start_utc = datetime(today.year, today.month, today.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    day_end_utc   = datetime(today.year, today.month, today.day + 1, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
 
     # ── Settled picks today ─────────────────────────────────────────────────────
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
-                PropResult.settled_at >= datetime.combine(today, datetime.min.time()),
-                PropResult.settled_at <  datetime.combine(today + timedelta(days=1), datetime.min.time()),
+                PropResult.settled_at >= day_start_utc,
+                PropResult.settled_at <  day_end_utc,
             ).order_by(PropResult.settled_at.desc()).all()
     except Exception as e:
         logger.warning("enter_sleep_mode: DB query failed: %s", e)
@@ -372,19 +375,21 @@ def todays_recap():
     from src.discord_bot.bot import _post
     from src.db.session import get_db
     from src.db.models import PropResult
-    from datetime import datetime, timedelta, date
+    from datetime import datetime, timedelta, date, timezone
     import zoneinfo, json
 
     et_tz  = zoneinfo.ZoneInfo("America/New_York")
     et_now = datetime.now(et_tz)
     today  = et_now.date()
+    day_start_utc = datetime(today.year, today.month, today.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    day_end_utc   = datetime(today.year, today.month, today.day + 1, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
 
     # ── Pull all prop results settled today ─────────────────────────────────────
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
-                PropResult.settled_at >= datetime.combine(today, datetime.min.time()),
-                PropResult.settled_at <  datetime.combine(today + timedelta(days=1), datetime.min.time()),
+                PropResult.settled_at >= day_start_utc,
+                PropResult.settled_at <  day_end_utc,
             ).order_by(PropResult.settled_at.desc()).all()
     except Exception as e:
         logger.warning("todays_recap: DB query failed: %s", e)
@@ -609,17 +614,21 @@ def yesterday_recap():
     from src.discord_bot.bot import _post
     from src.db.session import get_db
     from src.db.models import PropResult
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     import zoneinfo, json
 
-    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    et_tz     = zoneinfo.ZoneInfo("America/New_York")
+    et        = datetime.now(et_tz)
     yesterday = (et - timedelta(days=1)).date()
+    today     = et.date()
+    yest_start_utc = datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
+    yest_end_utc   = datetime(today.year, today.month, today.day, tzinfo=et_tz).astimezone(timezone.utc).replace(tzinfo=None)
 
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
-                PropResult.settled_at >= datetime.combine(yesterday, datetime.min.time()),
-                PropResult.settled_at <  datetime.combine(et.date(),  datetime.min.time()),
+                PropResult.settled_at >= yest_start_utc,
+                PropResult.settled_at <  yest_end_utc,
             ).all()
     except Exception as e:
         logger.warning("yesterday_recap: DB query failed: %s", e)

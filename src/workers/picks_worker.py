@@ -504,7 +504,6 @@ def morning_picks_summary():
     import redis as _redis
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
     r.delete("props:last_picks_hash")
-    r.delete("props:last_lineshop_hash")
     scan_and_pick_props.delay()
     logger.info("Morning Picks Entry Post triggered at 9:30 AM ET")
     return {"triggered": True}
