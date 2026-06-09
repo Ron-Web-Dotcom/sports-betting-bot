@@ -9,8 +9,8 @@ Proxy routing (Decodo residential):
   - Rotates across 10 sticky endpoints (ports 10001-10010) per request
   - Bypassed for proper keyed APIs (Odds API, Kalshi, OpenAI, Sleeper)
 """
+import itertools
 import logging
-import random
 import threading
 from urllib.parse import urlparse
 
@@ -29,16 +29,24 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Proxy port pool — Decodo sticky endpoints
-_PROXY_PORTS = list(range(10001, 10011))   # 10001–10010
+# Proxy port pool — Decodo sticky endpoints 10001–10010
+_PROXY_PORTS = list(range(10001, 10011))
+_port_cycle  = itertools.cycle(_PROXY_PORTS)   # round-robin across all 10 ports
+_cycle_lock  = threading.Lock()
 
-# Thread-local direct client (no proxy)
+# Direct client (no proxy)
 _direct_client: httpx.Client | None = None
 _direct_lock = threading.Lock()
 
-# Per-(proxy_base_url, port) proxy clients — created on demand
+# Per-(proxy_base_url, port) proxy clients — one persistent client per port
 _proxy_clients: dict[tuple, httpx.Client] = {}
 _proxy_lock = threading.Lock()
+
+
+def _next_port() -> int:
+    """Thread-safe round-robin port selection across 10001–10010."""
+    with _cycle_lock:
+        return next(_port_cycle)
 
 
 def _get_direct_client() -> httpx.Client:
@@ -56,19 +64,18 @@ def _get_direct_client() -> httpx.Client:
 
 
 def _get_proxy_client(proxy_base_url: str) -> httpx.Client:
-    """Return a proxy client on a random sticky port, keyed by (url, port) to respect credential changes."""
-    port = random.choice(_PROXY_PORTS)
-    key = (proxy_base_url, port)
+    """Round-robin across ports 10001–10010, one persistent client per port."""
+    port = _next_port()
+    key  = (proxy_base_url, port)
     with _proxy_lock:
         if key not in _proxy_clients or _proxy_clients[key].is_closed:
-            proxy_url = f"{proxy_base_url}:{port}"
             _proxy_clients[key] = httpx.Client(
                 headers=_HEADERS,
                 timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
                 follow_redirects=True,
                 max_redirects=3,
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-                proxy=proxy_url,
+                proxy=f"{proxy_base_url}:{port}",
             )
         return _proxy_clients[key]
 
