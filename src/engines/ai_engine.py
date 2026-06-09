@@ -9,11 +9,39 @@ Wraps OpenAI for:
 """
 import json
 import logging
-from openai import OpenAI, APIError
+import httpx
+from openai import OpenAI, APIConnectionError, APIError
 from src.core.config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
+
+# Primary client — direct connection
 _client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Fallback proxy client — created on first use
+_proxy_client: OpenAI | None = None
+
+
+def _get_proxy_client() -> OpenAI:
+    global _proxy_client
+    if _proxy_client is None:
+        try:
+            from src.core.config import DECODO_PROXY_URL
+            from src.apis.base import _next_port
+            if DECODO_PROXY_URL:
+                port = _next_port()
+                proxy_url = f"{DECODO_PROXY_URL}:{port}"
+                _proxy_client = OpenAI(
+                    api_key=OPENAI_API_KEY,
+                    http_client=httpx.Client(proxy=proxy_url, timeout=30.0),
+                )
+                logger.info("OpenAI proxy fallback client created on port %s", port)
+            else:
+                _proxy_client = _client  # no proxy configured — reuse direct
+        except Exception as e:
+            logger.warning("Could not create OpenAI proxy client: %s", e)
+            _proxy_client = _client
+    return _proxy_client
 
 
 # ── System prompts ─────────────────────────────────────────────────────────────
@@ -156,22 +184,37 @@ def write_weekly_summary(stats: dict) -> str:
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
+def _chat(messages: list, client: OpenAI | None = None) -> str | None:
+    """Single chat call — tries direct, falls back to proxy on connection error."""
+    c = client or _client
+    try:
+        resp = c.chat.completions.create(
+            model=OPENAI_MODEL,
+            max_tokens=OPENAI_MAX_TOKENS,
+            messages=messages,
+        )
+        return resp.choices[0].message.content.strip() if resp.choices else None
+    except APIConnectionError as e:
+        if c is _client:
+            logger.warning("OpenAI direct connection failed (%s) — retrying via proxy", e)
+            return _chat(messages, client=_get_proxy_client())
+        logger.error("OpenAI proxy connection also failed: %s", e)
+        return None
+    except APIError as e:
+        logger.error("OpenAI API error: %s", e)
+        return None
+
+
 def _call_json(prompt: str, system: str) -> dict | None:
     raw = ""
     try:
-        resp = _client.chat.completions.create(
-            model=OPENAI_MODEL,
-            max_tokens=OPENAI_MAX_TOKENS,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": prompt},
-            ],
-        )
-        raw = resp.choices[0].message.content.strip() if resp.choices else ""
+        raw = _chat([
+            {"role": "system", "content": system},
+            {"role": "user",   "content": prompt},
+        ]) or ""
         if not raw:
             logger.warning("OpenAI returned empty content")
             return None
-        # Strip markdown code fences sometimes wrapping JSON
         if raw.startswith("```"):
             raw = raw.split("```", 2)[1]
             if raw.startswith("json"):
@@ -181,22 +224,10 @@ def _call_json(prompt: str, system: str) -> dict | None:
     except json.JSONDecodeError as e:
         logger.error("OpenAI JSON parse error: %s | raw=%r", e, raw[:200])
         return None
-    except APIError as e:
-        logger.error("OpenAI API error: %s", e)
-        return None
 
 
 def _call_text(prompt: str, system: str) -> str | None:
-    try:
-        resp = _client.chat.completions.create(
-            model=OPENAI_MODEL,
-            max_tokens=OPENAI_MAX_TOKENS,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": prompt},
-            ],
-        )
-        return resp.choices[0].message.content.strip() if resp.choices else None
-    except APIError as e:
-        logger.error("OpenAI API error: %s", e)
-        return None
+    return _chat([
+        {"role": "system", "content": system},
+        {"role": "user",   "content": prompt},
+    ])
