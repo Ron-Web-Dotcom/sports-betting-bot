@@ -36,8 +36,8 @@ _PROXY_PORTS = list(range(10001, 10011))   # 10001–10010
 _direct_client: httpx.Client | None = None
 _direct_lock = threading.Lock()
 
-# Per-port proxy clients — created on demand
-_proxy_clients: dict[int, httpx.Client] = {}
+# Per-(proxy_base_url, port) proxy clients — created on demand
+_proxy_clients: dict[tuple, httpx.Client] = {}
 _proxy_lock = threading.Lock()
 
 
@@ -56,12 +56,13 @@ def _get_direct_client() -> httpx.Client:
 
 
 def _get_proxy_client(proxy_base_url: str) -> httpx.Client:
-    """Return a proxy client on a random sticky port, creating it if needed."""
+    """Return a proxy client on a random sticky port, keyed by (url, port) to respect credential changes."""
     port = random.choice(_PROXY_PORTS)
+    key = (proxy_base_url, port)
     with _proxy_lock:
-        if port not in _proxy_clients or _proxy_clients[port].is_closed:
+        if key not in _proxy_clients or _proxy_clients[key].is_closed:
             proxy_url = f"{proxy_base_url}:{port}"
-            _proxy_clients[port] = httpx.Client(
+            _proxy_clients[key] = httpx.Client(
                 headers=_HEADERS,
                 timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
                 follow_redirects=True,
@@ -69,7 +70,7 @@ def _get_proxy_client(proxy_base_url: str) -> httpx.Client:
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
                 proxy=proxy_url,
             )
-        return _proxy_clients[port]
+        return _proxy_clients[key]
 
 
 def _should_proxy(url: str) -> bool:

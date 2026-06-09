@@ -66,20 +66,39 @@ def get_over_under_lines(sport_key: str | None = None) -> list[dict]:
     if not data or not isinstance(data, dict):
         return []
 
-    players = {p["id"]: p for p in data.get("players", [])}
-    appearances = {a["id"]: a for a in data.get("appearances", [])}
+    # Index by both str and raw id to handle mixed int/str keys from the API
+    players_raw = data.get("players", [])
+    appearances_raw = data.get("appearances", [])
+    players = {}
+    for p in players_raw:
+        players[str(p["id"])] = p
+    appearances = {}
+    for a in appearances_raw:
+        appearances[str(a["id"])] = a
+
     lines = data.get("over_under_lines", [])
+    logger.info("Underdog raw: %d lines, %d appearances, %d players", len(lines), len(appearances), len(players))
 
     target_sport = _SPORT_MAP.get(sport_key, "") if sport_key else ""
 
     out = []
     for line in lines:
-        ou = line.get("over_under", {})
-        app_stat = ou.get("appearance_stat", {})
+        ou = line.get("over_under") or {}
+        app_stat = ou.get("appearance_stat") or {}
 
         appearance_id = app_stat.get("appearance_id")
+        if appearance_id is None:
+            # fallback: some versions put appearance_id directly on over_under
+            appearance_id = ou.get("appearance_id")
+        if appearance_id is None:
+            continue
+
         app = appearances.get(str(appearance_id), {})
-        player = players.get(str(app.get("player_id", "")), {})
+        if not app:
+            continue
+
+        player_id = app.get("player_id")
+        player = players.get(str(player_id), {}) if player_id is not None else {}
 
         sport = app.get("sport_id", "")
         if target_sport and sport.upper() != target_sport.upper():
@@ -96,7 +115,9 @@ def get_over_under_lines(sport_key: str | None = None) -> list[dict]:
 
         name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
         if not name:
-            continue  # skip if player lookup failed
+            name = player.get("display_name", "") or player.get("name", "")
+        if not name:
+            continue
 
         out.append({
             "subject":   name,

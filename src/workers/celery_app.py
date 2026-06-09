@@ -144,9 +144,4 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.cleanup_old_snapshots",
         "schedule": crontab(hour=2, minute=55),
     },
-    # 9:30 AM ET — Picks Entry Post (force-fresh scan)
-    "morning-picks-930am": {
-        "task": "src.workers.picks_worker.morning_picks_summary",
-        "schedule": crontab(hour=9, minute=30),
-    },
 }
