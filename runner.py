@@ -33,7 +33,7 @@ logger = logging.getLogger("runner")
 def _import_tasks():
     from src.workers.odds_worker       import scan_and_save_odds, scan_player_props
     from src.workers.news_worker       import fetch_and_save_news
-    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_picks_summary, morning_props_brief, generate_parlays
+    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays
     from src.workers.alert_worker      import send_pregame_alerts
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
     from src.workers.analytics_worker  import (
@@ -48,7 +48,6 @@ def _import_tasks():
         "fetch_and_save_news":    fetch_and_save_news,
         "generate_picks":         generate_picks,
         "scan_and_pick_props":    scan_and_pick_props,
-        "morning_picks_summary":  morning_picks_summary,
         "morning_props_brief":    morning_props_brief,
         "generate_parlays":       generate_parlays,
         "send_pregame_alerts":    send_pregame_alerts,
@@ -95,7 +94,7 @@ CRON_TASKS = [
     (6,  0,  "yesterday_recap",         None, None),
     (8,  0,  "morning_props_brief",     None, None),
     (9,  0,  "generate_parlays",        None, None),
-    (9,  30, "morning_picks_summary",   None, None),
+    (9,  30, "scan_and_pick_props",      None, None),  # force-fresh morning scan
     (23, 0,  "send_daily_summary",      None, None),
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday
