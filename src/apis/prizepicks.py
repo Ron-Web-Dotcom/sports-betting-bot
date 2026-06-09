@@ -183,20 +183,89 @@ def get_player_props(sport_key: str) -> list[dict]:
 
 
 def get_all_projections() -> list[dict]:
-    """Fetch all player + team projections for every mapped sport in parallel."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    results = []
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {
-            pool.submit(get_projections, sport_key): sport_key
-            for sport_key in _LEAGUE_IDS
+    """
+    Fetch ALL active projections in 2 calls (player + team) then filter by known leagues.
+    Avoids 13 per-league round trips that trigger blocks.
+    """
+    # Build reverse map: league_id → sport_key
+    id_to_sport = {v: k for k, v in _LEAGUE_IDS.items()}
+
+    params = {"per_page": 500, "single_stat": True}
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_player = pool.submit(_get, "/projections", params)
+        f_team   = pool.submit(_get, "/projections", {**params, "is_team_prop": "true"})
+        player_data = f_player.result()
+        team_data   = f_team.result()
+
+    if not player_data:
+        logger.warning("PrizePicks: NULL response for all player props — blocked or SSL error")
+    if not team_data:
+        logger.warning("PrizePicks: NULL response for all team props")
+
+    out = []
+    for data, is_team in [(player_data, False), (team_data, True)]:
+        if not data:
+            continue
+        raw      = data.get("data", []) if isinstance(data, dict) else []
+        included = {
+            item["id"]: item
+            for item in (data.get("included", []) if isinstance(data, dict) else [])
         }
-        for future in as_completed(futures, timeout=30):
-            try:
-                results.extend(future.result())
-            except Exception as e:
-                logger.warning("PrizePicks fetch failed for %s: %s", futures[future], e)
-    return results
+        logger.info("PrizePicks raw: %d %s projections", len(raw), "team" if is_team else "player")
+        for proj in raw:
+            attrs         = proj.get("attributes", {})
+            relationships = proj.get("relationships", {})
+            league_id     = attrs.get("league_id") or attrs.get("league", {}).get("id")
+            # Try to get league_id from relationships too
+            if league_id is None:
+                league_rel = relationships.get("league", {}).get("data", {})
+                try:
+                    league_id = int(league_rel.get("id", 0)) or None
+                except (TypeError, ValueError):
+                    league_id = None
+
+            sport_key = id_to_sport.get(league_id, "")
+
+            line = attrs.get("line_score")
+            stat = attrs.get("stat_type", "")
+            if line is None or not stat:
+                continue
+
+            if is_team:
+                team_rel   = relationships.get("new_player", {}).get("data", {})
+                team_obj   = included.get(team_rel.get("id", ""), {})
+                subject    = attrs.get("name") or team_obj.get("attributes", {}).get("name", "Unknown Team")
+                team       = subject
+                player     = None
+            else:
+                player_rel   = relationships.get("new_player", {}).get("data", {})
+                player_obj   = included.get(player_rel.get("id", ""), {})
+                player_attrs = player_obj.get("attributes", {})
+                player       = attrs.get("name") or player_attrs.get("name", "Unknown")
+                team         = player_attrs.get("team", "") or attrs.get("team", "")
+                subject      = player
+
+            out.append({
+                "subject":      subject,
+                "player":       player,
+                "team":         team,
+                "opponent":     attrs.get("opponent_name", ""),
+                "stat":         stat,
+                "line":         float(line),
+                "game_time":    attrs.get("start_time", ""),
+                "status":       attrs.get("status", ""),
+                "is_team_prop": is_team,
+                "sport_key":    sport_key,
+                "league_id":    league_id,
+                "source":       "prizepicks",
+            })
+
+    player_count = sum(1 for p in out if not p["is_team_prop"])
+    team_count   = sum(1 for p in out if p["is_team_prop"])
+    logger.info("PrizePicks: %d player + %d team props total", player_count, team_count)
+    return out
 
 
 def find_prop(sport_key: str, name: str, stat: str) -> dict | None:
