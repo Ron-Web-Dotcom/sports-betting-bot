@@ -407,27 +407,6 @@ def scan_and_pick_props(self):
         from src.engines.prop_engine import score_props
         picks, watchlist = score_props(props)
 
-        # ── Line shop: cross-reference PP vs Underdog for same prop ──────────
-        try:
-            from src.engines.line_shop_engine import find_discrepancies
-            pp_props = [p for p in props if p.get("source") == "prizepicks"]
-            ud_props = [p for p in props if p.get("source") == "underdog"]
-            if pp_props and ud_props:
-                discrepancies = find_discrepancies(pp_props, ud_props)
-                if discrepancies:
-                    import dataclasses as _dc
-                    disc_dicts = [_dc.asdict(d) for d in discrepancies[:10]]
-                    disc_hash = hashlib.md5(
-                        json.dumps(disc_dicts, sort_keys=True).encode()
-                    ).hexdigest()
-                    if r.get("props:last_lineshop_hash") != disc_hash:
-                        r.setex("props:last_lineshop_hash", 3600, disc_hash)
-                        from src.workers.alert_worker import send_line_shop_alert
-                        send_line_shop_alert.delay(disc_dicts)
-                        logger.info("Line shop: %d discrepancies posted", len(discrepancies))
-        except Exception as _lse:
-            logger.warning("Line shop check failed: %s", _lse)
-
         if not picks:
             return {"props_analysed": len(props), "picks": 0}
 
@@ -441,49 +420,73 @@ def scan_and_pick_props(self):
         picks_changed = picks_hash != last_hash
         if picks_changed:
             r.setex("props:last_picks_hash", 3600, picks_hash)
+            # Store active picks so odds_worker can track line moves on them
             r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
 
-            # ── Build HardRock games ──────────────────────────────────────────
-            hr_games = []
+            # ── Build HardRock games list ─────────────────────────────────────
+            hr_games: list[dict] = []
             try:
                 from src.engines.odds_engine import get_latest_snapshots_by_game
-                for gid, snap_list in list(get_latest_snapshots_by_game().items())[:4]:
-                    if snap_list:
-                        s = snap_list[0]
-                        hr_games.append({
-                            "home_team": s.get("home_team",""), "away_team": s.get("away_team",""),
-                            "sport_key": s.get("sport_key",""), "commence_time": str(s.get("commence_time","")),
-                            "best_odds": s.get("best_odds",-110), "book": s.get("book","HardRock"),
-                            "market": s.get("market","h2h"), "selection": s.get("selection",""),
-                        })
+                snaps = get_latest_snapshots_by_game()
+                for gid, snap_list in list(snaps.items())[:8]:
+                    if not snap_list:
+                        continue
+                    s = snap_list[0]
+                    hr_games.append({
+                        "home_team":     s.get("home_team", ""),
+                        "away_team":     s.get("away_team", ""),
+                        "sport_key":     s.get("sport_key", ""),
+                        "commence_time": str(s.get("commence_time", "")),
+                        "best_odds":     s.get("best_odds", -110),
+                        "book":          s.get("book", "HardRock"),
+                        "market":        s.get("market", "h2h"),
+                        "selection":     s.get("selection", ""),
+                    })
             except Exception:
                 pass
+            if not hr_games:
+                seen: set = set()
+                for p in pick_dicts:
+                    key = f"{p.get('team')}|{p.get('opponent')}"
+                    if p.get("team") and p.get("opponent") and key not in seen:
+                        seen.add(key)
+                        hr_games.append({
+                            "home_team": p.get("team", ""), "away_team": p.get("opponent", ""),
+                            "sport_key": p.get("sport_key", ""), "commence_time": p.get("game_time", ""),
+                            "best_odds": -110, "book": "HardRock", "market": "h2h",
+                            "selection": p.get("team", ""),
+                        })
 
-            # ── Kalshi + Polymarket ───────────────────────────────────────────
-            kalshi_scored, poly_scored = [], []
-            for key, store in (("kalshi:markets", kalshi_scored), ("polymarket:markets", poly_scored)):
-                try:
-                    raw2 = r.get(key)
-                    if raw2:
-                        store.extend(_score_kalshi_markets(json.loads(raw2))[:4])
-                except Exception:
-                    pass
-
-            # ── Line shop discrepancies ───────────────────────────────────────
-            disc_dicts = []
+            # ── Build Kalshi + Polymarket scored lists ────────────────────────
+            kalshi_scored: list[dict] = []
+            poly_scored:   list[dict] = []
             try:
-                from src.engines.line_shop_engine import find_discrepancies
-                pp_raw = [p for p in props if p.get("source") == "prizepicks"]
-                ud_raw = [p for p in props if p.get("source") == "underdog"]
-                if pp_raw and ud_raw:
-                    disc_dicts = [dataclasses.asdict(d) for d in find_discrepancies(pp_raw, ud_raw)[:5]]
+                kalshi_raw = r.get("kalshi:markets")
+                if kalshi_raw:
+                    kalshi_scored = _score_kalshi_markets(json.loads(kalshi_raw))
+            except Exception:
+                pass
+            try:
+                poly_raw = r.get("polymarket:markets")
+                if poly_raw:
+                    poly_scored = _score_kalshi_markets(json.loads(poly_raw))
             except Exception:
                 pass
 
             # ── ONE combined Picks Entry Post ─────────────────────────────────
             from src.workers.alert_worker import send_picks_entry_post
-            send_picks_entry_post.delay(pick_dicts, hr_games, kalshi_scored, poly_scored, disc_dicts)
-            logger.info("Picks entry posted: %d picks", len(picks))
+            disc_dicts: list[dict] = []
+            try:
+                from src.engines.line_shop_engine import find_discrepancies
+                import dataclasses as _dc
+                pp_p = [p for p in props if p.get("source") == "prizepicks"]
+                ud_p = [p for p in props if p.get("source") == "underdog"]
+                if pp_p and ud_p:
+                    disc_dicts = [_dc.asdict(d) for d in find_discrepancies(pp_p, ud_p)[:10]]
+            except Exception:
+                pass
+            send_picks_entry_post.delay(pick_dicts, hr_games[:4], kalshi_scored, poly_scored, disc_dicts)
+            logger.info("Picks entry post dispatched: %d picks", len(picks))
         else:
             logger.info("Prop picks unchanged — skipping Discord post")
 
@@ -496,7 +499,7 @@ def scan_and_pick_props(self):
 
 @app.task
 def morning_picks_summary():
-    """9:30 AM ET — force-fresh Picks Entry Post regardless of pick count."""
+    """9:30 AM ET — force-fresh Picks Entry Post regardless of pick count or hash."""
     from src.core.config import REDIS_URL
     import redis as _redis
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
@@ -504,6 +507,7 @@ def morning_picks_summary():
     r.delete("props:last_lineshop_hash")
     scan_and_pick_props.delay()
     logger.info("Morning Picks Entry Post triggered at 9:30 AM ET")
+    return {"triggered": True}
 
 
 def _score_kalshi_markets(markets: list[dict], top_n: int = 6) -> list[dict]:

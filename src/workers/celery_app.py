@@ -92,10 +92,10 @@ app.conf.beat_schedule = {
         "task": "src.workers.analytics_worker.wake_up_brief",
         "schedule": crontab(hour=5, minute=0),
     },
-    # 8:00 AM ET — full props blast (PP / HardRock lines go live ~8 AM)
-    "morning-props-8am": {
-        "task": "src.workers.picks_worker.morning_props_brief",
-        "schedule": crontab(hour=8, minute=0),
+    # 9:30 AM ET — Picks Entry Post (force-fresh scan)
+    "morning-picks-930am": {
+        "task": "src.workers.picks_worker.morning_picks_summary",
+        "schedule": crontab(hour=9, minute=30),
     },
 
     # ── Settlement & analytics ─────────────────────────────────────────────────
@@ -108,11 +108,6 @@ app.conf.beat_schedule = {
     "record-clv-hourly": {
         "task": "src.workers.settlement_worker.record_closing_lines",
         "schedule": 3600,
-    },
-    # Daily summary — 11 PM Eastern
-    "daily-summary": {
-        "task": "src.workers.analytics_worker.send_daily_summary",
-        "schedule": crontab(hour=23, minute=0),
     },
     # Weekly summary — Sunday midnight Eastern
     "weekly-summary": {
