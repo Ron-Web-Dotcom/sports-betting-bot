@@ -128,8 +128,7 @@ PROXY_BYPASS_HOSTS = {
     "clob.polymarket.com",
     "api.sleeper.app",
     "site.api.espn.com",
-    "api.prizepicks.com",        # blocks proxy IPs — go direct
-    "api.underdogfantasy.com",   # blocks proxy IPs — go direct
+    "api.underdogfantasy.com",   # works direct — blocks proxy IPs
 }
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
