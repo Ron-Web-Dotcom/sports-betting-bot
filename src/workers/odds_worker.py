@@ -166,24 +166,25 @@ def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> lis
 
 def scan_player_props():
     """
-    Scan betting apps for live odds, props, and markets every 10 min.
+    Scan all prop sources every 20 min.
 
     Sources:
-      PrizePicks  — player Over/Under props (public, no key)
+      Odds API    — player props (100K plan, all markets)
       Underdog    — player Over/Under props (public, no key)
-      HardRock    — ML/spread/totals via Odds API (already in scan_and_save_odds)
-      Kalshi      — prediction market contracts (KALSHI_API_KEY_ID required)
+      Kalshi      — prediction market contracts
+      Polymarket  — prediction markets
+      PrizePicks  — DISABLED (blocks both proxy and direct DigitalOcean IP)
 
-    Results cached in Redis (TTL 15 min) for picks_worker to read.
+    Results cached in Redis (TTL 25 min) for picks_worker to read.
     """
     if _is_sleep_time():
         logger.debug("scan_player_props: sleep window active, skipping")
         return {"skipped": "sleep_mode"}
     try:
-        from src.apis.prizepicks import get_all_projections
         from src.apis.underdog import get_all_lines
         from src.apis.kalshi import get_sports_markets as kalshi_markets
         from src.apis.polymarket import get_sports_markets as polymarket_markets
+        from src.engines.odds_engine import fetch_all_player_props, scan_all_sports
         from src.core.config import REDIS_URL
         import redis as _redis
         import json
@@ -191,15 +192,14 @@ def scan_player_props():
 
         results: dict = {}
         prop_tasks = {
-            "prizepicks": get_all_projections,
-            "underdog":   get_all_lines,
+            "underdog": get_all_lines,
         }
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(fn): name for name, fn in prop_tasks.items()}
-            # Kalshi + Polymarket run in parallel, stored separately
+            futures           = {pool.submit(fn): name for name, fn in prop_tasks.items()}
             kalshi_future     = pool.submit(kalshi_markets)
             polymarket_future = pool.submit(polymarket_markets)
+
             for future in as_completed(futures, timeout=30):
                 name = futures[future]
                 try:
@@ -218,6 +218,16 @@ def scan_player_props():
                 logger.warning("Polymarket scan failed: %s", e)
                 polymarket_result = []
 
+        # Fetch Odds API player props using already-scanned events
+        odds_props = []
+        try:
+            all_events = scan_all_sports()
+            odds_props = fetch_all_player_props(all_events)
+            results["odds_api"] = odds_props
+        except Exception as e:
+            logger.warning("Odds API player props failed: %s", e)
+            results["odds_api"] = []
+
         all_props = []
         for items in results.values():
             all_props.extend(items or [])
@@ -232,18 +242,17 @@ def scan_player_props():
             changes = _detect_prop_changes(prev_items, new_items or [], source_name)
             all_changes.extend(changes)
 
-        # Cache prop snapshots (PP + Underdog only in props:all)
+        # Cache all prop snapshots
         for name, items in results.items():
-            r.setex(f"props:{name}", 900, json.dumps(items or []))
-        r.setex("props:all", 900, json.dumps(all_props))
+            r.setex(f"props:{name}", 1500, json.dumps(items or []))
+        r.setex("props:all", 1500, json.dumps(all_props))
 
-        # Cache Kalshi + Polymarket separately — picked up by picks_worker for AI scoring
+        # Cache Kalshi + Polymarket separately
         if kalshi_result:
-            r.setex("kalshi:markets", 900, json.dumps(kalshi_result))
+            r.setex("kalshi:markets", 1500, json.dumps(kalshi_result))
         if polymarket_result:
-            r.setex("polymarket:markets", 900, json.dumps(polymarket_result))
+            r.setex("polymarket:markets", 1500, json.dumps(polymarket_result))
 
-        # Only alert on changes to picks we already recommended
         if all_changes:
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
             _alert_active_pick_changes(r, all_changes)
@@ -251,6 +260,7 @@ def scan_player_props():
         counts = {k: len(v or []) for k, v in results.items()}
         counts["kalshi"]     = len(kalshi_result or [])
         counts["polymarket"] = len(polymarket_result or [])
+        counts["prizepicks"] = 0  # disabled
         logger.info("Props scan complete: %s | total=%d", counts, len(all_props))
         return {**counts, "total": len(all_props), "changes": len(all_changes)}
 

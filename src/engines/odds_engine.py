@@ -16,6 +16,21 @@ logger = logging.getLogger(__name__)
 
 MARKETS = ["h2h", "spreads", "totals"]
 
+# Player prop markets available on 100K+ plan
+PLAYER_PROP_MARKETS = [
+    "player_points", "player_rebounds", "player_assists",
+    "player_threes", "player_pass_tds", "player_pass_yds",
+    "player_rush_yds", "player_reception_yds", "player_receptions",
+    "player_hits", "player_total_bases", "player_strikeouts",
+    "player_shots_on_target",
+]
+
+# Sports that support player props on Odds API
+PLAYER_PROP_SPORTS = {
+    "basketball_nba", "americanfootball_nfl", "baseball_mlb",
+    "icehockey_nhl",
+}
+
 
 # ── Raw API calls ──────────────────────────────────────────────────────────────
 
@@ -50,6 +65,116 @@ def fetch_event_odds(sport_key: str, event_id: str) -> dict | None:
     return _get(f"/sports/{sport_key}/events/{event_id}/odds", {
         "regions": "us", "markets": ",".join(MARKETS), "oddsFormat": "american",
     })
+
+
+def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
+    """
+    Fetch player props for a single event from Odds API.
+    Returns normalised list of props: {player, stat, line, over_odds, under_odds, books_odds}.
+    Costs 1 credit per market per event — fetch only active events.
+    """
+    if sport_key not in PLAYER_PROP_SPORTS:
+        return []
+
+    # Filter markets relevant to the sport
+    if sport_key == "basketball_nba":
+        markets = ["player_points", "player_rebounds", "player_assists", "player_threes"]
+    elif sport_key == "americanfootball_nfl":
+        markets = ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
+    elif sport_key == "baseball_mlb":
+        markets = ["player_hits", "player_total_bases", "player_strikeouts"]
+    elif sport_key == "icehockey_nhl":
+        markets = ["player_shots_on_target"]
+    else:
+        markets = []
+
+    data = _get(f"/sports/{sport_key}/events/{event_id}/odds", {
+        "regions":    "us",
+        "markets":    ",".join(markets),
+        "oddsFormat": "american",
+        "bookmakers": ",".join(SPORTSBOOKS),
+    })
+    if not data:
+        return []
+
+    props = []
+    for bk in data.get("bookmakers", []):
+        book = bk["key"]
+        for mkt in bk.get("markets", []):
+            stat = mkt["key"].replace("player_", "").replace("_", " ").title()
+            for outcome in mkt.get("outcomes", []):
+                player     = outcome.get("description", outcome.get("name", ""))
+                direction  = outcome.get("name", "").lower()  # "Over" or "Under"
+                line       = outcome.get("point")
+                try:
+                    odds = int(outcome.get("price", -110))
+                except (TypeError, ValueError):
+                    odds = -110
+
+                # Find or create prop entry keyed by (player, stat, line)
+                key = (player, stat, line)
+                existing = next((p for p in props if (p["player"], p["stat"], p["line"]) == key), None)
+                if not existing:
+                    existing = {
+                        "player":      player,
+                        "stat":        stat,
+                        "line":        line,
+                        "over_odds":   {},   # book -> odds
+                        "under_odds":  {},
+                        "sport_key":   sport_key,
+                        "event_id":    event_id,
+                        "source":      "odds_api",
+                    }
+                    props.append(existing)
+
+                if direction == "over":
+                    existing["over_odds"][book] = odds
+                elif direction == "under":
+                    existing["under_odds"][book] = odds
+
+    logger.info("OddsAPI player props: %d props for event %s (%s)", len(props), event_id, sport_key)
+    return props
+
+
+def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
+    """
+    Fetch player props for all active events. Batches by sport to manage credit usage.
+    Only fetches events starting within the next 24 hours.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timezone, timedelta
+    from dateutil.parser import parse as _parse
+
+    cutoff = datetime.now(timezone.utc) + timedelta(hours=24)
+    tasks  = []
+    for sport_key, events in all_events.items():
+        if sport_key not in PLAYER_PROP_SPORTS:
+            continue
+        for ev in events:
+            ct = ev.get("commence_time")
+            try:
+                if isinstance(ct, str):
+                    ct = _parse(ct)
+                if ct and ct.replace(tzinfo=timezone.utc) > cutoff:
+                    continue
+            except Exception:
+                pass
+            tasks.append((sport_key, ev["id"]))
+
+    if not tasks:
+        return []
+
+    all_props = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(fetch_player_props, sk, eid): (sk, eid) for sk, eid in tasks}
+        for fut in futures:
+            try:
+                all_props.extend(fut.result())
+            except Exception as e:
+                logger.warning("Player props fetch failed: %s", e)
+
+    logger.info("OddsAPI player props total: %d across %d events", len(all_props), len(tasks))
+    return all_props
 
 
 # ── Normalised data structures ─────────────────────────────────────────────────
