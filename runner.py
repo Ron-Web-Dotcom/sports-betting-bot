@@ -10,9 +10,13 @@ import sys
 import time
 import traceback
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
+
+# Ensure log directory exists before FileHandler tries to open it
+Path("/var/log/sports-bot").mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -105,8 +109,7 @@ def _run(fn, name: str):
     """Call a task function, swallowing exceptions so the loop never dies."""
     try:
         logger.info("► %s", name)
-        # Tasks may be plain functions or Celery tasks with a .run() method
-        result = fn() if callable(fn) else fn.run()
+        result = fn()
         logger.info("✓ %s → %s", name, result)
     except Exception:
         logger.error("✗ %s failed:\n%s", name, traceback.format_exc())

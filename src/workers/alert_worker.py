@@ -6,11 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run a coroutine from a sync Celery context.
-
-    asyncio.run() always creates a fresh event loop and tears it down
-    cleanly — safe to call from any Celery worker thread.
-    """
+    """Run a coroutine from a synchronous context."""
     return asyncio.run(coro)
 
 
