@@ -14,6 +14,61 @@ def is_sleep_time() -> bool:
 
 
 def send_daily_summary():
+    """
+    Posts the daily summary after the last game of the day has completed.
+    Checks Sofascore for today's latest game end time and waits until it's done.
+    If no game data is available, falls back to posting after 11 PM ET.
+    """
+    import zoneinfo
+    from datetime import datetime, timedelta
+    ET = zoneinfo.ZoneInfo("America/New_York")
+    now_et = datetime.now(ET)
+
+    # Find the latest scheduled game start time today from Redis cache
+    last_game_et = None
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis, json
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        night_raw = r.get("sofascore:night_games")
+        day_raw   = r.get("sofascore:day_games")
+        all_games = (json.loads(night_raw) if night_raw else []) + (json.loads(day_raw) if day_raw else [])
+        if all_games:
+            from dateutil.parser import parse as _parse
+            times = []
+            for ev in all_games:
+                ct = ev.get("commence_time", "")
+                try:
+                    t = _parse(ct).astimezone(ET) if ct else None
+                    if t:
+                        times.append(t)
+                except Exception:
+                    pass
+            if times:
+                last_start = max(times)
+                # Add ~3 hours for game duration
+                last_game_et = last_start + timedelta(hours=3)
+    except Exception:
+        pass
+
+    # Guard: only post once per calendar day
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _day_key = f"daily_summary_sent:{now_et.strftime('%Y-%m-%d')}"
+        if _r.get(_day_key):
+            logger.info("send_daily_summary: already sent today")
+            return {"skipped": "already_sent_today"}
+    except Exception:
+        pass
+
+    # If last game hasn't finished yet, skip — runner will retry next hour
+    if last_game_et and now_et < last_game_et:
+        logger.info("send_daily_summary: last game ends ~%s ET — not ready yet (now %s ET)",
+                    last_game_et.strftime("%I:%M %p"), now_et.strftime("%I:%M %p"))
+        return {"skipped": "games_not_done_yet", "retry_after": last_game_et.isoformat()}
+
     from src.engines.summary_engine import get_daily_summary
     from src.engines.ai_engine import write_daily_summary
     from src.engines.clv_engine import aggregate_clv
@@ -53,6 +108,12 @@ def send_daily_summary():
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import post_daily_summary
     _run_async(post_daily_summary(summary))
+
+    # Mark as sent so retries at 11 PM / 12:30 AM are no-ops
+    try:
+        _r.setex(_day_key, 86400, "1")
+    except Exception:
+        pass
 
     logger.info("Daily summary sent")
     return {"summary_length": len(summary), "stats": daily}

@@ -37,7 +37,7 @@ logger = logging.getLogger("runner")
 def _import_tasks():
     from src.workers.odds_worker       import scan_and_save_odds, scan_player_props, refresh_active_sports
     from src.workers.news_worker       import fetch_and_save_news
-    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays, scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
+    from src.workers.picks_worker      import generate_picks, generate_parlays, scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
     from src.workers.alert_worker      import send_pregame_alerts
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
     from src.workers.analytics_worker  import (
@@ -52,8 +52,6 @@ def _import_tasks():
         "refresh_active_sports":  refresh_active_sports,
         "fetch_and_save_news":    fetch_and_save_news,
         "generate_picks":               generate_picks,
-        "scan_and_pick_props":          scan_and_pick_props,
-        "morning_props_brief":          morning_props_brief,
         "generate_parlays":             generate_parlays,
         "scan_todays_games":            scan_todays_games,
         "generate_hardrock_day_entry":  generate_hardrock_day_entry,
@@ -83,8 +81,7 @@ INTERVAL_TASKS = [
     (60,   "send_pregame_alerts"),    # time-critical — keep sharp
     (600,  "scan_and_save_odds"),     # 10 min — odds don't move every 5 min
     (1200, "scan_player_props"),      # 20 min — props are stable
-    (900,  "scan_and_pick_props"),    # 15 min
-    (1200, "generate_picks"),         # 20 min — no need to regenerate faster
+    (1200, "generate_picks"),         # 20 min — unified game + prop picks
     (1800, "fetch_and_save_news"),    # 30 min — injuries don't change by the minute
     (1800, "settle_completed_picks"), # 30 min — keep
     (3600, "record_closing_lines"),   # 60 min — keep
@@ -102,15 +99,15 @@ CRON_TASKS = [
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
     (6,  0,  "yesterday_recap",         None, None),
     (8,  0,  "scan_todays_games",               None, None),  # Sofascore full scan — split day/night, cache
-    (8,  0,  "morning_props_brief",            None, None),
     (9,  0,  "generate_parlays",               None, None),
-    (9,  30, "scan_and_pick_props",            None, None),  # fresh morning props + odds
     (10, 30, "generate_hardrock_day_entry",    None, None),  # day entry — lines settled by 10:30
     (14, 0,  "scan_todays_games",              None, None),  # re-scan Sofascore for night games
     (14, 0,  "scan_and_save_odds",             None, None),  # pull night game odds fresh at 2 PM
     (14, 0,  "scan_player_props",              None, None),  # pull night props fresh at 2 PM
     (16, 30, "generate_hardrock_night_entry",  None, None),  # night entry — lines settled by 4:30
-    (23, 0,  "send_daily_summary",      None, None),
+    (22, 0,  "send_daily_summary",      None, None),  # checks if last game done; skips if not
+    (23, 0,  "send_daily_summary",      None, None),  # retry at 11 PM
+    (0,  30, "send_daily_summary",      None, None),  # retry at 12:30 AM (late west coast games)
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday
 ]

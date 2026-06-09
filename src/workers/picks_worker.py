@@ -30,494 +30,263 @@ def _is_sleep_time() -> bool:
 
 
 def generate_picks():
+    """
+    Unified pick generation -- runs every 20 min.
+    Scores games (ML/spread/total) + player props, merges into one ranked pool,
+    picks top 2-5 by confidence x EV, posts a single Discord embed.
+    Same-game uniqueness: if a game pick is selected, no prop from that game.
+    Only posts when the selection changes since last run.
+    """
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
     try:
-        # Idempotency guard — prevent duplicate runs within the same 10-min window.
-        # Uses Redis SETNX so only the first concurrent invocation proceeds.
         from src.core.config import REDIS_URL
-        import redis as _redis
+        import redis as _redis, json, hashlib, zoneinfo
         from datetime import datetime
-        _r = _redis.from_url(REDIS_URL, socket_connect_timeout=2, decode_responses=True)
-        _lock_key = f"pick_gen_lock:{datetime.utcnow().strftime('%Y%m%d%H')}"
-        if not _r.set(_lock_key, "1", nx=True, ex=650):
-            logger.info("generate_picks: another instance already running, skipping")
-            return {"skipped": True}
-    except Exception as _lock_exc:
-        logger.warning("Redis lock unavailable (%s) — proceeding without idempotency guard", _lock_exc)
-
-    try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
         from src.engines.news_engine import get_recent_injuries
         from src.engines.confidence_engine import compute_confidence
-        from src.engines.risk_engine import assess
-        from src.engines.comparison_engine import compare_all_markets
+        from src.engines.ev_engine import evaluate, decimal_to_american, implied_prob
         from src.engines.ai_engine import analyse_pick
-        from src.engines.recommendation_engine import build_recommendation, persist_pick
+        from src.apis.data_hub import build_game_context
+        from src.core.sport_labels import get_emoji, get_name
+        from src.workers.alert_worker import _run_async
+        from src.discord_bot.bot import _post
 
-        snapshots = get_latest_snapshots_by_game()
-        injuries = get_recent_injuries()
-        bet_picks = []
+        ET = zoneinfo.ZoneInfo("America/New_York")
+        r  = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+        # -- 1. Score game picks (ML / spread / total) --------------------
+        snapshots  = get_latest_snapshots_by_game()
+        injuries   = get_recent_injuries()
+        game_pool  = []
 
         for game_id, snap_list in snapshots.items():
             if not snap_list:
                 continue
-
             best_snap = snap_list[0]
-            event = {
-                "sport_key": best_snap.get("sport_key", ""),
-                "home_team": best_snap.get("home_team", ""),
-                "away_team": best_snap.get("away_team", ""),
-                "commence_time": str(best_snap.get("commence_time", "")),
-            }
-            game_injuries = [i for i in injuries if
-                             i.get("team") in (event["home_team"], event["away_team"])]
-
-            odds_by_book = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
-
-            # Build full real-world context from all data sources
-            from src.apis.data_hub import build_game_context
-            game_context = build_game_context(
-                sport_key  = event["sport_key"],
-                home_team  = event["home_team"],
-                away_team  = event["away_team"],
-                game_time  = event["commence_time"],
-            )
-
-            # Merge hub injuries (richer) with odds-engine injuries
-            hub_injuries = (
-                game_context.get("injuries_espn_home", []) +
-                game_context.get("rotowire_injuries", [])
-            )
+            sport_key = best_snap.get("sport_key", "")
+            home_team = best_snap.get("home_team", "")
+            away_team = best_snap.get("away_team", "")
+            commence  = str(best_snap.get("commence_time", ""))
+            event     = {"sport_key": sport_key, "home_team": home_team,
+                         "away_team": away_team, "commence_time": commence}
+            game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
+            odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
+            try:
+                game_context = build_game_context(sport_key=sport_key, home_team=home_team,
+                                                   away_team=away_team, game_time=commence)
+            except Exception:
+                game_context = {}
+            hub_injuries = (game_context.get("injuries_espn_home", []) +
+                            game_context.get("rotowire_injuries", []))
             all_injuries = hub_injuries or game_injuries
-
-            hub_news = game_context.get("news_espn", [])
-
+            hub_news     = game_context.get("news_espn", [])
             ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
             if not ai:
-                logger.warning("AI analysis returned None for game_id=%s — skipping", game_id)
                 continue
-
-            from src.engines.ev_engine import american_to_decimal, implied_prob, remove_vig, evaluate
-            best_odds = best_snap.get("best_odds", -110)
-
-            # Use the full evaluate() pipeline for a complete EVResult.
-            # opponent_odds must be the OTHER side of the market (for vig removal),
-            # not a second book's price for the same selection.
-            # The AI returns the opposing side's implied probability; convert back to american.
-            opp_prob = ai.get("opponent_probability")
-            if opp_prob is not None and 0 < opp_prob < 1:
-                from src.engines.ev_engine import decimal_to_american
-                opp_decimal = 1.0 / opp_prob
-                opponent_odds = decimal_to_american(opp_decimal)
-            else:
-                opponent_odds = None
-            ev_result = evaluate(
-                american_odds   = best_odds,
-                projected_prob  = ai.get("win_probability", 0.5),
-                opponent_odds   = opponent_odds,
-            )
-
+            best_odds_val = best_snap.get("best_odds", -110)
+            opp_prob      = ai.get("opponent_probability")
+            opponent_odds = (decimal_to_american(1.0 / opp_prob)
+                             if opp_prob and 0 < opp_prob < 1 else None)
+            ev_result  = evaluate(american_odds=best_odds_val,
+                                   projected_prob=ai.get("win_probability", 0.5),
+                                   opponent_odds=opponent_odds)
             confidence = compute_confidence(
                 ai_win_prob         = ai.get("win_probability", 0.5),
                 model_consensus     = ai.get("confidence", 0.5),
                 line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
                 news_impact_score   = game_context.get("news_impact_score", 0.5),
-                sport               = event["sport_key"],
+                sport               = sport_key,
                 market              = "h2h",
             )
+            if confidence.calibrated_score < 0.55 or ev_result.ev_pct < 0.01:
+                continue
+            market    = ai.get("market", best_snap.get("market", "h2h"))
+            selection = ai.get("selection", "")
+            books_odds = {s["book"]: s["best_odds"] for s in snap_list
+                          if s.get("market") == market and s.get("selection") == selection
+                          and s.get("book")}
+            if not books_odds:
+                books_odds = odds_by_book
+            factors   = ai.get("key_factors") or []
+            reasoning = (ai.get("reasoning") or "").strip()
+            insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
+            game_pool.append({
+                "type":         "game",
+                "score":        confidence.calibrated_score * (1 + ev_result.ev_pct),
+                "game_key":     f"{home_team}:{away_team}".lower(),
+                "sport_key":    sport_key,
+                "home_team":    home_team,
+                "away_team":    away_team,
+                "commence_time":commence,
+                "market":       market,
+                "selection":    selection,
+                "best_odds":    best_odds_val,
+                "best_book":    best_snap.get("book", "hardrock"),
+                "books_odds":   books_odds,
+                "ev_pct":       ev_result.ev_pct,
+                "confidence":   confidence.calibrated_score,
+                "units":        ev_result.units,
+                "insight":      insight,
+                "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
+            })
 
-            # Adjust confidence down when data is incomplete
-            data_quality = game_context.get("data_completeness", 1.0)
-            if data_quality < 0.5:
-                confidence.calibrated_score = round(confidence.calibrated_score * data_quality, 4)
-
-            risk = assess(
-                requested_units  = ev_result.units,
-                sport            = event["sport_key"],
-                ev_pct           = ev_result.ev_pct,
-                confidence       = confidence.calibrated_score,
-                win_prob         = ev_result.projected_prob,
-                decimal_odds     = ev_result.decimal_odds,
-                injury_flags     = sum(1 for i in all_injuries if i.get("status") in ("out", "doubtful")),
-            )
-
-            # compare_all_markets expects {markets: {market: {selection: [book_entries]}}}
-            # Build that structure from the flat snap_list
-            from src.engines.ev_engine import american_to_decimal, implied_prob as _ip  # noqa: F811
-            markets_dict: dict = {}
-            for s in snap_list:
-                mkt, sel, book = s.get("market","h2h"), s.get("selection",""), s.get("book","")
-                odds = s.get("best_odds", -110)
-                markets_dict.setdefault(mkt, {}).setdefault(sel, []).append({
-                    "book": book,
-                    "american_odds": odds,
-                    "decimal_odds": american_to_decimal(odds),
-                    "implied_prob": _ip(odds),
-                })
-            comparison = compare_all_markets({"markets": markets_dict})
-
-            pick = build_recommendation(
-                sport=event["sport_key"],
-                game=f"{event['home_team']} vs {event['away_team']}",
-                bet=ai.get("selection", ""),
-                market=ai.get("market", best_snap.get("market", "h2h")),
-                ev_result=ev_result,
-                confidence=confidence,
-                risk=risk,
-                comparison=comparison,
-                ai_reasoning=ai.get("reasoning", ""),
-                key_factors=ai.get("key_factors", []),
-                statistical_score=ai.get("statistical_score", 0.5),
-                ml_score=ai.get("confidence", 0.5),
-                market_score=ai.get("market_score", 0.5),
-                trend_score=ai.get("trend_score", 0.5),
-            )
-
-            pick_id = persist_pick(pick, game_id, odds_by_book=odds_by_book)
-
-            # pick_id is None when the gate blocked the pick — do not alert
-            if pick.recommendation == "BET" and pick_id is not None:
-                import dataclasses
-                pick_dict = dataclasses.asdict(pick)
-                pick_dict["id"] = pick_id
-                bet_picks.append(pick_dict)
-
-        if bet_picks:
-            from src.workers.alert_worker import send_pick_alerts
-            send_pick_alerts(bet_picks)
-
-        logger.info("Pick generation complete: %d BET picks", len(bet_picks))
-        return {"total_games": len(snapshots), "bet_picks": len(bet_picks)}
-
-    except Exception as exc:
-        logger.error("Pick generation failed: %s", exc)
-        raise
-
-
-def morning_props_brief():
-    """
-    8 AM Eastern — PP and HardRock lines are now live.
-    Force-fetch fresh props, run AI picks, post a full morning brief:
-      • Today's games
-      • Which props to bet (Over/Under + reasoning)
-      • HardRock parlay suggestions from the Odds API
-    """
-    import json, dataclasses
-    from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post, _embed
-    from datetime import datetime
-    import zoneinfo
-
-    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-
-    # ── 1. Force-refresh Odds API player props (lines just opened) ───────────
-    try:
-        from src.engines.odds_engine import fetch_all_player_props, scan_all_sports
-        from src.core.config import REDIS_URL
-        import redis as _redis
-        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        all_events = scan_all_sports()
-        all_props  = fetch_all_player_props(all_events)
-        r.setex("props:odds_api", 1500, json.dumps(all_props))
-        r.setex("props:all",      1500, json.dumps(all_props))
-    except Exception as e:
-        logger.warning("Morning props fetch failed: %s", e)
-        all_props = []
-
-    # ── 2. AI picks on fresh props ────────────────────────────────────────────
-    picks = []
-    if all_props:
+        # -- 2. Score player prop picks from Redis ------------------------
+        prop_pool = []
         try:
-            from src.engines.prop_engine import score_props
-            picks, _ = score_props(all_props)
-        except Exception as e:
-            logger.warning("Morning prop scoring failed: %s", e)
+            raw_props = r.get("props:odds_api")
+            all_props = json.loads(raw_props) if raw_props else []
+            for prop in all_props:
+                player    = (prop.get("player") or prop.get("subject") or "").strip()
+                stat      = prop.get("stat", "")
+                sport_key = prop.get("sport_key", "")
+                event_id  = prop.get("event_id", "")
+                line      = prop.get("line")
+                if not player or not stat:
+                    continue
+                over_odds  = prop.get("over_odds", {})
+                under_odds = prop.get("under_odds", {})
+                best_over  = max(over_odds.values(),  default=None) if over_odds  else None
+                best_under = max(under_odds.values(), default=None) if under_odds else None
+                direction, best_odds_val, all_book_odds = None, None, {}
+                if best_over is not None and (best_under is None or best_over >= best_under):
+                    direction, best_odds_val = "Over", best_over
+                    all_book_odds = {f"{bk} Over": v for bk, v in over_odds.items()}
+                elif best_under is not None:
+                    direction, best_odds_val = "Under", best_under
+                    all_book_odds = {f"{bk} Under": v for bk, v in under_odds.items()}
+                if direction is None or best_odds_val is None:
+                    continue
+                conf = implied_prob(best_odds_val)
+                if conf < 0.55:
+                    continue
+                prop_pool.append({
+                    "type":      "prop",
+                    "score":     conf,
+                    "game_key":  event_id,
+                    "player":    player,
+                    "stat":      stat,
+                    "line":      line,
+                    "direction": direction,
+                    "sport_key": sport_key,
+                    "event_id":  event_id,
+                    "best_odds": best_odds_val,
+                    "books_odds":all_book_odds,
+                    "confidence":conf,
+                    "ev_pct":    0.0,
+                    "units":     1.0,
+                })
+        except Exception as pe:
+            logger.warning("Props pool build failed: %s", pe)
 
-    # ── 3. HardRock parlay suggestions (top EV combos from Odds API) ──────────
-    parlay_lines: list[str] = []
-    try:
-        from src.engines.odds_engine import get_latest_snapshots_by_game
-        snaps = get_latest_snapshots_by_game()
-        top_games = []
-        for gid, snap_list in list(snaps.items())[:5]:
-            if snap_list:
-                s = snap_list[0]
-                top_games.append(
-                    f"{s.get('away_team','?')} @ {s.get('home_team','?')} "
-                    f"({s.get('sport_key','').split('_')[-1].upper()})"
-                )
-        parlay_lines = top_games
-    except Exception:
-        pass
+        # -- 3. Merge, deduplicate, select top 2-5 -----------------------
+        pool  = sorted(game_pool + prop_pool, key=lambda x: x["score"], reverse=True)
+        entry = []
+        blocked_game_keys = set()
+        seen_players      = set()
+        for pick in pool:
+            if len(entry) == 5:
+                break
+            if pick["type"] == "prop":
+                if pick["game_key"] and pick["game_key"] in blocked_game_keys:
+                    continue
+                if pick["player"].lower() in seen_players:
+                    continue
+                seen_players.add(pick["player"].lower())
+            else:
+                if pick["game_key"] in blocked_game_keys:
+                    continue
+                blocked_game_keys.add(pick["game_key"])
+            entry.append(pick)
 
-    # ── 4. Build Discord message ──────────────────────────────────────────────
-    embeds = []
+        if len(entry) < 2:
+            logger.info("generate_picks: %d qualifying picks -- need at least 2", len(entry))
+            return {"picks": len(entry), "posted": False}
 
-    # Morning overview
-    prop_summary = f"**{len(picks)} prop picks** ready" if picks else "No high-confidence props yet — lines may still be loading"
-    parlay_text  = "\n".join(f"• {g}" for g in parlay_lines) if parlay_lines else "—"
+        # -- 4. Only post if entry changed --------------------------------
+        entry_hash = hashlib.md5(json.dumps(
+            [{"t": p["type"], "s": round(p["score"], 4),
+              "k": p.get("selection") or f"{p.get('player')} {p.get('direction')}"}
+             for p in entry], sort_keys=True).encode()).hexdigest()
+        if r.get("picks:last_hash") == entry_hash:
+            return {"picks": len(entry), "posted": False}
+        r.setex("picks:last_hash", 1800, entry_hash)
 
-    embeds.append(_embed(
-        title=f"🌅 8 AM Brief — {et.strftime('%A, %B %-d')}",
-        description=(
-            f"Lines are live. Here's your morning betting brief.\n\n"
-            f"📋 {prop_summary}\n"
-            f"🔗 HardRock parlay candidates:\n{parlay_text}"
-        ),
-        color=0x2E7D32,
-        fields=[
-            {"name": "Sources Checked", "value": "Odds API · HardRock · Kalshi · Polymarket", "inline": False},
-        ],
-    ))
+        # -- 5. Build and post Discord embed -----------------------------
+        _MARKET  = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
+        now_et   = datetime.now(ET)
+        date_str = now_et.strftime("%A, %B %-d")
+        now_str  = now_et.strftime("%I:%M %p ET")
 
-    # Top prop picks (max 10 in one message)
-    if picks:
-        pick_lines = []
-        for p in picks[:10]:
-            direction = "📈 OVER" if p.direction == "over" else "📉 UNDER"
-            sport = p.sport_key.split("_")[-1].upper()
-            pick_lines.append(
-                f"**{p.subject}** {p.stat} {p.line} → {direction} "
-                f"({sport} | {p.confidence*100:.0f}% conf | +{p.ev_pct*100:.1f}% edge)"
-            )
-        embeds.append(_embed(
-            title="🎯 Today's Prop Picks",
-            description="\n".join(pick_lines),
-            color=0x1565C0,
-            fields=[
-                {"name": "⚠️ Reminder", "value": "These are recommendations only. Bet responsibly.", "inline": False},
-            ],
-        ))
+        def _fmt(v):
+            return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
 
-        # Parlay bundles — HardRock only
-        from src.workers.alert_worker import send_hardrock_parlay_alert
-        pick_dicts = [dataclasses.asdict(p) for p in picks]
-        _post_parlay_bundles(pick_dicts, send_hardrock_parlay_alert)
+        def _books(books_odds, best_book):
+            bb = (best_book or "").lower()
+            parts = []
+            for bk, odds in sorted(books_odds.items(),
+                                   key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
+                lbl = bk.upper().replace("_", " ")
+                parts.append(f"**{lbl} {_fmt(odds)}**" if bk.lower() == bb
+                              else f"{lbl} {_fmt(odds)}")
+            return "  .  ".join(parts[:5]) or "--"
 
-    _run_async(_post({"embeds": embeds}))
-    logger.info("Morning props brief sent: %d picks at 8 AM ET", len(picks))
-    return {"picks": len(picks), "props_fetched": len(all_props)}
-
-
-def scan_and_pick_props():
-    """
-    Prop pick cycle — runs every 5 min (skips during sleep).
-    Posts ONE summary embed to Discord with the top picks, no spamming.
-    Only posts if picks changed since last scan.
-    """
-    try:
-        from src.core.config import REDIS_URL
-        import redis as _redis
-        import json, dataclasses, hashlib
-        from datetime import datetime, timezone
-
-        if _is_sleep_time():
-            return {"skipped": "sleep_mode"}
-
-        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        raw = r.get("props:all")
-        if not raw:
-            logger.info("scan_and_pick_props: no props data in cache yet")
-            return {"picks": 0}
-
-        props = json.loads(raw)
-        if not props:
-            return {"picks": 0}
-
-        # Filter: no completed games, no blank subject names
-        props = [p for p in props if p.get("status", "").lower() not in ("final", "completed", "in progress")]
-        props = [p for p in props if p.get("subject", "").strip()]
-
-        # Filter: only include sports that actually have props live right now
-        # (auto-detects active seasons — no hardcoded months needed)
-        active_sports = {p.get("sport_key") for p in props if p.get("sport_key")}
-        # Remove sports with fewer than 5 props (likely stale/off-season leftovers)
-        sport_counts = {}
-        for p in props:
-            sk = p.get("sport_key", "")
-            sport_counts[sk] = sport_counts.get(sk, 0) + 1
-        active_sports = {sk for sk, cnt in sport_counts.items() if cnt >= 5}
-        props = [p for p in props if p.get("sport_key") in active_sports]
-        logger.info("Active sports with props: %s", sorted(active_sports))
-
-        # Filter: games starting 30 min from now up to 6 hours away, today ET only
-        now = datetime.now(timezone.utc)
-        from datetime import timedelta
-        from dateutil.parser import parse as _parse
-        import zoneinfo
-        et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-
-        def _is_upcoming_today(p: dict) -> bool:
-            gt = p.get("game_time", "")
-            if not gt:
-                return True  # include props with no explicit time
+        def _gt(commence):
             try:
-                t = _parse(gt)
-                if t.tzinfo is None:
-                    t = t.replace(tzinfo=timezone.utc)
-                too_soon   = t < now + timedelta(minutes=30)   # game starts in <30 min or already started
-                too_far    = t > now + timedelta(hours=6)       # game more than 6 hrs away
-                t_et       = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
-                wrong_day  = t_et.date() != et_now.date()
-                return not too_soon and not too_far and not wrong_day
+                from dateutil.parser import parse as _p
+                return _p(commence).astimezone(ET).strftime("%-I:%M %p ET")
             except Exception:
-                return True
-        props = [p for p in props if _is_upcoming_today(p)]
+                return ""
 
-        from src.engines.prop_engine import score_props
-        picks, watchlist = score_props(props)
+        pick_lines = []
+        for i, p in enumerate(entry, 1):
+            conf  = round(p["confidence"] * 100)
+            sport = p["sport_key"]
+            if p["type"] == "prop":
+                pick_lines.append(
+                    f"**{i}.** {get_emoji(sport)} **{p['player']}**"
+                    f"  .  {p['stat']} {p['direction']} **{p['line']}**"
+                    f"  `{_fmt(p['best_odds'])}`  .  {conf}% conf\n"
+                    f"> {get_name(sport)}\n"
+                    f"> Books: {_books(p['books_odds'], '')}"
+                )
+            else:
+                mkt   = _MARKET.get(p["market"], p["market"].upper())
+                ev    = round(p.get("ev_pct", 0) * 100, 1)
+                units = round(p.get("units", 1), 1)
+                line  = (
+                    f"**{i}.** {get_emoji(sport)} **{p['away_team']} @ {p['home_team']}**"
+                    f"  `{_gt(p['commence_time'])}`"
+                    f"{'  warning' if p.get('injuries',0)>0 else ''}\n"
+                    f"> {get_name(sport)}  .  {mkt}: **{p['selection']} {_fmt(p['best_odds'])}**"
+                    f"  .  {conf}% conf  .  +{ev}% EV  .  {units}u\n"
+                    f"> Books: {_books(p['books_odds'], p.get('best_book', ''))}"
+                )
+                if p.get("insight"):
+                    line += f"\n> {p['insight']}"
+                pick_lines.append(line)
 
-        # Line shop disabled — PrizePicks and Underdog removed
+        avg_conf = round(sum(p["confidence"] for p in entry) / len(entry) * 100)
+        divider  = "-" * 34
+        embed = {
+            "title":       f"Picks  .  {date_str}",
+            "description": f"{divider}\n\n" + f"\n\n{divider}\n\n".join(pick_lines) + f"\n\n{divider}",
+            "color":       0x2E7D32,
+            "fields": [
+                {"name": "Picks",    "value": f"**{len(entry)}**", "inline": True},
+                {"name": "Avg Conf", "value": f"**{avg_conf}%**",  "inline": True},
+                {"name": "Updated",  "value": now_str,             "inline": True},
+            ],
+            "footer": {"text": "Odds API . AI research . Bet responsibly"},
+        }
 
-        if not picks:
-            # Still post watchlist if there are near-misses worth watching
-            if watchlist:
-                watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
-                watchlist_hash = hashlib.md5(json.dumps(watchlist_dicts, sort_keys=True).encode()).hexdigest()
-                if r.get("props:last_watchlist_hash") != watchlist_hash:
-                    r.setex("props:last_watchlist_hash", 3600, watchlist_hash)
-                    from src.workers.alert_worker import send_watchlist_update
-                    send_watchlist_update(watchlist_dicts)
-            return {"props_analysed": len(props), "picks": 0}
-
-        # Top 5 only
-        picks = picks[:5]
-
-        # Only post to Discord if picks changed since last scan
-        pick_dicts = [dataclasses.asdict(p) for p in picks]
-        picks_hash = hashlib.md5(json.dumps(pick_dicts, sort_keys=True).encode()).hexdigest()
-        last_hash = r.get("props:last_picks_hash")
-        picks_changed = picks_hash != last_hash
-        if picks_changed:
-            r.setex("props:last_picks_hash", 3600, picks_hash)
-            # Store active picks so odds_worker can track line moves on them
-            r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
-
-            from src.workers.alert_worker import send_prop_summary, send_hardrock_entry, send_hardrock_parlay_alert
-
-            # Post A: Top Player Prop Picks summary
-            send_prop_summary(pick_dicts)
-
-            # Post B: HardRock Entry — top game picks from Odds API (DB) or props cache
-            try:
-                from src.workers.alert_worker import send_hardrock_entry
-                hr_games = []
-
-                # Try DB snapshots first
-                try:
-                    from src.engines.odds_engine import get_latest_snapshots_by_game
-                    snaps = get_latest_snapshots_by_game()
-                    for gid, snap_list in list(snaps.items())[:8]:
-                        if not snap_list:
-                            continue
-                        s = snap_list[0]
-                        # Build per-book odds comparison
-                        books_odds = {
-                            snap.get("book", "unknown"): snap.get("best_odds", -110)
-                            for snap in snap_list if snap.get("book")
-                        }
-                        hr_games.append({
-                            "home_team":     s.get("home_team", ""),
-                            "away_team":     s.get("away_team", ""),
-                            "sport_key":     s.get("sport_key", ""),
-                            "commence_time": str(s.get("commence_time", "")),
-                            "best_odds":     s.get("best_odds", -110),
-                            "book":          s.get("book", "HardRock"),
-                            "market":        s.get("market", "h2h"),
-                            "selection":     s.get("selection", ""),
-                            "books_odds":    books_odds,
-                        })
-                except Exception:
-                    pass
-
-                # Fallback: build from today's prop picks (shows matchups even without odds)
-                if not hr_games and pick_dicts:
-                    seen = set()
-                    for p in pick_dicts:
-                        if not p.get("opponent") or not p.get("team"):
-                            continue
-                        key = f"{p.get('team')}|{p.get('opponent')}"
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        hr_games.append({
-                            "home_team":     p.get("team", ""),
-                            "away_team":     p.get("opponent", ""),
-                            "sport_key":     p.get("sport_key", ""),
-                            "commence_time": p.get("game_time", ""),
-                            "best_odds":     -110,
-                            "book":          "HardRock",
-                            "market":        "h2h",
-                            "selection":     p.get("team", ""),
-                        })
-
-                if hr_games:
-                    send_hardrock_entry(hr_games[:4])
-            except Exception as _hre:
-                logger.debug("HardRock entry failed: %s", _hre)
-
-            # Post E: Kalshi Entry — AI-scored sports prediction markets
-            try:
-                kalshi_raw = r.get("kalshi:markets")
-                if kalshi_raw:
-                    kalshi_markets_data = json.loads(kalshi_raw)
-                    if kalshi_markets_data:
-                        from src.workers.alert_worker import send_kalshi_entry
-                        # AI score the markets before posting
-                        scored = _score_kalshi_markets(kalshi_markets_data)
-                        if scored:
-                            scored_hash = hashlib.md5(
-                                json.dumps(scored, sort_keys=True).encode()
-                            ).hexdigest()
-                            if r.get("kalshi:last_hash") != scored_hash:
-                                r.setex("kalshi:last_hash", 3600, scored_hash)
-                                send_kalshi_entry(scored)
-            except Exception as _ke:
-                logger.debug("Kalshi entry failed: %s", _ke)
-
-            # Post F: Polymarket Entry — AI-scored sports prediction markets
-            try:
-                poly_raw = r.get("polymarket:markets")
-                if poly_raw:
-                    poly_data = json.loads(poly_raw)
-                    if poly_data:
-                        from src.workers.alert_worker import send_polymarket_entry
-                        scored_poly = _score_kalshi_markets(poly_data)  # same AI scoring logic
-                        if scored_poly:
-                            poly_hash = hashlib.md5(
-                                json.dumps(scored_poly, sort_keys=True).encode()
-                            ).hexdigest()
-                            if r.get("polymarket:last_hash") != poly_hash:
-                                r.setex("polymarket:last_hash", 3600, poly_hash)
-                                send_polymarket_entry(scored_poly)
-            except Exception as _pe:
-                logger.debug("Polymarket entry failed: %s", _pe)
-
-            logger.info("Prop picks posted: %d picks", len(picks))
-        else:
-            logger.info("Prop picks unchanged — skipping Discord post")
-
-        # Post watchlist if it changed — stable hash (round conf to 1dp to ignore noise)
-        if watchlist:
-            watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
-            # Round floats so tiny AI score shifts don't trigger a new post
-            stable = [
-                {**w, "confidence": round(w.get("confidence", 0), 1),
-                       "ev_pct":    round(w.get("ev_pct", 0), 2)}
-                for w in watchlist_dicts
-            ]
-            watchlist_hash = hashlib.md5(json.dumps(stable, sort_keys=True).encode()).hexdigest()
-            # 30-min cooldown — don't re-post the same watchlist every 5 min
-            if r.get("props:last_watchlist_hash") != watchlist_hash:
-                r.setex("props:last_watchlist_hash", 1800, watchlist_hash)
-                from src.workers.alert_worker import send_watchlist_update
-                send_watchlist_update(watchlist_dicts)
-
-        return {"props_analysed": len(props), "picks": len(picks), "posted": picks_changed}
+        _run_async(_post({"embeds": [embed]}))
+        logger.info("generate_picks: posted %d picks", len(entry))
+        return {"picks": len(entry), "posted": True}
 
     except Exception as exc:
-        logger.error("scan_and_pick_props failed: %s", exc)
+        logger.error("generate_picks failed: %s", exc)
         raise
 
 
