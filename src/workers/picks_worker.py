@@ -592,11 +592,57 @@ def _get_parlay_senders():
     return send_pp_parlay_alert, send_hardrock_parlay_alert
 
 
+def _get_todays_games_from_sofascore() -> set[str]:
+    """
+    Ask Sofascore which games are scheduled or live today (ET).
+    Returns a set of lowercase team-name tokens so we can match snapshot entries.
+    """
+    from src.apis.sofascore import SPORT_MAP, get_scheduled_events, get_live_events
+    from src.core.timezone import et_naive
+    from concurrent.futures import ThreadPoolExecutor
+
+    today = et_naive().strftime("%Y-%m-%d")
+    tokens: set[str] = set()
+
+    def _fetch(sport_key: str):
+        out = []
+        try:
+            out.extend(get_scheduled_events(sport_key, today))
+        except Exception:
+            pass
+        try:
+            out.extend(get_live_events(sport_key))
+        except Exception:
+            pass
+        return out
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_fetch, sk) for sk in SPORT_MAP]
+        for fut in futures:
+            for ev in fut.result():
+                tokens.add(ev.get("home_team", "").lower())
+                tokens.add(ev.get("away_team", "").lower())
+
+    logger.info("Sofascore today's games: %d team tokens", len(tokens))
+    return tokens
+
+
+def _team_in_today(team: str, today_tokens: set[str]) -> bool:
+    """Fuzzy match: a snapshot team name is in today's Sofascore game list."""
+    tl = team.lower()
+    if tl in today_tokens:
+        return True
+    # substring match for abbreviations / slight name differences
+    return any(tl in tok or tok in tl for tok in today_tokens if tok)
+
+
 def generate_hardrock_entry():
     """
     Build a deep-research HardRock Bet entry — 1 to 10 picks.
 
-    For each active game:
+    Only considers games Sofascore confirms are scheduled or live today (ET).
+    Games can be at any hour — morning, afternoon, night — all are included.
+    For each qualifying game:
       - Pulls ML, spread, total odds across all books
       - Runs EV engine, confidence engine, AI analysis
       - Factors in injuries, recent form, H2H, sharp money
@@ -618,6 +664,9 @@ def generate_hardrock_entry():
         import dataclasses, zoneinfo
         from datetime import datetime
 
+        # Gate: only games Sofascore says are on today
+        today_tokens = _get_todays_games_from_sofascore()
+
         snapshots  = get_latest_snapshots_by_game()
         injuries   = get_recent_injuries()
         candidates = []
@@ -631,6 +680,14 @@ def generate_hardrock_entry():
             home_team  = best_snap.get("home_team", "")
             away_team  = best_snap.get("away_team", "")
             commence   = str(best_snap.get("commence_time", ""))
+
+            # Skip if Sofascore doesn't confirm this game is today
+            if today_tokens and not (
+                _team_in_today(home_team, today_tokens) or
+                _team_in_today(away_team, today_tokens)
+            ):
+                logger.debug("HardRock entry: skipping %s @ %s — not in today's Sofascore schedule", away_team, home_team)
+                continue
 
             event = {
                 "sport_key":     sport_key,
