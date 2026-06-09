@@ -144,25 +144,25 @@ def send_monthly_summary():
 
 @app.task
 def enter_sleep_mode():
-    """3 AM Eastern — pause scanning, post goodnight message with W/L/P summary, run self-improvement."""
+    """3 AM Eastern — full Today's RECAP + goodnight. Single post, no separate 2:59 task."""
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post, _embed
+    from src.discord_bot.bot import _post
     from src.engines.self_improvement_engine import run_full_self_improvement
     from src.db.session import get_db
     from src.db.models import PropResult
     from datetime import datetime, timedelta
-    import zoneinfo
+    import zoneinfo, json
 
-    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    et    = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     today = et.date()
 
-    # Pull today's settled results (games that finished today before 3 AM)
+    # ── Settled picks today ─────────────────────────────────────────────────────
     try:
         with get_db() as db:
             rows = db.query(PropResult).filter(
                 PropResult.settled_at >= datetime.combine(today, datetime.min.time()),
                 PropResult.settled_at <  datetime.combine(today + timedelta(days=1), datetime.min.time()),
-            ).all()
+            ).order_by(PropResult.settled_at.desc()).all()
     except Exception as e:
         logger.warning("enter_sleep_mode: DB query failed: %s", e)
         rows = []
@@ -172,21 +172,57 @@ def enter_sleep_mode():
     losses = sum(1 for r in rows if r.result == "lost")
     pushes = sum(1 for r in rows if r.result == "push")
 
-    if total == 0:
-        record_str = "No settled picks today — results appear as games finish."
-        color = 0x1A237E
+    if total > 0:
+        pct        = round(wins / total * 100)
+        roi        = round((wins - losses) / total * 100, 1)
+        record_str = f"**{wins}W — {losses}L — {pushes}P**  ·  {pct}% hit rate  ·  ROI: {roi:+.1f}%"
+        color      = 0x00C851 if wins >= losses else 0xFF1744
     else:
-        pct = round(wins / total * 100) if total else 0
-        record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
-        color = 0x1A237E
-
-    # Top winners to list
-    winners = [r for r in rows if r.result == "won"][:5]
+        record_str = "No settled picks today — results appear as games finish."
+        color      = 0x37474F
 
     def _row(r):
-        return f"• **{r.subject}** {r.stat} {r.line} ({r.direction.upper()})"
+        return f"• **{r.subject}** {r.stat} {r.line} ({r.direction.upper()}) → {r.actual_value}"
 
-    win_text = "\n".join(_row(r) for r in winners) or "—"
+    winners = [r for r in rows if r.result == "won"][:5]
+    losers  = [r for r in rows if r.result == "lost"][:3]
+
+    # ── Active (unsettled) picks from Redis ─────────────────────────────────────
+    active_lines: list[str] = []
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _r
+        red = _r.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = red.get("props:active_picks")
+        if raw:
+            for p in json.loads(raw)[:5]:
+                arrow = "⬆️" if (p.get("direction") or "").lower() == "over" else "⬇️"
+                active_lines.append(f"• **{p.get('subject')}** {p.get('stat')} {p.get('line')} {arrow}")
+    except Exception:
+        pass
+
+    # ── Build fields ────────────────────────────────────────────────────────────
+    fields: list[dict] = [
+        {"name": "📊 Today's Record", "value": record_str, "inline": False},
+    ]
+    if winners:
+        fields.append({"name": "✅ Winners", "value": "\n".join(_row(r) for r in winners), "inline": True})
+    if losers:
+        fields.append({"name": "❌ Losses",  "value": "\n".join(_row(r) for r in losers),  "inline": True})
+    if active_lines:
+        fields.append({"name": f"⏳ Still Active ({len(active_lines)} picks — pending)", "value": "\n".join(active_lines), "inline": False})
+    fields.append({"name": "🌙 Going to Sleep", "value": "Scanning paused until **5:00 AM ET**. Self-improvement running now.", "inline": False})
+
+    embed = {
+        "title": f"📋 Today's RECAP — {et.strftime('%A, %B %-d')}",
+        "color": color,
+        "fields": [
+            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", False)}
+            for f in fields
+        ],
+        "footer": {"text": "Sports Intelligence Platform · See you at 5:00 AM ET"},
+    }
+    _run_async(_post({"embeds": [embed]}))
 
     # Run self-improvement silently while sleeping
     try:
@@ -195,23 +231,7 @@ def enter_sleep_mode():
     except Exception as e:
         logger.warning("Self-improvement failed during sleep: %s", e)
 
-    fields = [
-        {"name": "Today's Record", "value": record_str, "inline": False},
-    ]
-    if winners:
-        fields.append({"name": "✅ Top Winners", "value": win_text, "inline": False})
-
-    embed = _embed(
-        title="🌙 Goodnight — See you at 5 AM",
-        description=(
-            f"Scanning paused until **5:00 AM ET**.\n"
-            "Self-improvement cycle running on tonight's results."
-        ),
-        color=color,
-        fields=fields,
-    )
-    _run_async(_post({"embeds": [embed]}))
-    logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
+    logger.info("Sleep mode / RECAP sent at %s ET: %dW %dL %dP", et.strftime("%H:%M"), wins, losses, pushes)
     return {"sleep_entered": et.isoformat(), "wins": wins, "losses": losses, "pushes": pushes}
 
 
@@ -710,8 +730,8 @@ def yesterday_recap():
             {"name": "✅ Winners",        "value": win_text,        "inline": True},
             {"name": "❌ Losers",         "value": loss_text,       "inline": True},
             {"name": "By Sport",          "value": sport_breakdown, "inline": False},
-            {"name": "📅 Today's Games",  "value": today_games_text, "inline": False},
-            {"name": "Next Picks",        "value": "Props scanning every 5 min — posted when found", "inline": False},
+            {"name": "📅 Today's Scheduled Games (upcoming — not live yet)", "value": today_games_text, "inline": False},
+            {"name": "Next Picks",        "value": "Picks Entry Post at **9:30 AM ET** — props scanning every 5 min", "inline": False},
         ],
         "footer": {"text": f"6:00 AM ET recap · {et.strftime('%B %-d, %Y')}"},
     }

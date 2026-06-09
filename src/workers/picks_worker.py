@@ -213,155 +213,6 @@ def generate_picks(self):
 
 
 @app.task
-def morning_picks_summary():
-    """
-    9:30 AM ET — ONE big morning summary post.
-    If fewer than 3 solid picks exist at 9:30, delays to 10:00 AM automatically.
-    Combines: Top Picks + Today's Entries (slip, HardRock, predictions) + Line Shop.
-    All in a single Discord embed — no separate posts.
-    """
-    import json
-    from datetime import datetime, timedelta
-    import zoneinfo
-    from src.core.config import REDIS_URL
-    import redis as _redis
-
-    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-
-    # Clear hashes so it always posts fresh
-    r.delete("props:last_picks_hash")
-    r.delete("props:last_lineshop_hash")
-
-    # Quick quality check — do we have enough solid picks right now?
-    raw = r.get("props:all")
-    ready = False
-    if raw:
-        try:
-            from src.engines.prop_engine import score_props
-            props = json.loads(raw)
-            if props:
-                picks, _ = score_props(props[:60])   # light sample, don't burn tokens
-                solid = [p for p in picks if p.confidence >= 0.65]
-                ready = len(solid) >= 3
-        except Exception:
-            pass
-
-    et_tz = zoneinfo.ZoneInfo("America/New_York")
-    now   = datetime.now(et_tz)
-
-    if ready:
-        # Enough quality picks — post the full morning summary now
-        logger.info("Morning summary: %d solid picks ready — posting at 9:30 AM", len(solid))
-        _run_morning_summary.delay()
-    else:
-        # Not enough yet — delay to 10:00 AM ET
-        ten_am = now.replace(hour=10, minute=0, second=0, microsecond=0)
-        if ten_am <= now:
-            ten_am = now + timedelta(minutes=5)   # already past 10 AM — post in 5 min
-        eta_utc = ten_am.astimezone(zoneinfo.ZoneInfo("UTC"))
-        _run_morning_summary.apply_async(eta=eta_utc)
-        logger.info("Morning summary: not enough picks yet — delayed to 10:00 AM ET")
-
-
-@app.task(bind=True, max_retries=1, default_retry_delay=300)
-def _run_morning_summary(self):
-    """
-    Executes the actual morning summary post — called by morning_picks_summary at 9:30 or 10 AM.
-    Single Discord post combining: Top Picks + Entry Card + Line Shop.
-    """
-    import json, dataclasses, hashlib
-    from datetime import datetime, timezone, timedelta
-    from dateutil.parser import parse as _parse
-    import zoneinfo
-    from src.core.config import REDIS_URL
-    import redis as _redis
-
-    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-
-    # ── 1. Fetch + score props ─────────────────────────────────────────────────
-    raw = r.get("props:all")
-    if not raw:
-        logger.warning("_run_morning_summary: no props in cache")
-        return
-
-    props = json.loads(raw)
-    props = [p for p in props if p.get("subject","").strip()]
-    props = [p for p in props if p.get("status","").lower() not in ("final","completed","in progress")]
-
-    # Today's games only
-    now    = datetime.now(timezone.utc)
-    et_tz  = zoneinfo.ZoneInfo("America/New_York")
-    et_now = datetime.now(et_tz)
-    def _today(p):
-        gt = p.get("game_time","")
-        if not gt:
-            return p.get("source") == "prizepicks"
-        try:
-            t = _parse(gt)
-            if t.tzinfo is None:
-                t = t.replace(tzinfo=timezone.utc)
-            t_et = t.astimezone(et_tz)
-            return t_et.date() == et_now.date() and t >= now + timedelta(minutes=30)
-        except Exception:
-            return True
-    props = [p for p in props if _today(p)]
-
-    from src.engines.prop_engine import score_props
-    picks, _ = score_props(props)
-    picks = picks[:6]
-    if not picks:
-        logger.info("_run_morning_summary: no picks after scoring")
-        return
-
-    pick_dicts = [dataclasses.asdict(p) for p in picks]
-    r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
-
-    # ── 2. HardRock games ──────────────────────────────────────────────────────
-    hr_games = []
-    try:
-        from src.engines.odds_engine import get_latest_snapshots_by_game
-        for gid, snap_list in list(get_latest_snapshots_by_game().items())[:4]:
-            if snap_list:
-                s = snap_list[0]
-                hr_games.append({
-                    "home_team": s.get("home_team",""), "away_team": s.get("away_team",""),
-                    "sport_key": s.get("sport_key",""), "commence_time": str(s.get("commence_time","")),
-                    "best_odds": s.get("best_odds",-110), "book": s.get("book","HardRock"),
-                    "market": s.get("market","h2h"), "selection": s.get("selection",""),
-                })
-    except Exception:
-        pass
-
-    # ── 3. Kalshi + Polymarket ─────────────────────────────────────────────────
-    kalshi_scored, poly_scored = [], []
-    from src.workers.picks_worker import _score_kalshi_markets
-    for key, store in (("kalshi:markets", kalshi_scored), ("polymarket:markets", poly_scored)):
-        try:
-            raw2 = r.get(key)
-            if raw2:
-                store.extend(_score_kalshi_markets(json.loads(raw2))[:4])
-        except Exception:
-            pass
-
-    # ── 4. Line shop ───────────────────────────────────────────────────────────
-    discrepancies = []
-    try:
-        from src.engines.line_shop_engine import find_discrepancies
-        pp_props = [p for p in props if p.get("source") == "prizepicks"]
-        ud_props = [p for p in props if p.get("source") == "underdog"]
-        if pp_props and ud_props:
-            discs = find_discrepancies(pp_props, ud_props)
-            discrepancies = [dataclasses.asdict(d) for d in discs[:5]]
-    except Exception:
-        pass
-
-    # ── 5. Fire single combined post ───────────────────────────────────────────
-    from src.workers.alert_worker import send_picks_entry_post
-    send_picks_entry_post.delay(pick_dicts, hr_games, kalshi_scored, poly_scored, discrepancies)
-    logger.info("Morning summary fired: %d picks", len(picks))
-
-
-@app.task
 def morning_props_brief():
     """
     8 AM Eastern — PP and HardRock lines are now live.
@@ -538,17 +389,17 @@ def scan_and_pick_props(self):
         def _is_upcoming_today(p: dict) -> bool:
             gt = p.get("game_time", "")
             if not gt:
+                # No time — include only PrizePicks props (they omit time, lines are pre-game)
                 return p.get("source") == "prizepicks"
             try:
                 t = _parse(gt)
                 if t.tzinfo is None:
                     t = t.replace(tzinfo=timezone.utc)
-                # Only cut off props within 30 min of tip or already started
-                # No upper limit — show all of today's games regardless of time
-                too_soon  = t < now + timedelta(minutes=30)
-                t_et      = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
-                wrong_day = t_et.date() != et_now.date()
-                return not too_soon and not wrong_day
+                too_soon   = t < now + timedelta(minutes=30)   # game starts in <30 min or already started
+                too_far    = t > now + timedelta(hours=6)       # game more than 6 hrs away
+                t_et       = t.astimezone(zoneinfo.ZoneInfo("America/New_York"))
+                wrong_day  = t_et.date() != et_now.date()
+                return not too_soon and not too_far and not wrong_day
             except Exception:
                 return True
         props = [p for p in props if _is_upcoming_today(p)]
@@ -578,152 +429,81 @@ def scan_and_pick_props(self):
             logger.warning("Line shop check failed: %s", _lse)
 
         if not picks:
-            # Still post watchlist if there are near-misses worth watching
-            if watchlist:
-                watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
-                watchlist_hash = hashlib.md5(json.dumps(watchlist_dicts, sort_keys=True).encode()).hexdigest()
-                if r.get("props:last_watchlist_hash") != watchlist_hash:
-                    r.setex("props:last_watchlist_hash", 3600, watchlist_hash)
-                    from src.workers.alert_worker import send_watchlist_update
-                    send_watchlist_update.delay(watchlist_dicts)
             return {"props_analysed": len(props), "picks": 0}
 
         # Top 5 only
         picks = picks[:5]
+
+        # Only post to Discord if picks changed since last scan
         pick_dicts = [dataclasses.asdict(p) for p in picks]
-
-        # ── Build HardRock games for hash (so HR changes also trigger a re-post) ─
-        hr_games_for_hash = []
-        try:
-            from src.engines.odds_engine import get_latest_snapshots_by_game
-            snaps = get_latest_snapshots_by_game()
-            for gid, snap_list in list(snaps.items())[:4]:
-                if snap_list:
-                    s = snap_list[0]
-                    hr_games_for_hash.append({
-                        "home": s.get("home_team"), "away": s.get("away_team"),
-                        "odds": s.get("best_odds"), "market": s.get("market"),
-                    })
-        except Exception:
-            pass
-
-        # Hash = ALL entry picks (PP + UD + HardRock) — predictions excluded (they change constantly)
-        pp_picks  = [p for p in pick_dicts if p.get("source") == "prizepicks"]
-        ud_picks  = [p for p in pick_dicts if p.get("source") == "underdog"]
-        entry_snapshot = {
-            "pp":  sorted(pp_picks,          key=lambda x: x.get("subject","") + x.get("stat","")),
-            "ud":  sorted(ud_picks,           key=lambda x: x.get("subject","") + x.get("stat","")),
-            "hr":  sorted(hr_games_for_hash,  key=lambda x: str(x.get("home",""))),
-        }
-        picks_hash = hashlib.md5(json.dumps(entry_snapshot, sort_keys=True).encode()).hexdigest()
+        picks_hash = hashlib.md5(json.dumps(pick_dicts, sort_keys=True).encode()).hexdigest()
         last_hash = r.get("props:last_picks_hash")
         picks_changed = picks_hash != last_hash
         if picks_changed:
             r.setex("props:last_picks_hash", 3600, picks_hash)
-            # Store active picks so odds_worker can track line moves on them
             r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
 
-            from src.workers.alert_worker import (
-                send_prop_summary, send_pp_parlay_alert,
-                send_hardrock_parlay_alert, send_underdog_entry,
-            )
-
-            # Post A: Top Prop Picks summary
-            send_prop_summary.delay(pick_dicts)
-
-            # Post B: ONE combined entry card (PP + Underdog + HardRock + Kalshi + Polymarket)
+            # ── Build HardRock games ──────────────────────────────────────────
+            hr_games = []
             try:
-                from src.workers.alert_worker import send_combined_entry
-
-                # HardRock games
-                hr_games = []
-                try:
-                    from src.engines.odds_engine import get_latest_snapshots_by_game
-                    snaps = get_latest_snapshots_by_game()
-                    for gid, snap_list in list(snaps.items())[:4]:
-                        if not snap_list:
-                            continue
+                from src.engines.odds_engine import get_latest_snapshots_by_game
+                for gid, snap_list in list(get_latest_snapshots_by_game().items())[:4]:
+                    if snap_list:
                         s = snap_list[0]
                         hr_games.append({
-                            "home_team":     s.get("home_team", ""),
-                            "away_team":     s.get("away_team", ""),
-                            "sport_key":     s.get("sport_key", ""),
-                            "commence_time": str(s.get("commence_time", "")),
-                            "best_odds":     s.get("best_odds", -110),
-                            "book":          s.get("book", "HardRock"),
-                            "market":        s.get("market", "h2h"),
-                            "selection":     s.get("selection", ""),
+                            "home_team": s.get("home_team",""), "away_team": s.get("away_team",""),
+                            "sport_key": s.get("sport_key",""), "commence_time": str(s.get("commence_time","")),
+                            "best_odds": s.get("best_odds",-110), "book": s.get("book","HardRock"),
+                            "market": s.get("market","h2h"), "selection": s.get("selection",""),
                         })
-                except Exception:
-                    pass
-                if not hr_games:
-                    seen: set = set()
-                    for p in pick_dicts:
-                        if not p.get("team") or not p.get("opponent"):
-                            continue
-                        key = f"{p.get('team')}|{p.get('opponent')}"
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        hr_games.append({
-                            "home_team": p.get("team", ""), "away_team": p.get("opponent", ""),
-                            "sport_key": p.get("sport_key", ""), "commence_time": p.get("game_time", ""),
-                            "best_odds": -110, "book": "HardRock", "market": "h2h",
-                            "selection": p.get("team", ""),
-                        })
+            except Exception:
+                pass
 
-                # Kalshi markets
-                kalshi_scored = []
+            # ── Kalshi + Polymarket ───────────────────────────────────────────
+            kalshi_scored, poly_scored = [], []
+            for key, store in (("kalshi:markets", kalshi_scored), ("polymarket:markets", poly_scored)):
                 try:
-                    kalshi_raw = r.get("kalshi:markets")
-                    if kalshi_raw:
-                        kalshi_scored = _score_kalshi_markets(json.loads(kalshi_raw))
+                    raw2 = r.get(key)
+                    if raw2:
+                        store.extend(_score_kalshi_markets(json.loads(raw2))[:4])
                 except Exception:
                     pass
 
-                # Polymarket markets
-                poly_scored = []
-                try:
-                    poly_raw = r.get("polymarket:markets")
-                    if poly_raw:
-                        poly_scored = _score_kalshi_markets(json.loads(poly_raw))
-                except Exception:
-                    pass
+            # ── Line shop discrepancies ───────────────────────────────────────
+            disc_dicts = []
+            try:
+                from src.engines.line_shop_engine import find_discrepancies
+                pp_raw = [p for p in props if p.get("source") == "prizepicks"]
+                ud_raw = [p for p in props if p.get("source") == "underdog"]
+                if pp_raw and ud_raw:
+                    disc_dicts = [dataclasses.asdict(d) for d in find_discrepancies(pp_raw, ud_raw)[:5]]
+            except Exception:
+                pass
 
-                send_combined_entry.delay(
-                    pick_dicts,
-                    hr_games[:4],
-                    kalshi_scored[:4],
-                    poly_scored[:4],
-                )
-            except Exception as _ce:
-                logger.warning("Combined entry failed: %s", _ce)
-
-            logger.info("Prop picks posted: %d picks", len(picks))
+            # ── ONE combined Picks Entry Post ─────────────────────────────────
+            from src.workers.alert_worker import send_picks_entry_post
+            send_picks_entry_post.delay(pick_dicts, hr_games, kalshi_scored, poly_scored, disc_dicts)
+            logger.info("Picks entry posted: %d picks", len(picks))
         else:
             logger.info("Prop picks unchanged — skipping Discord post")
-
-        # Post watchlist if it changed — stable hash (round conf to 1dp to ignore noise)
-        if watchlist:
-            watchlist_dicts = [dataclasses.asdict(p) for p in watchlist[:8]]
-            # Round floats so tiny AI score shifts don't trigger a new post
-            stable = [
-                {**w, "confidence": round(w.get("confidence", 0), 1),
-                       "ev_pct":    round(w.get("ev_pct", 0), 2)}
-                for w in watchlist_dicts
-            ]
-            watchlist_hash = hashlib.md5(json.dumps(stable, sort_keys=True).encode()).hexdigest()
-            # 30-min cooldown — don't re-post the same watchlist every 5 min
-            if r.get("props:last_watchlist_hash") != watchlist_hash:
-                r.setex("props:last_watchlist_hash", 1800, watchlist_hash)
-                from src.workers.alert_worker import send_watchlist_update
-                send_watchlist_update.delay(watchlist_dicts)
 
         return {"props_analysed": len(props), "picks": len(picks), "posted": picks_changed}
 
     except Exception as exc:
         logger.error("scan_and_pick_props failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+@app.task
+def morning_picks_summary():
+    """9:30 AM ET — force-fresh Picks Entry Post regardless of pick count."""
+    from src.core.config import REDIS_URL
+    import redis as _redis
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    r.delete("props:last_picks_hash")
+    r.delete("props:last_lineshop_hash")
+    scan_and_pick_props.delay()
+    logger.info("Morning Picks Entry Post triggered at 9:30 AM ET")
 
 
 def _score_kalshi_markets(markets: list[dict], top_n: int = 6) -> list[dict]:
