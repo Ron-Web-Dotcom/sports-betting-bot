@@ -86,6 +86,7 @@ INTERVAL_TASKS = [
     (1800, "fetch_and_save_news"),    # 30 min — injuries don't change by the minute
     (1800, "settle_completed_picks"), # 30 min — keep
     (3600, "record_closing_lines"),   # 60 min — keep
+    (7200, "generate_hardrock_entry"),# 2 hrs — covers morning, afternoon, night games
 ]
 
 CRON_TASKS = [
@@ -102,8 +103,6 @@ CRON_TASKS = [
     (8,  0,  "morning_props_brief",     None, None),
     (9,  0,  "generate_parlays",          None, None),
     (9,  30, "scan_and_pick_props",      None, None),  # force-fresh morning scan
-    (10, 0,  "generate_hardrock_entry",  None, None),  # morning entry after lines settle
-    (13, 0,  "generate_hardrock_entry",  None, None),  # afternoon refresh
     (23, 0,  "send_daily_summary",      None, None),
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday
