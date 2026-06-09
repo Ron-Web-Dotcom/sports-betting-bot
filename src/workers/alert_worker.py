@@ -1344,9 +1344,8 @@ def send_pregame_alerts():
     if not active_picks:
         return
 
-    now    = et_now()
     et_tz  = zoneinfo.ZoneInfo("America/New_York")
-    et_now = datetime.now(et_tz)
+    now    = datetime.now(et_tz)
 
     # Build unique matchups from active picks
     seen_keys: set = set()

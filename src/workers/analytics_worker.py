@@ -726,7 +726,7 @@ def yesterday_recap():
         today_games_text = "—"
 
     embed = {
-        "title": f"📊 Yesterday's Results — {yesterday.strftime('%A, %B %-d')}",
+        "title": f"📊 Yesterday's Results — {(et - timedelta(days=1)).strftime('%A, %B %-d')}",
         "description": record_str,
         "color": color,
         "fields": [

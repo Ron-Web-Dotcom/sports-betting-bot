@@ -381,11 +381,10 @@ def scan_and_pick_props(self):
         logger.info("Active sports with props: %s", sorted(active_sports))
 
         # Filter: games starting 30 min from now up to 6 hours away, today ET only
-        now = et_now()
         from datetime import timedelta
         from dateutil.parser import parse as _parse
         import zoneinfo
-        et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 
         def _is_upcoming_today(p: dict) -> bool:
             gt = p.get("game_time", "")
