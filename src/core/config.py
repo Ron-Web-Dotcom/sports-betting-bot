@@ -115,7 +115,6 @@ SPORTS = {
     "europa":       "soccer_uefa_europa_league",
     "worldcup":     "soccer_fifa_world_cup",
     "wc":           "soccer_fifa_world_cup",
-    "concacaf":     "soccer_concacaf_nations_league",
     "copaamerica":  "soccer_conmebol_copa_america",
     "conmebol":     "soccer_conmebol_copa_libertadores",
     # ── Combat Sports ────────────────────────────────────────────────────────
@@ -128,9 +127,6 @@ SPORTS = {
     "wtennis":      "tennis_wta_french_open",
     # ── Women's Sports ───────────────────────────────────────────────────────
     "wnba":         "basketball_wnba",
-    "nwsl":         "soccer_usa_nwsl",
-    "wwc":          "soccer_fifa_womens_world_cup",
-    "womenswc":     "soccer_fifa_womens_world_cup",
     "ncaaw":        "basketball_wncaab",
     "wncaab":       "basketball_wncaab",
     # golf removed — US Open not yet in Odds API, add back when available

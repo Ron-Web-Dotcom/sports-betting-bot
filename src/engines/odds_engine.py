@@ -31,7 +31,7 @@ _SOCCER_LEAGUES = {
     "soccer_italy_serie_a", "soccer_france_ligue_one", "soccer_usa_mls",
     "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga",
     "soccer_uefa_champs_league", "soccer_uefa_europa_league",
-    "soccer_fifa_world_cup", "soccer_concacaf_nations_league",
+    "soccer_fifa_world_cup",
     "soccer_conmebol_copa_america", "soccer_conmebol_copa_libertadores",
 }
 
@@ -43,7 +43,6 @@ PLAYER_PROP_SPORTS = {
     "icehockey_nhl",
     "tennis_atp_french_open", "tennis_wta_french_open",
     "mma_mixed_martial_arts",
-    "soccer_usa_nwsl", "soccer_fifa_womens_world_cup",
 } | _SOCCER_LEAGUES
 
 
