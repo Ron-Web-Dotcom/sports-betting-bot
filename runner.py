@@ -37,7 +37,7 @@ logger = logging.getLogger("runner")
 def _import_tasks():
     from src.workers.odds_worker       import scan_and_save_odds, scan_player_props, refresh_active_sports
     from src.workers.news_worker       import fetch_and_save_news
-    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays
+    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays, generate_hardrock_entry
     from src.workers.alert_worker      import send_pregame_alerts
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
     from src.workers.analytics_worker  import (
@@ -54,7 +54,8 @@ def _import_tasks():
         "generate_picks":         generate_picks,
         "scan_and_pick_props":    scan_and_pick_props,
         "morning_props_brief":    morning_props_brief,
-        "generate_parlays":       generate_parlays,
+        "generate_parlays":           generate_parlays,
+        "generate_hardrock_entry":    generate_hardrock_entry,
         "send_pregame_alerts":    send_pregame_alerts,
         "settle_completed_picks": settle_completed_picks,
         "record_closing_lines":   record_closing_lines,
@@ -99,8 +100,10 @@ CRON_TASKS = [
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
     (6,  0,  "yesterday_recap",         None, None),
     (8,  0,  "morning_props_brief",     None, None),
-    (9,  0,  "generate_parlays",        None, None),
+    (9,  0,  "generate_parlays",          None, None),
     (9,  30, "scan_and_pick_props",      None, None),  # force-fresh morning scan
+    (10, 0,  "generate_hardrock_entry",  None, None),  # morning entry after lines settle
+    (13, 0,  "generate_hardrock_entry",  None, None),  # afternoon refresh
     (23, 0,  "send_daily_summary",      None, None),
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday
