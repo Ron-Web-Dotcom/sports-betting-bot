@@ -37,7 +37,7 @@ logger = logging.getLogger("runner")
 def _import_tasks():
     from src.workers.odds_worker       import scan_and_save_odds, scan_player_props, refresh_active_sports
     from src.workers.news_worker       import fetch_and_save_news
-    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays, generate_hardrock_entry
+    from src.workers.picks_worker      import generate_picks, scan_and_pick_props, morning_props_brief, generate_parlays, scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
     from src.workers.alert_worker      import send_pregame_alerts
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
     from src.workers.analytics_worker  import (
@@ -51,11 +51,13 @@ def _import_tasks():
         "scan_player_props":      scan_player_props,
         "refresh_active_sports":  refresh_active_sports,
         "fetch_and_save_news":    fetch_and_save_news,
-        "generate_picks":         generate_picks,
-        "scan_and_pick_props":    scan_and_pick_props,
-        "morning_props_brief":    morning_props_brief,
-        "generate_parlays":           generate_parlays,
-        "generate_hardrock_entry":    generate_hardrock_entry,
+        "generate_picks":               generate_picks,
+        "scan_and_pick_props":          scan_and_pick_props,
+        "morning_props_brief":          morning_props_brief,
+        "generate_parlays":             generate_parlays,
+        "scan_todays_games":            scan_todays_games,
+        "generate_hardrock_day_entry":  generate_hardrock_day_entry,
+        "generate_hardrock_night_entry":generate_hardrock_night_entry,
         "send_pregame_alerts":    send_pregame_alerts,
         "settle_completed_picks": settle_completed_picks,
         "record_closing_lines":   record_closing_lines,
@@ -86,7 +88,6 @@ INTERVAL_TASKS = [
     (1800, "fetch_and_save_news"),    # 30 min — injuries don't change by the minute
     (1800, "settle_completed_picks"), # 30 min — keep
     (3600, "record_closing_lines"),   # 60 min — keep
-    (7200, "generate_hardrock_entry"),# 2 hrs — covers morning, afternoon, night games
 ]
 
 CRON_TASKS = [
@@ -100,9 +101,12 @@ CRON_TASKS = [
     (5,  0,  "wake_up_brief",            None, None),
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
     (6,  0,  "yesterday_recap",         None, None),
-    (8,  0,  "morning_props_brief",     None, None),
+    (8,  0,  "scan_todays_games",          None, None),  # full Sofascore scan — split day/night
+    (8,  0,  "morning_props_brief",       None, None),
     (9,  0,  "generate_parlays",          None, None),
-    (9,  30, "scan_and_pick_props",      None, None),  # force-fresh morning scan
+    (9,  30, "scan_and_pick_props",       None, None),  # force-fresh morning scan
+    (10, 0,  "generate_hardrock_day_entry",   None, None),  # day games entry
+    (16, 0,  "generate_hardrock_night_entry", None, None),  # night games entry
     (23, 0,  "send_daily_summary",      None, None),
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday

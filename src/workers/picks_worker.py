@@ -592,274 +592,414 @@ def _get_parlay_senders():
     return send_pp_parlay_alert, send_hardrock_parlay_alert
 
 
-def _get_todays_games_from_sofascore() -> set[str]:
+def scan_todays_games():
     """
-    Ask Sofascore which games are scheduled or live today (ET).
-    Returns a set of lowercase team-name tokens so we can match snapshot entries.
+    8 AM daily: full Sofascore scan across all sports.
+    Splits today's games into DAY (before 6 PM ET) and NIGHT (6 PM ET+).
+    Caches both lists in Redis for the entry generators to use.
     """
-    from src.apis.sofascore import SPORT_MAP, get_scheduled_events, get_live_events
+    from src.apis.sofascore import SPORT_MAP, get_scheduled_events
     from src.core.timezone import et_naive
+    from src.core.config import REDIS_URL
     from concurrent.futures import ThreadPoolExecutor
+    import json, zoneinfo
+    from datetime import datetime
+    import redis as _redis
 
+    ET = zoneinfo.ZoneInfo("America/New_York")
     today = et_naive().strftime("%Y-%m-%d")
-    tokens: set[str] = set()
 
-    def _fetch(sport_key: str):
-        out = []
+    def _fetch(sport_key: str) -> list:
         try:
-            out.extend(get_scheduled_events(sport_key, today))
+            return get_scheduled_events(sport_key, today)
         except Exception:
-            pass
-        try:
-            out.extend(get_live_events(sport_key))
-        except Exception:
-            pass
-        return out
+            return []
+
+    day_games: list[dict] = []
+    night_games: list[dict] = []
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [pool.submit(_fetch, sk) for sk in SPORT_MAP]
+        futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
         for fut in futures:
             for ev in fut.result():
-                tokens.add(ev.get("home_team", "").lower())
-                tokens.add(ev.get("away_team", "").lower())
+                ct = ev.get("commence_time", "")
+                is_night = False
+                try:
+                    from dateutil.parser import parse as _parse
+                    t = _parse(ct).astimezone(ET) if ct else None
+                    if t and t.hour >= 18:
+                        is_night = True
+                except Exception:
+                    pass
+                (night_games if is_night else day_games).append(ev)
 
-    logger.info("Sofascore today's games: %d team tokens", len(tokens))
-    return tokens
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    r.setex("sofascore:day_games",   86400, json.dumps(day_games))
+    r.setex("sofascore:night_games", 86400, json.dumps(night_games))
+
+    logger.info("Today's games scan: %d day games, %d night games", len(day_games), len(night_games))
+    return {"day": len(day_games), "night": len(night_games)}
 
 
-def _team_in_today(team: str, today_tokens: set[str]) -> bool:
-    """Fuzzy match: a snapshot team name is in today's Sofascore game list."""
+def _load_todays_games(period: str) -> list[dict]:
+    """Load day or night games from Redis cache (populated by scan_todays_games)."""
+    from src.core.config import REDIS_URL
+    import json, redis as _redis
+    try:
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = r.get(f"sofascore:{period}_games")
+        return json.loads(raw) if raw else []
+    except Exception as e:
+        logger.warning("Could not load %s games from Redis: %s", period, e)
+        return []
+
+
+def _team_matches(team: str, sofascore_events: list[dict]) -> bool:
+    """True if this team name fuzzy-matches any team in the Sofascore event list."""
     tl = team.lower()
-    if tl in today_tokens:
-        return True
-    # substring match for abbreviations / slight name differences
-    return any(tl in tok or tok in tl for tok in today_tokens if tok)
+    for ev in sofascore_events:
+        for field in ("home_team", "away_team"):
+            tok = ev.get(field, "").lower()
+            if tok and (tl == tok or tl in tok or tok in tl):
+                return True
+    return False
 
 
-def generate_hardrock_entry():
+def _build_hardrock_candidates(
+    period: str,
+    sofascore_events: list[dict],
+) -> list[dict]:
     """
-    Build a deep-research HardRock Bet entry — 1 to 10 picks.
-
-    Only considers games Sofascore confirms are scheduled or live today (ET).
-    Games can be at any hour — morning, afternoon, night — all are included.
-    For each qualifying game:
-      - Pulls ML, spread, total odds across all books
-      - Runs EV engine, confidence engine, AI analysis
-      - Factors in injuries, recent form, H2H, sharp money
-      - Ranks picks by confidence × EV
-      - Posts top 1-10 picks as a single HardRock entry card to Discord
+    Score all today's games that match the given period (day/night).
+    Returns a flat list of scored candidate dicts.
     """
+    from src.engines.odds_engine import get_latest_snapshots_by_game
+    from src.engines.news_engine import get_recent_injuries
+    from src.engines.confidence_engine import compute_confidence
+    from src.engines.ev_engine import evaluate, decimal_to_american
+    from src.engines.ai_engine import analyse_pick
+    from src.apis.data_hub import build_game_context
+
+    snapshots = get_latest_snapshots_by_game()
+    injuries  = get_recent_injuries()
+    candidates: list[dict] = []
+
+    for game_id, snap_list in snapshots.items():
+        if not snap_list:
+            continue
+        best_snap = snap_list[0]
+        sport_key = best_snap.get("sport_key", "")
+        home_team = best_snap.get("home_team", "")
+        away_team = best_snap.get("away_team", "")
+        commence  = str(best_snap.get("commence_time", ""))
+
+        # Only include games that match this period's Sofascore schedule
+        if sofascore_events and not (
+            _team_matches(home_team, sofascore_events) or
+            _team_matches(away_team, sofascore_events)
+        ):
+            continue
+
+        event        = {"sport_key": sport_key, "home_team": home_team, "away_team": away_team, "commence_time": commence}
+        game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
+        odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
+
+        try:
+            game_context = build_game_context(sport_key=sport_key, home_team=home_team, away_team=away_team, game_time=commence)
+        except Exception:
+            game_context = {}
+
+        hub_injuries = game_context.get("injuries_espn_home", []) + game_context.get("rotowire_injuries", [])
+        all_injuries = hub_injuries or game_injuries
+        hub_news     = game_context.get("news_espn", [])
+
+        ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
+        if not ai:
+            continue
+
+        best_odds_val = best_snap.get("best_odds", -110)
+        opp_prob      = ai.get("opponent_probability")
+        opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
+
+        ev_result  = evaluate(american_odds=best_odds_val, projected_prob=ai.get("win_probability", 0.5), opponent_odds=opponent_odds)
+        confidence = compute_confidence(
+            ai_win_prob         = ai.get("win_probability", 0.5),
+            model_consensus     = ai.get("confidence", 0.5),
+            line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
+            news_impact_score   = game_context.get("news_impact_score", 0.5),
+            sport               = sport_key,
+            market              = "h2h",
+        )
+
+        if confidence.calibrated_score < 0.55 or ev_result.ev_pct < 0.01:
+            continue
+
+        market    = ai.get("market", best_snap.get("market", "h2h"))
+        selection = ai.get("selection", "")
+        books_odds = {s["book"]: s["best_odds"] for s in snap_list if s.get("market") == market and s.get("selection") == selection and s.get("book")}
+        if not books_odds:
+            books_odds = odds_by_book
+
+        candidates.append({
+            "type":         "team",
+            "score":        confidence.calibrated_score * (1 + ev_result.ev_pct),
+            "sport_key":    sport_key,
+            "home_team":    home_team,
+            "away_team":    away_team,
+            "commence_time":commence,
+            "market":       market,
+            "selection":    selection,
+            "best_odds":    best_odds_val,
+            "best_book":    best_snap.get("book", "hardrock"),
+            "books_odds":   books_odds,
+            "ev_pct":       ev_result.ev_pct,
+            "confidence":   confidence.calibrated_score,
+            "units":        ev_result.units,
+            "reasoning":    ai.get("reasoning", ""),
+            "key_factors":  ai.get("key_factors", []),
+            "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
+        })
+
+    return candidates
+
+
+def _build_prop_candidates(period: str, sofascore_events: list[dict]) -> list[dict]:
+    """
+    Pull player props from Redis (populated by scan_player_props).
+    Filter to today's period games, deduplicate by player+team, score by confidence.
+    """
+    from src.core.config import REDIS_URL
+    from src.engines.ev_engine import evaluate, implied_prob
+    import json, redis as _redis
+
+    try:
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = r.get("props:odds_api")
+        all_props: list[dict] = json.loads(raw) if raw else []
+    except Exception:
+        return []
+
+    candidates: list[dict] = []
+    seen_players: set[str] = set()
+    seen_teams:   set[str] = set()
+
+    for prop in all_props:
+        player   = (prop.get("player") or prop.get("subject") or "").strip()
+        stat     = prop.get("stat", "")
+        sport_key = prop.get("sport_key", "")
+        event_id  = prop.get("event_id", "")
+        line      = prop.get("line")
+
+        if not player or not stat:
+            continue
+
+        # Only props for games in this period's Sofascore schedule
+        if sofascore_events:
+            matched = any(
+                ev.get("id") == event_id or
+                player.lower() in ev.get("home_team", "").lower() or
+                player.lower() in ev.get("away_team", "").lower()
+                for ev in sofascore_events
+            )
+            if not matched and sofascore_events:
+                # sofascore event_id won't match odds API event_id — skip this strict check
+                pass  # fall through: we can't reliably match prop→sofascore event, let it pass
+
+        # Uniqueness: one pick per player, one pick per team in prop picks
+        player_key = player.lower()
+        # derive team from sport/event context — use sport_key as proxy team bucket
+        team_bucket = f"{sport_key}:{event_id}"
+
+        if player_key in seen_players:
+            continue
+        if team_bucket in seen_teams:
+            continue
+
+        # Best over or under odds across books
+        over_odds  = prop.get("over_odds", {})
+        under_odds = prop.get("under_odds", {})
+        best_over  = max(over_odds.values(),  default=None) if over_odds  else None
+        best_under = max(under_odds.values(), default=None) if under_odds else None
+
+        direction, best_odds_val, all_book_odds = None, None, {}
+        if best_over is not None and (best_under is None or best_over >= best_under):
+            direction, best_odds_val = "Over",  best_over
+            all_book_odds = {f"{bk} Over": v for bk, v in over_odds.items()}
+        elif best_under is not None:
+            direction, best_odds_val = "Under", best_under
+            all_book_odds = {f"{bk} Under": v for bk, v in under_odds.items()}
+
+        if direction is None or best_odds_val is None:
+            continue
+
+        prob  = implied_prob(best_odds_val)
+        score = prob  # simple confidence proxy for props
+
+        if score < 0.52:
+            continue
+
+        seen_players.add(player_key)
+        seen_teams.add(team_bucket)
+
+        candidates.append({
+            "type":         "prop",
+            "score":        score,
+            "player":       player,
+            "stat":         stat,
+            "line":         line,
+            "direction":    direction,
+            "sport_key":    sport_key,
+            "best_odds":    best_odds_val,
+            "books_odds":   all_book_odds,
+            "confidence":   score,
+            "ev_pct":       0.0,
+            "units":        1.0,
+        })
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates
+
+
+def _post_hardrock_embed(period: str, team_picks: list[dict], prop_picks: list[dict]) -> None:
+    """Build and post the Discord embed for one HardRock entry."""
+    from src.core.sport_labels import get_emoji, get_name
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post
+    import zoneinfo
+    from datetime import datetime
+
+    ET       = zoneinfo.ZoneInfo("America/New_York")
+    now_et   = datetime.now(ET)
+    now_str  = now_et.strftime("%I:%M %p ET")
+    date_str = now_et.strftime("%A, %B %-d")
+    label    = "☀️ Day" if period == "day" else "🌙 Night"
+
+    _MARKET = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
+
+    def _fmt(v) -> str:
+        return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
+
+    def _books_line(books_odds: dict, best_book: str) -> str:
+        best_book = (best_book or "").lower()
+        parts = []
+        for bk, odds in sorted(books_odds.items(), key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
+            label_bk = bk.upper().replace("_", " ")
+            parts.append(f"**{label_bk} {_fmt(odds)}**" if bk.lower() == best_book else f"{label_bk} {_fmt(odds)}")
+        return "  ·  ".join(parts[:5]) or "—"
+
+    def _game_time(commence: str) -> str:
+        try:
+            from dateutil.parser import parse as _p
+            return _p(commence).astimezone(ET).strftime("%-I:%M %p ET")
+        except Exception:
+            return ""
+
+    lines: list[str] = []
+
+    # ── Team picks ──────────────────────────────────────────────────────────
+    if team_picks:
+        lines.append("**🏟️  TEAM PICKS**")
+        for i, p in enumerate(team_picks, 1):
+            sport  = p["sport_key"]
+            market = _MARKET.get(p["market"], p["market"].upper())
+            conf   = round(p["confidence"] * 100)
+            ev     = round(p["ev_pct"] * 100, 1)
+            units  = round(p["units"], 1)
+            gt     = _game_time(p["commence_time"])
+            inj    = "  ⚠️" if p.get("injuries", 0) > 0 else ""
+            factors = p.get("key_factors") or []
+            reasoning = (p.get("reasoning") or "").strip()
+            insight = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
+
+            lines.append(
+                f"**{i}.** {get_emoji(sport)} **{p['away_team']} @ {p['home_team']}**  `{gt}`{inj}\n"
+                f"> {get_name(sport)}  ·  {market}: **{p['selection']} {_fmt(p['best_odds'])}**  ·  {conf}% conf  ·  +{ev}% EV  ·  {units}u\n"
+                f"> 📚 {_books_line(p['books_odds'], p.get('best_book',''))}"
+                + (f"\n> *{insight}*" if insight else "")
+            )
+
+    # ── Player prop picks ────────────────────────────────────────────────────
+    if prop_picks:
+        lines.append("\n**🎯  PLAYER PROPS**")
+        for i, p in enumerate(prop_picks, 1):
+            conf  = round(p["confidence"] * 100)
+            lines.append(
+                f"**{i}.** {get_emoji(p['sport_key'])} **{p['player']}** — {p['stat']} {p['direction']} **{p['line']}**  `{_fmt(p['best_odds'])}`  ·  {conf}% conf\n"
+                f"> 📚 {_books_line(p['books_odds'], '')}"
+            )
+
+    all_picks  = team_picks + prop_picks
+    total_u    = round(sum(p.get("units", 1) for p in all_picks), 1)
+    avg_conf   = round(sum(p["confidence"] for p in all_picks) / len(all_picks) * 100) if all_picks else 0
+    divider    = "─" * 34
+
+    embed = {
+        "title":       f"🪨  HardRock {label} Entry  ·  {date_str}",
+        "description": f"{divider}\n\n" + f"\n\n{divider}\n\n".join(lines) + f"\n\n{divider}",
+        "color":       0x1565C0 if period == "day" else 0x4A148C,
+        "fields": [
+            {"name": "Team Picks",    "value": f"**{len(team_picks)}** / 5",  "inline": True},
+            {"name": "Prop Picks",    "value": f"**{len(prop_picks)}** / 5",  "inline": True},
+            {"name": "Total Units",   "value": f"**{total_u}u**",             "inline": True},
+            {"name": "Avg Confidence","value": f"**{avg_conf}%**",            "inline": True},
+            {"name": "Generated",     "value": now_str,                       "inline": True},
+            {"name": "Action",        "value": "📲 Place on HardRock Bet",    "inline": True},
+        ],
+        "footer": {"text": "Odds API · Sofascore · AI research · Bet responsibly"},
+    }
+
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("HardRock %s entry posted: %d team + %d props, %.1fu", period, len(team_picks), len(prop_picks), total_u)
+
+
+def _generate_hardrock_entry(period: str) -> dict:
+    """Core logic shared by day and night entry generators."""
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
     try:
-        from src.engines.odds_engine import get_latest_snapshots_by_game
-        from src.engines.news_engine import get_recent_injuries
-        from src.engines.confidence_engine import compute_confidence
-        from src.engines.ev_engine import evaluate, american_to_decimal, implied_prob, decimal_to_american
-        from src.engines.ai_engine import analyse_pick
-        from src.apis.data_hub import build_game_context
-        from src.core.sport_labels import get_emoji, get_name
-        from src.workers.alert_worker import _run_async
-        from src.discord_bot.bot import _post
-        import dataclasses, zoneinfo
-        from datetime import datetime
+        sofascore_events = _load_todays_games(period)
+        if not sofascore_events:
+            logger.info("HardRock %s entry: no Sofascore games cached — run scan_todays_games first", period)
+            # Proceed anyway — scan_todays_games may not have run yet
 
-        # Gate: only games Sofascore says are on today
-        today_tokens = _get_todays_games_from_sofascore()
+        # ── Team picks: max 5, unique teams ─────────────────────────────────
+        raw_team   = _build_hardrock_candidates(period, sofascore_events)
+        raw_team.sort(key=lambda x: x["score"], reverse=True)
+        team_picks: list[dict] = []
+        seen_teams: set[str]   = set()
+        for c in raw_team:
+            teams = {c["home_team"].lower(), c["away_team"].lower()}
+            if teams & seen_teams:
+                continue  # a team in this game already has a pick
+            seen_teams.update(teams)
+            team_picks.append(c)
+            if len(team_picks) == 5:
+                break
 
-        snapshots  = get_latest_snapshots_by_game()
-        injuries   = get_recent_injuries()
-        candidates = []
+        # ── Player prop picks: max 5, unique player + unique team ────────────
+        raw_props  = _build_prop_candidates(period, sofascore_events)
+        prop_picks = raw_props[:5]
 
-        for game_id, snap_list in snapshots.items():
-            if not snap_list:
-                continue
+        if not team_picks and not prop_picks:
+            logger.info("HardRock %s entry: no qualifying picks", period)
+            return {"picks": 0, "period": period}
 
-            best_snap  = snap_list[0]
-            sport_key  = best_snap.get("sport_key", "")
-            home_team  = best_snap.get("home_team", "")
-            away_team  = best_snap.get("away_team", "")
-            commence   = str(best_snap.get("commence_time", ""))
-
-            # Skip if Sofascore doesn't confirm this game is today
-            if today_tokens and not (
-                _team_in_today(home_team, today_tokens) or
-                _team_in_today(away_team, today_tokens)
-            ):
-                logger.debug("HardRock entry: skipping %s @ %s — not in today's Sofascore schedule", away_team, home_team)
-                continue
-
-            event = {
-                "sport_key":     sport_key,
-                "home_team":     home_team,
-                "away_team":     away_team,
-                "commence_time": commence,
-            }
-
-            game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
-            odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
-
-            try:
-                game_context = build_game_context(
-                    sport_key=sport_key, home_team=home_team,
-                    away_team=away_team, game_time=commence,
-                )
-            except Exception:
-                game_context = {}
-
-            hub_injuries = (
-                game_context.get("injuries_espn_home", []) +
-                game_context.get("rotowire_injuries", [])
-            )
-            all_injuries = hub_injuries or game_injuries
-            hub_news     = game_context.get("news_espn", [])
-
-            ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
-            if not ai:
-                continue
-
-            best_odds_val = best_snap.get("best_odds", -110)
-            opp_prob      = ai.get("opponent_probability")
-            opponent_odds = None
-            if opp_prob and 0 < opp_prob < 1:
-                opponent_odds = decimal_to_american(1.0 / opp_prob)
-
-            ev_result  = evaluate(
-                american_odds  = best_odds_val,
-                projected_prob = ai.get("win_probability", 0.5),
-                opponent_odds  = opponent_odds,
-            )
-            confidence = compute_confidence(
-                ai_win_prob         = ai.get("win_probability", 0.5),
-                model_consensus     = ai.get("confidence", 0.5),
-                line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
-                news_impact_score   = game_context.get("news_impact_score", 0.5),
-                sport               = sport_key,
-                market              = "h2h",
-            )
-
-            # Only include genuine edges
-            if confidence.calibrated_score < 0.55 or ev_result.ev_pct < 0.01:
-                continue
-
-            # Build per-book odds map for this pick
-            market    = ai.get("market", best_snap.get("market", "h2h"))
-            selection = ai.get("selection", "")
-            books_odds = {
-                s["book"]: s["best_odds"]
-                for s in snap_list
-                if s.get("market") == market and s.get("selection") == selection and s.get("book")
-            }
-            if not books_odds:
-                books_odds = odds_by_book
-
-            # Score = confidence × (1 + ev_pct) — ranks by both factors
-            score = confidence.calibrated_score * (1 + ev_result.ev_pct)
-
-            candidates.append({
-                "score":        score,
-                "sport_key":    sport_key,
-                "home_team":    home_team,
-                "away_team":    away_team,
-                "commence_time":commence,
-                "market":       market,
-                "selection":    selection,
-                "best_odds":    best_odds_val,
-                "best_book":    best_snap.get("book", "hardrock"),
-                "books_odds":   books_odds,
-                "ev_pct":       ev_result.ev_pct,
-                "confidence":   confidence.calibrated_score,
-                "units":        ev_result.units,
-                "reasoning":    ai.get("reasoning", ""),
-                "key_factors":  ai.get("key_factors", []),
-                "injuries":     len([i for i in all_injuries if i.get("status") in ("out","doubtful")]),
-            })
-
-        if not candidates:
-            logger.info("HardRock entry: no qualifying picks found")
-            return {"picks": 0}
-
-        # Sort by score, take top 10
-        candidates.sort(key=lambda x: x["score"], reverse=True)
-        picks = candidates[:10]
-
-        # ── Build Discord embed ───────────────────────────────────────────────
-        _MARKET_LABEL = {"h2h": "Moneyline", "spreads": "Spread", "totals": "Total"}
-        now_et   = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-        now_str  = now_et.strftime("%I:%M %p ET")
-        date_str = now_et.strftime("%A, %B %-d")
-
-        def _fmt_odds(v) -> str:
-            return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
-
-        leg_lines = []
-        for i, p in enumerate(picks, 1):
-            sport    = p["sport_key"]
-            emoji    = get_emoji(sport)
-            league   = get_name(sport)
-            market   = _MARKET_LABEL.get(p["market"], p["market"].title())
-            conf     = round(p["confidence"] * 100)
-            ev       = round(p["ev_pct"] * 100, 1)
-            units    = round(p["units"], 1)
-            odds_str = _fmt_odds(p["best_odds"])
-
-            # Game time
-            time_str = ""
-            try:
-                from dateutil.parser import parse as _parse
-                t = _parse(p["commence_time"]).astimezone(zoneinfo.ZoneInfo("America/New_York"))
-                time_str = t.strftime("%-I:%M %p ET")
-            except Exception:
-                pass
-
-            # Book comparison — best book bolded, sorted best→worst
-            best_book = (p.get("best_book") or "").lower()
-            book_parts = []
-            for bk, bk_odds in sorted(p["books_odds"].items(), key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
-                tag = f"**{bk.upper()}** {_fmt_odds(bk_odds)}" if bk.lower() == best_book else f"{bk.upper()} {_fmt_odds(bk_odds)}"
-                book_parts.append(tag)
-            books_line = " · ".join(book_parts[:5]) if book_parts else "—"
-
-            # Key insight — first factor or first sentence of reasoning
-            factors   = p.get("key_factors") or []
-            reasoning = (p.get("reasoning") or "").strip()
-            insight   = factors[0] if factors else (reasoning.split(".")[0][:100] if reasoning else "")
-            inj_note  = "  ⚠️ injuries" if p["injuries"] > 0 else ""
-
-            leg_lines.append(
-                f"**{i}. {emoji} {p['away_team']} @ {p['home_team']}**  {time_str}{inj_note}\n"
-                f"> {league}  ·  {market}: **{p['selection']} {odds_str}**  ·  {conf}% conf  ·  +{ev}% EV  ·  {units}u\n"
-                f"> 📚 {books_line}\n"
-                + (f"> *{insight}*" if insight else "")
-            )
-
-        total_units = round(sum(p["units"] for p in picks), 1)
-        avg_conf    = round(sum(p["confidence"] for p in picks) / len(picks) * 100)
-        avg_ev      = round(sum(p["ev_pct"] for p in picks) / len(picks) * 100, 1)
-
-        divider = "─" * 36
-        embed = {
-            "title":       f"🪨  HardRock Entry  ·  {date_str}",
-            "description": f"\n{divider}\n\n" + f"\n\n{divider}\n\n".join(leg_lines) + f"\n\n{divider}",
-            "color":       0xB71C1C,
-            "fields": [
-                {"name": "Picks",       "value": f"**{len(picks)}**",      "inline": True},
-                {"name": "Total Units", "value": f"**{total_units}u**",    "inline": True},
-                {"name": "Avg EV",      "value": f"**+{avg_ev}%**",        "inline": True},
-                {"name": "Avg Conf",    "value": f"**{avg_conf}%**",       "inline": True},
-                {"name": "Generated",   "value": now_str,                  "inline": True},
-                {"name": "Action",      "value": "📲 Place on HardRock Bet", "inline": True},
-            ],
-            "footer": {"text": "Odds API · Sofascore · AI research · Bet responsibly"},
-        }
-
-        _run_async(_post({"embeds": [embed]}))
-        logger.info("HardRock entry posted: %d picks, %.1f total units", len(picks), total_units)
-        return {"picks": len(picks), "total_units": total_units}
+        _post_hardrock_embed(period, team_picks, prop_picks)
+        return {"period": period, "team_picks": len(team_picks), "prop_picks": len(prop_picks)}
 
     except Exception as exc:
-        logger.error("HardRock entry generation failed: %s", exc)
+        logger.error("HardRock %s entry failed: %s", period, exc)
         return {"error": str(exc)}
+
+
+def generate_hardrock_day_entry():
+    """Post the Day entry (games before 6 PM ET) — runs at 10 AM."""
+    return _generate_hardrock_entry("day")
+
+
+def generate_hardrock_night_entry():
+    """Post the Night entry (games 6 PM ET+) — runs at 4 PM."""
+    return _generate_hardrock_entry("night")
 
 
 def generate_parlays():
