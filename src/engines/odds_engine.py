@@ -247,9 +247,10 @@ def scan_all_sports() -> dict[str, list[dict]]:
     """
     Fetch and normalise all events across all tracked sports.
     Returns {sport_key: [normalised_event, ...]}
+    Deduplicates sport_keys so each league is fetched exactly once.
     """
     result: dict[str, list[dict]] = {}
-    for short_name, sport_key in SPORTS.items():
+    for sport_key in set(SPORTS.values()):  # deduplicate aliases like soccer/epl → soccer_epl
         events = fetch_events(sport_key)
         if events:
             result[sport_key] = [normalise_event(e, sport_key) for e in events]
