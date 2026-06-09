@@ -126,8 +126,10 @@ PROXY_BYPASS_HOSTS = {
     "api.openai.com",
     "gamma-api.polymarket.com",
     "clob.polymarket.com",
-    "api.sleeper.app",       # free public API — no auth, proxy causes 502
-    "site.api.espn.com",     # ESPN public API — no auth needed
+    "api.sleeper.app",
+    "site.api.espn.com",
+    "api.prizepicks.com",        # blocks proxy IPs — go direct
+    "api.underdogfantasy.com",   # blocks proxy IPs — go direct
 }
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
