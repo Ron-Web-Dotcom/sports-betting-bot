@@ -479,6 +479,11 @@ def scan_and_pick_props():
                         if not snap_list:
                             continue
                         s = snap_list[0]
+                        # Build per-book odds comparison
+                        books_odds = {
+                            snap.get("book", "unknown"): snap.get("best_odds", -110)
+                            for snap in snap_list if snap.get("book")
+                        }
                         hr_games.append({
                             "home_team":     s.get("home_team", ""),
                             "away_team":     s.get("away_team", ""),
@@ -488,6 +493,7 @@ def scan_and_pick_props():
                             "book":          s.get("book", "HardRock"),
                             "market":        s.get("market", "h2h"),
                             "selection":     s.get("selection", ""),
+                            "books_odds":    books_odds,
                         })
                 except Exception:
                     pass

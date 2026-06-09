@@ -257,9 +257,22 @@ def send_hardrock_entry(games: list[dict]):
             except Exception:
                 pass
 
+        # Build book comparison string
+        books_odds = g.get("books_odds", {})
+        if books_odds:
+            book_parts = []
+            for bk, bk_odds in sorted(books_odds.items(), key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -999)):
+                bk_odds_str = f"+{bk_odds}" if isinstance(bk_odds, (int, float)) and bk_odds > 0 else str(bk_odds)
+                is_best = bk == book
+                book_parts.append(f"**{bk.title()}: {bk_odds_str}**" if is_best else f"{bk.title()}: {bk_odds_str}")
+            comparison = "  |  ".join(book_parts[:5])  # max 5 books
+        else:
+            comparison = f"{book.title()}: {odds_str}"
+
         leg_lines.append(
             f"`{i}.` **{away} @ {home}**  ·  {sport}{time_str}\n"
-            f"     └ {mkt}: **{sel}**  ·  {odds_str}  ·  via {book}"
+            f"     └ {mkt}: **{sel}**\n"
+            f"     └ {comparison}"
         )
 
     embed = {
