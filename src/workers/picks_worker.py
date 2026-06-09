@@ -15,26 +15,11 @@ from src.db.models import Game
 logger = logging.getLogger(__name__)
 
 
-def _post_parlay_bundles(pick_dicts: list[dict], pp_task, hr_task) -> None:
-    """
-    Bundle picks into PP (max 6) and HardRock (max 4) parlay cards.
-    PP picks: prop picks (Over/Under)
-    HardRock picks: game picks with american_odds
-    Fires one card per bundle — only if 2+ picks available.
-    """
-    # PP entry: sort by confidence*ev desc, take top 6
-    pp_picks = sorted(pick_dicts, key=lambda p: (p.get("confidence", 0) * p.get("ev_pct", 0)), reverse=True)
-    if len(pp_picks) >= 2:
-        # Post the best 2, 3, 4, 5, 6-leg combos as a single recommended entry
-        n = min(len(pp_picks), 6)
-        pp_task(pp_picks[:n])
-
-    # HardRock: picks that have american_odds (game picks, not props)
-    hr_picks = [p for p in pick_dicts if p.get("american_odds") or p.get("odds")]
-    hr_picks = sorted(hr_picks, key=lambda p: p.get("confidence", 0), reverse=True)
+def _post_parlay_bundles(pick_dicts: list[dict], hr_task) -> None:
+    """Bundle top picks into a HardRock parlay card — max 4 legs, min 2."""
+    hr_picks = sorted(pick_dicts, key=lambda p: p.get("confidence", 0), reverse=True)
     if len(hr_picks) >= 2:
-        n = min(len(hr_picks), 4)
-        hr_task(hr_picks[:n])
+        hr_task(hr_picks[:4])
 
 
 def _is_sleep_time() -> bool:
@@ -226,35 +211,16 @@ def morning_props_brief():
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 
-    # ── 1. Force-refresh all props (lines just opened) ────────────────────────
+    # ── 1. Force-refresh Odds API player props (lines just opened) ───────────
     try:
-        from src.apis.prizepicks import get_all_projections
-        from src.apis.underdog import get_all_lines
+        from src.engines.odds_engine import fetch_all_player_props, scan_all_sports
         from src.core.config import REDIS_URL
         import redis as _redis
-        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-
-        _fetchers = {
-            "prizepicks": get_all_projections,
-            "underdog":   get_all_lines,
-        }
-        _results: dict = {}
-        with ThreadPoolExecutor(max_workers=2) as _pool:
-            _futs = {_pool.submit(fn): name for name, fn in _fetchers.items()}
-            for _fut in _as_completed(_futs, timeout=30):
-                _name = _futs[_fut]
-                try:
-                    _results[_name] = _fut.result()
-                except Exception as _e:
-                    logger.warning("Morning fetch [%s] failed: %s", _name, _e)
-                    _results[_name] = []
-
-        pp_props = _results.get("prizepicks", [])
-        ud_props = _results.get("underdog", [])
-        for _name, _items in _results.items():
-            r.setex(f"props:{_name}", 900, json.dumps(_items or []))
-        all_props = pp_props + ud_props
+        all_events = scan_all_sports()
+        all_props  = fetch_all_player_props(all_events)
+        r.setex("props:odds_api", 1500, json.dumps(all_props))
+        r.setex("props:all",      1500, json.dumps(all_props))
     except Exception as e:
         logger.warning("Morning props fetch failed: %s", e)
         all_props = []
@@ -301,7 +267,7 @@ def morning_props_brief():
         ),
         color=0x2E7D32,
         fields=[
-            {"name": "Sources Checked", "value": "PrizePicks · Underdog · HardRock (via Odds API)", "inline": False},
+            {"name": "Sources Checked", "value": "Odds API · HardRock · Kalshi · Polymarket", "inline": False},
         ],
     ))
 
@@ -324,10 +290,10 @@ def morning_props_brief():
             ],
         ))
 
-        # Parlay bundles only — no individual pick spam
-        from src.workers.alert_worker import send_pp_parlay_alert, send_hardrock_parlay_alert
+        # Parlay bundles — HardRock only
+        from src.workers.alert_worker import send_hardrock_parlay_alert
         pick_dicts = [dataclasses.asdict(p) for p in picks]
-        _post_parlay_bundles(pick_dicts, send_pp_parlay_alert, send_hardrock_parlay_alert)
+        _post_parlay_bundles(pick_dicts, send_hardrock_parlay_alert)
 
     _run_async(_post({"embeds": embeds}))
     logger.info("Morning props brief sent: %d picks at 8 AM ET", len(picks))
@@ -385,8 +351,7 @@ def scan_and_pick_props():
         def _is_upcoming_today(p: dict) -> bool:
             gt = p.get("game_time", "")
             if not gt:
-                # No time — include only PrizePicks props (they omit time, lines are pre-game)
-                return p.get("source") == "prizepicks"
+                return True  # include props with no explicit time
             try:
                 t = _parse(gt)
                 if t.tzinfo is None:
@@ -403,26 +368,7 @@ def scan_and_pick_props():
         from src.engines.prop_engine import score_props
         picks, watchlist = score_props(props)
 
-        # ── Line shop: cross-reference PP vs Underdog for same prop ──────────
-        try:
-            from src.engines.line_shop_engine import find_discrepancies
-            pp_props = [p for p in props if p.get("source") == "prizepicks"]
-            ud_props = [p for p in props if p.get("source") == "underdog"]
-            if pp_props and ud_props:
-                discrepancies = find_discrepancies(pp_props, ud_props)
-                if discrepancies:
-                    import dataclasses as _dc
-                    disc_dicts = [_dc.asdict(d) for d in discrepancies[:10]]
-                    disc_hash = hashlib.md5(
-                        json.dumps(disc_dicts, sort_keys=True).encode()
-                    ).hexdigest()
-                    if r.get("props:last_lineshop_hash") != disc_hash:
-                        r.setex("props:last_lineshop_hash", 3600, disc_hash)
-                        from src.workers.alert_worker import send_line_shop_alert
-                        send_line_shop_alert(disc_dicts)
-                        logger.info("Line shop: %d discrepancies posted", len(discrepancies))
-        except Exception as _lse:
-            logger.warning("Line shop check failed: %s", _lse)
+        # Line shop disabled — PrizePicks and Underdog removed
 
         if not picks:
             # Still post watchlist if there are near-misses worth watching
@@ -448,25 +394,12 @@ def scan_and_pick_props():
             # Store active picks so odds_worker can track line moves on them
             r.setex("props:active_picks", 3600, json.dumps(pick_dicts))
 
-            from src.workers.alert_worker import (
-                send_prop_summary, send_pp_parlay_alert,
-                send_hardrock_parlay_alert, send_underdog_entry,
-            )
+            from src.workers.alert_worker import send_prop_summary, send_hardrock_entry, send_hardrock_parlay_alert
 
-            # Post A: Top Prop Picks summary
+            # Post A: Top Player Prop Picks summary
             send_prop_summary(pick_dicts)
 
-            # Post B: PrizePicks Entry card
-            pp_picks = [p for p in pick_dicts if p.get("source") == "prizepicks"] or pick_dicts
-            if pp_picks:
-                send_pp_parlay_alert(pp_picks[:6])
-
-            # Post C: Underdog Entry card
-            ud_picks = [p for p in pick_dicts if p.get("source") == "underdog"]
-            if ud_picks:
-                send_underdog_entry(ud_picks[:6])
-
-            # Post D: HardRock Entry — top game picks from Odds API (DB) or props cache
+            # Post B: HardRock Entry — top game picks from Odds API (DB) or props cache
             try:
                 from src.workers.alert_worker import send_hardrock_entry
                 hr_games = []
