@@ -101,7 +101,7 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
         "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"],
         "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
         "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"],
-        "baseball_mlb":                 ["player_hits", "player_total_bases", "player_strikeouts", "player_home_runs"],
+        "baseball_mlb":                 ["batter_home_runs", "batter_hits", "batter_total_bases", "pitcher_strikeouts"],
         "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"],
         "tennis_atp_french_open":       _TENNIS_MARKETS,
         "tennis_wta_french_open":       _TENNIS_MARKETS,
