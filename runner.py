@@ -32,6 +32,14 @@ for _log in ("httpx", "httpcore", "openai._base_client", "tenacity"):
 
 logger = logging.getLogger("runner")
 
+# Run DB column migrations before anything else
+try:
+    from src.db.session import init_db
+    init_db()
+    logger.info("DB init/migrations complete")
+except Exception as _e:
+    logger.warning("DB init failed (non-fatal): %s", _e)
+
 # ── Task imports ───────────────────────────────────────────────────────────────
 
 def _import_tasks():

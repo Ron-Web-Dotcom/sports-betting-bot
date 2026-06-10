@@ -26,7 +26,8 @@ def _is_sleep_time() -> bool:
     from datetime import datetime
     import zoneinfo
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    return 3 <= et.hour < 5
+    # Quiet window: 11 PM – 5 AM ET — no picks posted overnight
+    return et.hour >= 23 or et.hour < 5
 
 
 def generate_picks():

@@ -264,43 +264,70 @@ def enter_sleep_mode():
     except Exception as e:
         logger.warning("Self-improvement failed during sleep: %s", e)
 
+    import hashlib
+    date_str = et.strftime("%b %-d, %Y")
+    slip_id  = hashlib.md5(f"sleep{date_str}".encode()).hexdigest()[:8].upper()
+
     fields = [
-        {"name": "Today's Record", "value": record_str, "inline": False},
+        {"name": "TODAY'S RECORD", "value": record_str,  "inline": True},
+        {"name": "TOTAL PICKS",    "value": str(total),  "inline": True},
+        {"name": "​",         "value": "​",     "inline": True},
     ]
     if winners:
-        fields.append({"name": "✅ Top Winners", "value": win_text, "inline": False})
+        fields.append({"name": "✅  TOP WINNERS", "value": win_text, "inline": False})
+    fields.append({
+        "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "value": f"Scanning paused  ·  AI self-improvement running\n{et.strftime('%-I:%M %p ET')}   CLOSED",
+        "inline": False,
+    })
 
-    embed = _embed(
-        title="🌙  Goodnight — Back at 5 AM ET",
-        description=(
-            f"Scanning paused  ·  Self-improvement running on tonight's data.\n"
-            f"─────────────────────────\n"
-            f"**Today's Record:**  {record_str}"
-            + (f"\n\n✅ **Top Winners**\n{win_text}" if winners else "")
+    embed = {
+        "title": "🌙  GOODNIGHT  ·  Back at 5 AM ET",
+        "description": (
+            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
-        color=color,
-    )
+        "fields": fields,
+        "color": 0x1A237E,
+        "footer": {"text": f"3:00 AM ET  ·  {date_str}  ·  See you at 5 AM"},
+    }
     _run_async(_post({"embeds": [embed]}))
     logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
     return {"sleep_entered": et.isoformat(), "wins": wins, "losses": losses, "pushes": pushes}
 
 
 def wake_up_brief():
-    """5 AM Eastern — simple wake-up post. Game list is posted at 6 AM by yesterday_recap."""
+    """5 AM Eastern — slip-style wake-up post."""
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post, _embed
+    from src.discord_bot.bot import _post
+    from datetime import datetime
+    import zoneinfo, hashlib
 
-    embed = _embed(
-        title="🟢  Bot is Live — Let's Get It",
-        description=(
-            "Scanning all sports every few minutes.\n"
-            "High-confidence picks posted as they're found.\n\n"
-            "─────────────────────────\n"
-            "☀️  Day entry  →  **10:30 AM ET**\n"
-            "🌙  Night entry  →  **4:30 PM ET**"
+    ET      = zoneinfo.ZoneInfo("America/New_York")
+    now_et  = datetime.now(ET)
+    date_str = now_et.strftime("%b %-d, %Y")
+    slip_id  = hashlib.md5(f"wakeup{date_str}".encode()).hexdigest()[:8].upper()
+
+    embed = {
+        "title": "🟢  BOT IS LIVE  ·  Let's Get It",
+        "description": (
+            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
-        color=0x00C851,
-    )
+        "fields": [
+            {"name": "STATUS",      "value": "🟢  Scanning all sports",                    "inline": True},
+            {"name": "MODE",        "value": "High-confidence picks only",                  "inline": True},
+            {"name": "​", "value": "​",                                            "inline": True},
+            {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  HardRock + Kalshi/Poly", "inline": True},
+            {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi/Poly",  "inline": True},
+            {"name": "​", "value": "​",                                            "inline": True},
+            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+             "value": "Picks post automatically when edge is found.\nAll picks require positive EV + 85%+ confidence.",
+             "inline": False},
+        ],
+        "color": 0x00C851,
+        "footer": {"text": f"5:00 AM ET  ·  {date_str}  ·  Bot online"},
+    }
     _run_async(_post({"embeds": [embed]}))
     logger.info("Wake-up brief sent (5 AM)")
     return {"woke_up": True}
@@ -524,80 +551,91 @@ def yesterday_recap():
     ]
     sport_breakdown = "  ".join(sport_lines) or "—"
 
-    # Today's games (active sports only, no off-season)
+    # Today's games — read from Sofascore Redis cache (written by scan_todays_games at 8 AM)
+    # Falls back to Odds API snapshot game list if cache is empty
     today_games_text = "—"
     try:
-        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
-        from src.apis.espn import fetch_scoreboard, SPORT_MAP
-
-        _OFF_SEASON: dict[str, list[int]] = {
-            "americanfootball_nfl":           [3, 4, 5, 6, 7],
-            "americanfootball_ncaaf":         [1, 2, 3, 4, 5, 6, 7, 8],
-            "icehockey_nhl":                  [7, 8, 9],
-            "basketball_ncaab":               [4, 5, 6, 7, 8, 9, 10, 11],
-            "golf_masters_tournament_winner": [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12],
-        }
-        _SPORT_LABELS = {
-            "basketball_nba":                 "🏀 NBA",
-            "americanfootball_nfl":           "🏈 NFL",
-            "baseball_mlb":                   "⚾ MLB",
-            "icehockey_nhl":                  "🏒 NHL",
-            "soccer_epl":                     "⚽ EPL",
-            "soccer_uefa_champs_league":      "⚽ UCL",
-            "soccer_usa_mls":                 "⚽ MLS",
-            "soccer_fifa_world_cup":          "⚽ World Cup",
-            "basketball_ncaab":               "🏀 NCAAB",
-            "americanfootball_ncaaf":         "🏈 NCAAF",
-            "mma":                            "🥊 MMA",
-            "mma_mixed_martial_arts":         "🥊 MMA",
-            "tennis":                         "🎾 Tennis",
-            "tennis_atp_french_open":         "🎾 French Open",
-            "golf_masters_tournament_winner": "⛳ Golf",
-        }
-        current_month = et.month
-        active_keys = [sk for sk in SPORT_MAP if current_month not in _OFF_SEASON.get(sk, [])]
-        all_today: list[str] = []
-        with ThreadPoolExecutor(max_workers=12) as _pool:
-            _futs = {_pool.submit(fetch_scoreboard, sk): sk for sk in active_keys}
-            for _fut in _as_completed(_futs, timeout=20):
-                sk = _futs[_fut]
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        day_raw   = r.get("sofascore:day_games")
+        night_raw = r.get("sofascore:night_games")
+        all_events = []
+        for raw in (day_raw, night_raw):
+            if raw:
                 try:
-                    games = _fut.result() or []
-                    active = [g for g in games if not g.get("completed")]
-                    label = _SPORT_LABELS.get(sk, sk)
-                    for g in active[:3]:
-                        home = g.get("home_team", "")
-                        away = g.get("away_team", "")
-                        if home and away:
-                            all_today.append(f"{label}: {away} @ {home}")
+                    all_events.extend(json.loads(raw))
                 except Exception:
                     pass
-        if all_today:
-            today_games_text = "\n".join(f"• {g}" for g in sorted(all_today)[:15])
-            if len(all_today) > 15:
-                today_games_text += f"\n*… and {len(all_today) - 15} more*"
+
+        _SPORT_LABELS = {
+            "basketball_nba":            "🏀 NBA",
+            "americanfootball_nfl":      "🏈 NFL",
+            "baseball_mlb":              "⚾ MLB",
+            "icehockey_nhl":             "🏒 NHL",
+            "soccer_epl":                "⚽ EPL",
+            "soccer_uefa_champs_league": "⚽ UCL",
+            "soccer_usa_mls":            "⚽ MLS",
+            "soccer_fifa_world_cup":     "⚽ World Cup",
+            "basketball_ncaab":          "🏀 NCAAB",
+            "americanfootball_ncaaf":    "🏈 NCAAF",
+            "mma_mixed_martial_arts":    "🥊 MMA",
+            "tennis_atp_french_open":    "🎾 French Open",
+            "tennis_wta_french_open":    "🎾 French Open",
+        }
+
+        if all_events:
+            lines = []
+            for ev in all_events[:15]:
+                home  = ev.get("home_team", "")
+                away  = ev.get("away_team", "")
+                sport = ev.get("sport_key", "")
+                label = _SPORT_LABELS.get(sport, sport.split("_")[-1].upper() if sport else "")
+                ct    = ev.get("commence_time", "")
+                time_fmt = ""
+                if ct:
+                    try:
+                        from dateutil.parser import parse as _p
+                        time_fmt = " · " + _p(ct).astimezone(zoneinfo.ZoneInfo("America/New_York")).strftime("%-I:%M %p ET")
+                    except Exception:
+                        pass
+                if home and away:
+                    lines.append(f"• {label}: **{away} @ {home}**{time_fmt}")
+            today_games_text = "\n".join(lines) if lines else "*No games cached yet — updates after 8 AM scan.*"
+            if len(all_events) > 15:
+                today_games_text += f"\n*… and {len(all_events) - 15} more*"
         else:
-            today_games_text = "*No games scheduled yet — check back later.*"
+            today_games_text = "*No games cached yet — updates after 8 AM scan.*"
     except Exception as e:
         logger.warning("yesterday_recap: today's games fetch failed: %s", e)
         today_games_text = "—"
 
-    sport_section = f"\n**By Sport:**  {sport_breakdown}" if sport_breakdown and sport_breakdown != "—" else ""
+    import hashlib
+    date_str = et.strftime("%b %-d, %Y")
+    slip_id  = hashlib.md5(f"recap{date_str}".encode()).hexdigest()[:8].upper()
 
     embed = {
-        "title":       f"📊  Morning Recap  ·  {yesterday.strftime('%A, %B %-d')}",
+        "title": f"📊  MORNING RECAP  ·  {yesterday.strftime('%A, %b %-d')}",
         "description": (
-            f"**Yesterday's Record:**  {record_str}"
-            + sport_section
+            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         "color": color,
         "fields": [
-            {"name": "✅  Winners",      "value": win_text,         "inline": True},
-            {"name": "❌  Losers",       "value": loss_text,        "inline": True},
-            {"name": "📅  Today's Games","value": today_games_text, "inline": False},
-            {"name": "⏰  Entry Times",  "value": "☀️ Day entry **10:30 AM ET**  ·  🌙 Night entry **4:30 PM ET**", "inline": False},
+            {"name": "YESTERDAY'S RECORD", "value": record_str,    "inline": True},
+            {"name": "BY SPORT",           "value": sport_breakdown or "—", "inline": True},
+            {"name": "​",             "value": "​",         "inline": True},
+            {"name": "✅  WINNERS",         "value": win_text,     "inline": True},
+            {"name": "❌  LOSERS",          "value": loss_text,    "inline": True},
+            {"name": "​",             "value": "​",         "inline": True},
+            {"name": "📅  TODAY'S GAMES",   "value": today_games_text, "inline": False},
+            {
+                "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "value": "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**",
+                "inline": False,
+            },
         ],
-        "footer": {"text": f"6:00 AM ET · {et.strftime('%B %-d, %Y')} · Scanning all sports"},
+        "footer": {"text": f"6:00 AM ET  ·  {date_str}  ·  Scanning all sports"},
     }
 
     try:

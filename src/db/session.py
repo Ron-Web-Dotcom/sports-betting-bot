@@ -29,10 +29,33 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
-    """Create all tables (dev/test). Use Alembic migrations in production."""
+    """Create all tables and apply lightweight column migrations."""
     from src.db.models import Base
     Path("data").mkdir(exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
+
+
+def _ensure_columns() -> None:
+    """Add any columns that were added to models after the initial schema was created."""
+    migrations = [
+        # (table, column, ddl_type)
+        ("games", "sport",    "VARCHAR(50)"),
+        ("games", "sport_id", "INTEGER"),
+    ]
+    with engine.connect() as conn:
+        for table, col, col_type in migrations:
+            try:
+                conn.execute(
+                    __import__("sqlalchemy").text(
+                        f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+                    )
+                )
+                conn.commit()
+                logger.info("Migration: added %s.%s (%s)", table, col, col_type)
+            except Exception:
+                # Column already exists — ignore
+                pass
 
 
 @contextmanager
