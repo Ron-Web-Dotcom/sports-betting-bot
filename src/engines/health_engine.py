@@ -108,16 +108,19 @@ def check_discord() -> ServiceStatus:
 
 
 def check_celery_workers() -> ServiceStatus:
-    name = "celery"
+    """Check that the runner process is alive (replaces old Celery worker check)."""
+    name = "runner"
     t0 = time.monotonic()
     try:
-        from src.workers.celery_app import app
-        inspector = app.control.inspect(timeout=2)
-        active = inspector.ping()
+        import subprocess
+        result = subprocess.run(
+            ["pgrep", "-f", "runner.py"],
+            capture_output=True, timeout=2
+        )
         latency = (time.monotonic() - t0) * 1000
-        if active:
+        if result.returncode == 0:
             return ServiceStatus(name=name, status="ok", latency_ms=latency, last_check=et_naive())
-        return ServiceStatus(name=name, status="degraded", latency_ms=latency, last_check=et_naive(), error="No workers responded")
+        return ServiceStatus(name=name, status="degraded", latency_ms=latency, last_check=et_naive(), error="runner.py not found in process list")
     except Exception as e:
         latency = (time.monotonic() - t0) * 1000
         return ServiceStatus(name=name, status="down", latency_ms=latency, last_check=et_naive(), error=str(e))

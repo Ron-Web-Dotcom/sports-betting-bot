@@ -429,9 +429,10 @@ def health_check():
         kalshi_props = json.loads(kalshi_raw) if kalshi_raw else []
         poly_raw = r.get("polymarket:markets")
         poly_props = json.loads(poly_raw) if poly_raw else []
-        active_picks_raw = r.get("props:active_picks")
-        active_picks = json.loads(active_picks_raw) if active_picks_raw else []
-        picks_count = len(active_picks)
+        # Count active picks from slip tracker
+        slips_raw = r.hgetall("slips:active")
+        active_slips = [v for v in slips_raw.values() if '"status": "active"' in v] if slips_raw else []
+        picks_count = len(active_slips)
 
         et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
         time_str = et.strftime("%I:%M %p ET")
