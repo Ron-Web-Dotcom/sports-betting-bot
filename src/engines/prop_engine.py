@@ -305,7 +305,9 @@ def record_prop_result(
             "line":      line,
             "game_time": game_time,
         }
-        send_prop_result_alert.delay(alert_pick, outcome, actual_value)
+        from src.workers.alert_worker import _run_async
+        from src.discord_bot.bot import post_prop_result
+        _run_async(post_prop_result(alert_pick, outcome, actual_value))
     except Exception as e:
         logger.warning("Failed to queue prop result alert: %s", e)
 

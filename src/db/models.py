@@ -63,7 +63,7 @@ class Sport(Base):
     key         = Column(String(50), unique=True, nullable=False)
     name        = Column(String(100), nullable=False)
     active      = Column(Boolean, default=True)
-    games       = relationship("Game", back_populates="sport")
+    games       = relationship("Game", back_populates="sport_ref")
 
 
 class Team(Base):
@@ -118,9 +118,9 @@ class Game(Base):
     created_at    = Column(DateTime, default=et_naive)
     updated_at    = Column(DateTime, default=et_naive, onupdate=et_naive)
 
-    sport   = relationship("Sport", back_populates="games")
-    odds    = relationship("OddsSnapshot", back_populates="game")
-    picks   = relationship("Pick", back_populates="game")
+    sport_ref = relationship("Sport", back_populates="games", foreign_keys=[sport_id])
+    odds      = relationship("OddsSnapshot", back_populates="game")
+    picks     = relationship("Pick", back_populates="game")
 
     __table_args__ = (Index("ix_games_commence", "commence_time"),)
 

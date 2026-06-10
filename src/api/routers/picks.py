@@ -53,10 +53,10 @@ def get_pick(pick_id: int):
 
 @router.post("/generate")
 def trigger_generation():
-    """Manually trigger pick generation (enqueues Celery task)."""
+    """Manually trigger pick generation."""
     from src.workers.picks_worker import generate_picks
-    task = generate_picks.delay()
-    return {"task_id": task.id, "status": "queued"}
+    result = generate_picks()
+    return {"status": "completed", "result": result}
 
 
 def _pick_dict(p: Pick) -> dict:

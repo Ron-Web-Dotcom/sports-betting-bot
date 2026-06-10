@@ -90,33 +90,39 @@ def _prop_key(prop: dict) -> str:
 def _alert_active_pick_changes(r, all_changes: list[dict]):
     """
     Check if any of our recommended picks moved or went off-board.
-    Post a brief Discord update only for those — not for all 2000+ props.
+    Reads active picks from the same Redis key that picks_worker writes.
     """
     import json
-    last_raw = r.get("props:last_picks_hash")
-    if not last_raw:
-        return  # no active picks to track
-
-    active_raw = r.get("props:active_picks")
+    active_raw = r.get("props:odds_api")
     if not active_raw:
         return
-    active_picks = json.loads(active_raw)
+    try:
+        active_picks = json.loads(active_raw)
+    except Exception:
+        return
+
     active_keys = {
-        f"{p.get('subject', '')}|{p.get('stat', '')}|{p.get('sport_key', '')}": p
+        f"{p.get('player', p.get('subject', ''))}|{p.get('stat', '')}|{p.get('sport_key', '')}": p
         for p in active_picks
     }
+    if not active_keys:
+        return
 
     relevant = []
     for c in all_changes:
         key = f"{c.get('subject', '')}|{c.get('stat', '')}|{c.get('sport_key', '')}"
         if key in active_keys:
-            relevant.append({**c, "our_direction": active_picks[0].get("direction", "")})
+            pick = active_keys[key]
+            relevant.append({**c, "our_direction": pick.get("direction", "")})
 
     if not relevant:
         return
 
-    from src.workers.alert_worker import send_pick_line_update
-    send_pick_line_update(relevant)
+    try:
+        from src.workers.alert_worker import send_pick_line_update
+        send_pick_line_update(relevant)
+    except Exception as e:
+        logger.warning("send_pick_line_update failed: %s", e)
 
 
 def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> list[dict]:

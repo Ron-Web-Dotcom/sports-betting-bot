@@ -455,7 +455,7 @@ def health_check():
         import asyncio
         asyncio.run(_post({"embeds": [embed]}))
         logger.info("Health check posted at %s", time_str)
-        return {"status": "ok", "props": len(props)}
+        return {"status": "ok", "props": len(odds_props) + len(kalshi_props) + len(poly_props)}
 
     except Exception as e:
         logger.error("Health check failed: %s", e)

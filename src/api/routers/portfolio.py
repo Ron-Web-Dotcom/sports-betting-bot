@@ -38,5 +38,5 @@ def bankroll_history(days: int = Query(30, ge=1, le=365)):
 @router.post("/snapshot")
 def trigger_snapshot():
     from src.workers.analytics_worker import snapshot_portfolio
-    task = snapshot_portfolio.delay()
-    return {"task_id": task.id, "status": "queued"}
+    result = snapshot_portfolio()
+    return {"status": "completed", "result": result}

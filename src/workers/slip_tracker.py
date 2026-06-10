@@ -288,12 +288,23 @@ def _check_pick_result(pick: dict) -> str | None:
                 selection = (pick.get("selection") or pick.get("player") or "").lower()
 
                 if pick.get("type") == "prop":
-                    # Props: check over/under against score
-                    line = pick.get("line")
-                    direction = (pick.get("direction") or "").lower()
-                    stat = (pick.get("stat") or "").lower()
-                    # For props we can't fully verify without play-by-play
-                    # Mark as pending — settlement_worker handles full prop settlement
+                    # Check PropResult DB for settlement written by settlement_worker
+                    try:
+                        from src.db.session import get_db
+                        from src.db.models import PropResult
+                        player = (pick.get("player") or "").lower()
+                        stat   = (pick.get("stat") or "").lower()
+                        with get_db() as db:
+                            row = db.query(PropResult).filter(
+                                PropResult.subject.ilike(f"%{player}%"),
+                                PropResult.stat.ilike(f"%{stat}%"),
+                                PropResult.result.isnot(None),
+                            ).order_by(PropResult.settled_at.desc()).first()
+                            if row:
+                                return row.result  # "won" | "lost" | "push"
+                    except Exception:
+                        pass
+                    # If game completed but no DB record yet, assume pending
                     return None
 
                 # Moneyline / spread / total
