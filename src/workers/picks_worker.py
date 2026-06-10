@@ -888,3 +888,105 @@ def generate_parlays():
     except Exception as exc:
         logger.error("Parlay generation failed: %s", exc)
         return {"error": str(exc)}
+
+
+def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
+    """Build and post the Discord embed for one unified HardRock entry."""
+    from src.core.sport_labels import get_emoji, get_name
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post
+    import zoneinfo, hashlib
+    from datetime import datetime
+
+    ET           = zoneinfo.ZoneInfo("America/New_York")
+    now_et       = datetime.now(ET)
+    date_str     = now_et.strftime("%b %-d, %Y")
+    period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
+    period_emoji = "☀️" if period == "day" else "🌙"
+    _MARKET_BADGE = {"h2h": "MONEYLINE", "spreads": "SPREAD", "totals": "TOTAL"}
+    ticket_id     = hashlib.md5(f"{period}{date_str}".encode()).hexdigest()[:8].upper()
+
+    def _fmt(v) -> str:
+        return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
+
+    def _game_time(commence: str) -> str:
+        try:
+            from dateutil.parser import parse as _p
+            return _p(commence).astimezone(ET).strftime("%-I:%M %p EDT")
+        except Exception:
+            return ""
+
+    def _parlay_decimal(picks: list[dict]) -> float:
+        dec = 1.0
+        for p in picks:
+            odds = p.get("best_odds", -110)
+            try:
+                odds = int(odds)
+            except (TypeError, ValueError):
+                odds = -110
+            dec *= (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
+        return dec
+
+    n_legs      = len(entry)
+    parlay_dec  = _parlay_decimal(entry)
+    parlay_am   = int((parlay_dec - 1) * 100) if parlay_dec >= 2 else int(-100 / (parlay_dec - 1))
+    parlay_fmt  = _fmt(parlay_am)
+    avg_conf    = round(sum(p["confidence"] for p in entry) / n_legs * 100)
+    est_payout  = round(10 * parlay_dec, 2)
+
+    leg_fields = []
+    for i, p in enumerate(entry, 1):
+        conf  = round(p["confidence"] * 100)
+        ev    = round(p.get("ev_pct", 0) * 100, 1)
+        emoji = get_emoji(p["sport_key"])
+        is_last = i == n_legs
+
+        if p["type"] == "prop":
+            prop_tag  = "🏟️  TEAM PROP" if p.get("is_team_prop") else "👤  PLAYER PROP"
+            direction = p["direction"].upper()
+            leg_fields.append({
+                "name": f"{'┗' if is_last else '┣'}  LEG {i}  ·  `{prop_tag}`",
+                "value": (
+                    f"{emoji} **{p['player']}**\n"
+                    f"{p['stat']}  **{direction} {p['line']}**\n"
+                    f"Odds  `{_fmt(p['best_odds'])}`   Conf  **{conf}%**   Edge  **+{ev}%**"
+                ),
+                "inline": False,
+            })
+        else:
+            badge  = _MARKET_BADGE.get(p["market"], p["market"].upper())
+            gt     = _game_time(p.get("commence_time", ""))
+            inj    = "  ⚠️" if p.get("injuries", 0) > 0 else ""
+            time_line = f"📅  {gt}" if gt else ""
+            leg_fields.append({
+                "name": f"{'┗' if is_last else '┣'}  LEG {i}  ·  `{badge}`",
+                "value": (
+                    f"{emoji} **{p['away_team']} vs {p['home_team']}**{inj}\n"
+                    f"{time_line}\n"
+                    f"Pick  **{p['selection']}**   Odds  `{_fmt(p['best_odds'])}`   Conf  **{conf}%**   Edge  **+{ev}%**"
+                ).strip(),
+                "inline": False,
+            })
+
+    embed = {
+        "title": f"🟣  PARLAY  ·  {n_legs}-Bet Parlay  ·  `{parlay_fmt}`",
+        "description": (
+            f"{period_emoji} **{period_label}**  ·  {date_str}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "fields": leg_fields + [
+            {
+                "name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "value": (
+                    f"**Wager** $10  →  **Payout** ${est_payout}\n"
+                    f"Avg Confidence  **{avg_conf}%**  ·  Slip ID  `#{ticket_id}`"
+                ),
+                "inline": False,
+            }
+        ],
+        "color": 0x5865F2,
+        "footer": {"text": "HardRock Bet  ·  All legs must hit to cash  ·  Bet responsibly"},
+    }
+
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("HardRock %s entry posted: %d picks", period, len(entry))
