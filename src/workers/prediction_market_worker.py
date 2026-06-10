@@ -88,91 +88,148 @@ def _better_platform(km: dict, pm: dict) -> tuple[str, dict]:
 
 # ── Build the entry ────────────────────────────────────────────────────────────
 
-def _fetch_all_markets() -> tuple[list[dict], list[dict]]:
-    from src.apis.kalshi import get_sports_markets
-    from src.apis.polymarket import get_sports_markets as poly_get
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+def _fetch_todays_games() -> list[dict]:
+    """Pull today's games from Odds API snapshots in the DB."""
+    try:
+        from src.engines.odds_engine import get_latest_snapshots_by_game
+        snapshots = get_latest_snapshots_by_game()
+        games = {}
+        for game_id, snaps in snapshots.items():
+            if not snaps:
+                continue
+            s = snaps[0]
+            home = s.get("home_team", "")
+            away = s.get("away_team", "")
+            sport = s.get("sport_key", "")
+            if not home or not away:
+                continue
+            home_odds = next((x["best_odds"] for x in snaps
+                              if x.get("market") == "h2h" and x.get("selection") == home), None)
+            away_odds = next((x["best_odds"] for x in snaps
+                              if x.get("market") == "h2h" and x.get("selection") == away), None)
+            if not home_odds or not away_odds:
+                continue
 
-    kalshi, poly = [], []
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        k_fut = pool.submit(get_sports_markets)
-        p_fut = pool.submit(poly_get)
-        for fut in as_completed([k_fut, p_fut], timeout=20):
-            try:
-                result = fut.result() or []
-                if fut is k_fut:
-                    kalshi = result
-                else:
-                    poly = result
-            except Exception as e:
-                logger.warning("Prediction market fetch error: %s", e)
-    return kalshi, poly
+            def to_prob(o):
+                o = int(o)
+                return 100 / (100 + o) if o > 0 else abs(o) / (abs(o) + 100)
+
+            hp = to_prob(home_odds)
+            ap = to_prob(away_odds)
+            total = hp + ap
+            games[game_id] = {
+                "game_id":   game_id,
+                "title":     f"{away} vs {home}",
+                "home_team": home,
+                "away_team": away,
+                "sport_key": sport,
+                "commence":  s.get("commence_time", ""),
+                "home_prob": round(hp / total, 4),
+                "away_prob": round(ap / total, 4),
+                "home_odds": home_odds,
+                "away_odds": away_odds,
+            }
+        return list(games.values())
+    except Exception as e:
+        logger.warning("_fetch_todays_games failed: %s", e)
+        return []
 
 
-def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks: int = 5) -> list[dict]:
+def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks: int = 1) -> list[dict]:
     """
-    Match markets across platforms, pick the best-value platform per game,
-    return top picks sorted by volume (most liquid = most reliable price signal).
+    Use AI to score today's games from Odds API and return the single best
+    pick formatted as a Kalshi-style YES/NO contract.
+    kalshi_markets and poly_markets are accepted for signature compat but unused.
     """
-    picks = []
-    seen_titles: set[str] = set()
+    import json as _json
+    from src.engines.ai_engine import _call_json
 
-    for km in kalshi_markets:
-        if not km.get("yes_price"):
-            continue
-        title = km.get("title", "")
-        title_key = " ".join(sorted(_tokens(title)))
-        if title_key in seen_titles:
-            continue
+    games = _fetch_todays_games()
+    if not games:
+        logger.info("Kalshi entry: no games from Odds API")
+        return []
 
-        pm = _best_match(km, poly_markets)
+    candidates = [g for g in games if 0.20 <= g["home_prob"] <= 0.80] or games
 
-        if pm:
-            platform, best = _better_platform(km, pm)
-            seen_titles.add(title_key)
-            # Mark poly match so it doesn't get processed again as standalone
-            pm["_matched"] = True
-        else:
-            platform, best = "kalshi", km
-            seen_titles.add(title_key)
+    system = """You are an elite sports prediction analyst. Given today's live games with
+implied win probabilities from betting markets, identify the SINGLE best game where
+you have genuine edge — where the true probability differs from the market price.
 
-        vol = float(best.get("volume") or 0)
-        picks.append({
-            "title":     title,
-            "platform":  platform,
-            "market":    best,
-            "kalshi":    km,
-            "poly":      pm,
-            "volume":    vol,
-            "sport_key": km.get("sport_key") or (pm.get("sport_key") if pm else ""),
-            "yes_price": float(best.get("yes_price") or 0),
-            "no_price":  float(best.get("no_price")  or 0),
-        })
+Return ONLY valid JSON:
+{
+  "index": <int>,
+  "team": "<team name to back — home or away>",
+  "true_prob": <float 0.0-1.0 — your estimate of their true win probability>,
+  "confidence": <float 0.0-1.0>,
+  "ev_pct": <float e.g. 0.06 = 6% edge>,
+  "reasoning": "<2-3 sentences>",
+  "key_factors": ["<factor1>", "<factor2>", "<factor3>"]
+}
 
-    # Also add Polymarket-only markets (no Kalshi match)
-    for pm in poly_markets:
-        if pm.get("_matched") or not pm.get("yes_price"):
-            continue
-        title = pm.get("title", "")
-        title_key = " ".join(sorted(_tokens(title)))
-        if title_key in seen_titles:
-            continue
-        seen_titles.add(title_key)
-        picks.append({
-            "title":     title,
-            "platform":  "polymarket",
-            "market":    pm,
-            "kalshi":    None,
-            "poly":      pm,
-            "volume":    float(pm.get("volume") or 0),
-            "sport_key": pm.get("sport_key") or "",
-            "yes_price": float(pm.get("yes_price") or 0),
-            "no_price":  float(pm.get("no_price")  or 0),
-        })
+Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if nothing qualifies."""
 
-    # Sort by volume descending — highest liquidity = most reliable price
-    picks.sort(key=lambda x: x["volume"], reverse=True)
-    return picks[:max_picks]
+    game_list = [
+        {
+            "index":      i,
+            "game":       g["title"],
+            "sport":      g["sport_key"].split("_")[-1].upper(),
+            "home_team":  g["home_team"],
+            "away_team":  g["away_team"],
+            "home_win_%": f"{round(g['home_prob']*100)}%",
+            "away_win_%": f"{round(g['away_prob']*100)}%",
+            "home_odds":  f"{int(g['home_odds']):+d}",
+            "away_odds":  f"{int(g['away_odds']):+d}",
+            "game_time":  g.get("commence", ""),
+        }
+        for i, g in enumerate(candidates[:40])
+    ]
+
+    prompt = (
+        f"Today's live games ({len(game_list)} games):\n\n"
+        f"```json\n{_json.dumps(game_list, indent=2)}\n```\n\n"
+        f"Pick the single best YES bet with genuine edge for a Kalshi-style contract."
+    )
+
+    try:
+        result = _call_json(prompt, system)
+    except Exception as e:
+        logger.warning("Kalshi AI scoring failed: %s", e)
+        return []
+
+    if not result or result.get("index") is None:
+        logger.info("Kalshi AI: no qualifying pick")
+        return []
+
+    idx        = result.get("index", 0)
+    confidence = float(result.get("confidence") or 0)
+    ev_pct     = float(result.get("ev_pct") or 0)
+
+    if idx >= len(candidates) or confidence < 0.62 or ev_pct < 0.04:
+        return []
+
+    game      = candidates[idx]
+    team      = result.get("team", game["home_team"])
+    true_prob = float(result.get("true_prob") or confidence)
+    is_home   = team.lower() in game["home_team"].lower()
+    yes_prob  = game["home_prob"] if is_home else game["away_prob"]
+    no_prob   = round(1 - yes_prob, 4)
+
+    return [{
+        "title":       game["title"],
+        "team":        team,
+        "sport_key":   game["sport_key"],
+        "yes_price":   yes_prob,
+        "no_price":    no_prob,
+        "true_prob":   true_prob,
+        "side":        "yes",
+        "confidence":  confidence,
+        "ev_pct":      ev_pct,
+        "reasoning":   result.get("reasoning", ""),
+        "key_factors": result.get("key_factors", []),
+        "home_odds":   game["home_odds"],
+        "away_odds":   game["away_odds"],
+        "commence":    game.get("commence", ""),
+    }]
 
 
 # ── Discord embed ──────────────────────────────────────────────────────────────
@@ -190,9 +247,8 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
 
     r = _redis()
 
-    # Idempotency — only post if picks changed
     entry_hash = hashlib.md5(
-        json.dumps([p["title"] + p["platform"] for p in picks]).encode()
+        json.dumps([p["title"] + p.get("team", "") for p in picks]).encode()
     ).hexdigest()
     hash_key = f"{_ENTRY_HASH_KEY}:{period}"
     if r.get(hash_key) == entry_hash:
@@ -200,47 +256,49 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         return
     r.setex(hash_key, 7200, entry_hash)
 
+    import zoneinfo
+    from datetime import datetime
+    ET           = zoneinfo.ZoneInfo("America/New_York")
+    now_et       = datetime.now(ET)
+    date_str     = now_et.strftime("%b %-d, %Y")
+    time_str     = now_et.strftime("%-I:%M %p ET")
+    period_emoji = "☀️" if period == "day" else "🌙"
     period_label = "DAY" if period == "day" else "NIGHT"
-    rows = []
+    ticket_id    = hashlib.md5(f"pred{period}{date_str}".encode()).hexdigest()[:8].upper()
 
-    for i, pick in enumerate(picks, 1):
-        emoji    = _PLATFORM_EMOJI[pick["platform"]]
-        platform = _PLATFORM_LABEL[pick["platform"]]
-        title    = pick["title"][:60]
-        yes_pct  = _pct(pick["yes_price"])
-        no_pct   = _pct(pick["no_price"])
-        yes_am   = _american(pick["yes_price"])
-        no_am    = _american(pick["no_price"])
-        vol      = f"${int(pick['volume']):,}" if pick["volume"] else "—"
-        sport    = (pick.get("sport_key") or "").split("_")[-1].upper()
-
-        # Show both platform prices if matched — this is the live contract price right now
-        both_line = ""
-        if pick["kalshi"] and pick["poly"]:
-            ky = _pct(pick["kalshi"].get("yes_price"))
-            py = _pct(pick["poly"].get("yes_price"))
-            both_line = f"\n`🔵 Kalshi {ky}  |  🟣 Polymarket {py}`  → play **{platform}**"
-
-        rows.append(
-            f"**{i}. {title}** `{sport}`\n"
-            f"{emoji} **{platform}** — "
-            f"YES **{yes_pct}** ({yes_am})  ·  NO **{no_pct}** ({no_am})\n"
-            f"Volume: {vol}  _(live price — moves before & during game)_{both_line}"
-        )
-
-    description = "\n\n".join(rows)
+    pick      = picks[0]
+    title     = pick["title"][:60]
+    team      = pick.get("team", "")
+    sport     = (pick.get("sport_key") or "").split("_")[-1].upper() or "SPORTS"
+    yes_pct   = round(pick["yes_price"] * 100)
+    no_pct    = round(pick["no_price"]  * 100)
+    conf      = f"{round((pick.get('confidence') or 0) * 100)}%"
+    ev        = f"+{round((pick.get('ev_pct') or 0) * 100, 1)}%"
+    cost      = round(pick["yes_price"] * 10, 2)
+    reasoning = pick.get("reasoning", "")
+    factors   = pick.get("key_factors", [])
+    factors_str = "  ·  ".join(f"**{f}**" for f in factors[:3]) if factors else "—"
+    commence  = pick.get("commence", "")[:16]
 
     embed = {
-        "title":       f"📊 Prediction Market — {period_label} Games",
+        "title": f"🎟️  KALSHI SLIP  ·  {period_emoji} {period_label}",
         "description": (
-            f"**{len(picks)} live contract{'s' if len(picks) > 1 else ''}** "
-            f"· Best platform per game\n"
-            f"Price floats up & down before and during the game.\n"
-            f"Buy YES or NO — you can exit at any time.\n\n"
-            + description
+            f"```\n"
+            f"  Ticket #{ticket_id}        {date_str}\n"
+            f"  {time_str}         GAME OUTCOME\n"
+            f"```"
         ),
-        "color": 0x4A148C,
-        "footer": {"text": "🔵 Kalshi  🟣 Polymarket  —  price updates every 3 min  —  alerts fire on 5%+ moves"},
+        "fields": [
+            {"name": "CONTRACT", "value": f"🔵 **Kalshi**  `{sport}`\n**{title}**", "inline": False},
+            {"name": "PICK",     "value": f"**Yes · {team}**\nYes @ **{yes_pct}% chance**", "inline": True},
+            {"name": "COST",     "value": f"**${cost}**\nfor $10 payout", "inline": True},
+            {"name": "EDGE",     "value": f"**{ev}** edge\n{conf} confidence", "inline": True},
+            {"name": "REASONING", "value": reasoning[:300] if reasoning else "—", "inline": False},
+            {"name": "KEY FACTORS", "value": factors_str, "inline": False},
+            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+             "value": f"🔵 Kalshi  ·  Place manually  ·  Game {commence} UTC", "inline": False},
+        ],
+        "color": 0x1B5E20,
     }
 
     try:
@@ -317,17 +375,19 @@ def generate_prediction_market_night_entry() -> dict:
 
 def _generate_entry(period: str) -> dict:
     try:
-        kalshi, poly = _fetch_all_markets()
-        if not kalshi and not poly:
-            logger.info("Prediction market %s entry: no markets available", period)
-            return {"picks": 0, "posted": False}
-
-        picks = _build_entry(kalshi, poly, max_picks=5)
+        picks = _build_entry([], [], max_picks=1)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks", period)
             return {"picks": 0, "posted": False}
 
         _post_prediction_entry(period, picks)
+
+        try:
+            from src.workers.slip_tracker import save_slip
+            save_slip(period, "kalshi", picks)
+        except Exception as e:
+            logger.warning("slip_tracker.save_slip failed: %s", e)
+
         return {"period": period, "picks": len(picks), "posted": True}
     except Exception as exc:
         logger.error("Prediction market %s entry failed: %s", period, exc)
@@ -335,45 +395,5 @@ def _generate_entry(period: str) -> dict:
 
 
 def scan_prediction_markets() -> dict:
-    """
-    Interval scan (every 3 min) — detects live price moves on active markets
-    and fires alerts. Does NOT re-post the full entry.
-    """
-    try:
-        r = _redis()
-        kalshi, poly = _fetch_all_markets()
-        alerts = 0
-
-        all_markets = [(m, "kalshi") for m in kalshi] + [(m, "polymarket") for m in poly]
-
-        for market, platform in all_markets:
-            mid = market.get("market_id", "")
-            if not mid:
-                continue
-            yes = float(market.get("yes_price") or 0)
-            no  = float(market.get("no_price")  or 0)
-            if not yes and not no:
-                continue
-
-            key  = f"{platform}:{mid}"
-            prev = _load_price(r, key)
-            move = _check_move(prev, yes, no)
-            _save_price(r, key, yes, no)
-
-            if move:
-                alert_key = f"move:{key}"
-                if not r.sismember(_ALERTED_CACHE, alert_key):
-                    _post_move_alert(market, move, platform)
-                    r.sadd(_ALERTED_CACHE, alert_key)
-                    r.expire(_ALERTED_CACHE, 3600)
-                    alerts += 1
-
-        logger.info(
-            "Prediction market scan: K=%d P=%d moves=%d",
-            len(kalshi), len(poly), alerts,
-        )
-        return {"kalshi": len(kalshi), "polymarket": len(poly), "alerts": alerts}
-
-    except Exception as exc:
-        logger.error("Prediction market scan failed: %s", exc)
-        return {"error": str(exc)}
+    """No-op: live price scan disabled — Kalshi slips use Odds API data."""
+    return {"skipped": "not_applicable"}
