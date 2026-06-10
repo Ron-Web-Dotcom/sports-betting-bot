@@ -322,7 +322,7 @@ def _generate_entry(period: str) -> dict:
             logger.info("Prediction market %s entry: no markets available", period)
             return {"picks": 0, "posted": False}
 
-        picks = _build_entry(kalshi, poly, max_picks=5)
+        picks = _build_entry(kalshi, poly, max_picks=1)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks", period)
             return {"picks": 0, "posted": False}
