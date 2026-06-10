@@ -211,23 +211,25 @@ def get_sports_markets() -> list[dict]:
     Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
     Excludes tournament futures and politics.
     """
-    # Kalshi uses 'active' not 'open' for live markets
-    data = _get("/markets", {"limit": 200, "status": "active"})
-    if not data or not (data.get("markets") if isinstance(data, dict) else None):
-        # Fallback: no status filter
-        data = _get("/markets", {"limit": 200})
+    # Use /events endpoint — returns single-game markets grouped by event
+    # Much better than /markets which returns combo/parlay markets
+    markets_raw = []
+    for series_ticker in ["NBA", "NFL", "MLB", "NHL", "SOCCER", "UFC", "NCAAF", "NCAAB", "WNBA"]:
+        edata = _get("/events", {"limit": 100, "series_ticker": series_ticker, "status": "active"})
+        if not edata:
+            continue
+        events = edata.get("events", []) if isinstance(edata, dict) else []
+        for event in events:
+            for mkt in (event.get("markets") or []):
+                mkt.setdefault("close_time", event.get("expected_expiration_time", ""))
+                mkt.setdefault("category", series_ticker.lower())
+                markets_raw.append(mkt)
 
-    if not data:
-        return []
-
-    markets_raw = data.get("markets", []) if isinstance(data, dict) else []
-    logger.info("Kalshi API returned %d raw markets", len(markets_raw))
-    # Log first market to see real structure
+    logger.info("Kalshi /events returned %d markets across sports", len(markets_raw))
     if markets_raw:
         m0 = markets_raw[0]
-        logger.info("Kalshi sample market: title=%r status=%r category=%r tags=%s close=%r",
-                    (m0.get("title") or "")[:50], m0.get("status"), m0.get("category"),
-                    m0.get("tags", [])[:3], m0.get("close_time", "")[:20])
+        logger.info("Kalshi sample: title=%r category=%r close=%r",
+                    (m0.get("title") or "")[:50], m0.get("category"), m0.get("close_time", "")[:20])
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
 
