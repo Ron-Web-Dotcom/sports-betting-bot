@@ -39,7 +39,11 @@ def _import_tasks():
     from src.workers.news_worker            import fetch_and_save_news
     from src.workers.picks_worker           import generate_picks, generate_parlays, scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
     from src.workers.alert_worker           import send_pregame_alerts
-    from src.workers.prediction_market_worker import scan_prediction_markets
+    from src.workers.prediction_market_worker import (
+        scan_prediction_markets,
+        generate_prediction_market_day_entry,
+        generate_prediction_market_night_entry,
+    )
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
     from src.workers.analytics_worker  import (
         enter_sleep_mode, wake_up_brief, send_daily_summary,
@@ -48,7 +52,9 @@ def _import_tasks():
         cleanup_old_snapshots,
     )
     return {
-        "scan_prediction_markets":    scan_prediction_markets,
+        "scan_prediction_markets":                  scan_prediction_markets,
+        "generate_prediction_market_day_entry":     generate_prediction_market_day_entry,
+        "generate_prediction_market_night_entry":   generate_prediction_market_night_entry,
         "scan_and_save_odds":         scan_and_save_odds,
         "scan_player_props":      scan_player_props,
         "refresh_active_sports":  refresh_active_sports,
@@ -103,11 +109,13 @@ CRON_TASKS = [
     (6,  0,  "yesterday_recap",         None, None),
     (8,  0,  "scan_todays_games",               None, None),  # Sofascore full scan — split day/night, cache
     (9,  0,  "generate_parlays",               None, None),
-    (10, 30, "generate_hardrock_day_entry",    None, None),  # day entry — lines settled by 10:30
-    (14, 0,  "scan_todays_games",              None, None),  # re-scan Sofascore for night games
-    (14, 0,  "scan_and_save_odds",             None, None),  # pull night game odds fresh at 2 PM
-    (14, 0,  "scan_player_props",              None, None),  # pull night props fresh at 2 PM
-    (16, 30, "generate_hardrock_night_entry",  None, None),  # night entry — lines settled by 4:30
+    (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
+    (10, 35, "generate_prediction_market_day_entry",     None, None),  # Kalshi/Poly day entry (5 min after)
+    (14, 0,  "scan_todays_games",                        None, None),  # re-scan Sofascore for night games
+    (14, 0,  "scan_and_save_odds",                       None, None),  # pull night game odds fresh at 2 PM
+    (14, 0,  "scan_player_props",                        None, None),  # pull night props fresh at 2 PM
+    (16, 30, "generate_hardrock_night_entry",            None, None),  # HardRock night entry
+    (16, 35, "generate_prediction_market_night_entry",   None, None),  # Kalshi/Poly night entry (5 min after)
     (22, 0,  "send_daily_summary",      None, None),  # checks if last game done; skips if not
     (23, 0,  "send_daily_summary",      None, None),  # retry at 11 PM
     (0,  30, "send_daily_summary",      None, None),  # retry at 12:30 AM (late west coast games)
