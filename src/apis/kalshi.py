@@ -168,25 +168,47 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
 
 
 _SPORTS_KEYWORDS = [
-    "nba", "nfl", "mlb", "nhl", "ufc", "mma", "world cup", "fifa",
-    "champions league", "premier league", "mls", "stanley cup", "super bowl",
-    "world series", "wimbledon", "us open", "french open", "masters", "pga",
-    "formula 1", "f1", "ncaa", "march madness", "playoffs", "finals",
-    "win the", "championship", "series", "advance", "qualify",
-    # broader team/game terms
+    "nba", "nfl", "mlb", "nhl", "ufc", "mma",
+    "champions league", "premier league", "mls",
+    "wimbledon", "us open", "french open", "masters", "pga",
+    "formula 1", "f1", "ncaa",
+    # single-game terms
     "game ", "match", "points", "score", "innings", "quarter",
-    "heat", "celtics", "lakers", "warriors", "knicks", "nuggets",  # NBA teams
-    "yankees", "dodgers", "mets", "red sox", "cubs", "astros",    # MLB teams
-    "oilers", "panthers", "rangers", "avalanche", "lightning",    # NHL teams
+    "heat", "celtics", "lakers", "warriors", "knicks", "nuggets",
+    "yankees", "dodgers", "mets", "red sox", "cubs", "astros",
+    "oilers", "panthers", "rangers", "avalanche", "lightning",
     "basketball", "baseball", "hockey", "soccer", "football",
-    "will the", "total ", "over ", "under ",
+    "total ", "over ", "under ",
 ]
+
+# Futures / politics patterns — always block
+_KALSHI_FUTURES = [
+    "win the", "win the 2", "world cup", "fifa", "championship", "champion",
+    "stanley cup", "super bowl", "world series", "nba finals", "march madness",
+    "advance to", "qualify for", "make the playoffs", "make playoffs",
+    "win series", "win title", "presidential", "election", "president",
+    "primary", "governor", "senate", "congress", "bitcoin", "crypto",
+    "by end of", "before ", "next year", "in 202",
+]
+
+
+def _kalshi_is_game_day(close_time: str) -> bool:
+    """Return True only if market closes within 48 hours."""
+    if not close_time:
+        return False
+    try:
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        return timedelta(0) <= (dt - now) <= timedelta(hours=48)
+    except Exception:
+        return False
 
 
 def get_sports_markets() -> list[dict]:
     """
-    Fetch all open sports markets in a single API call.
-    Filters by keyword rather than per-sport tag to avoid 13 round trips.
+    Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
+    Excludes tournament futures and politics.
     """
     data = _get("/markets", {"limit": 200, "status": "open"})
     if not data:
@@ -194,15 +216,23 @@ def get_sports_markets() -> list[dict]:
 
     markets_raw = data.get("markets", []) if isinstance(data, dict) else []
     if not markets_raw:
-        # Try cursor-based fetch if empty
         data2 = _get("/markets", {"limit": 200})
         markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
 
     out = []
     for m in markets_raw:
-        title    = (m.get("title") or "").lower()
-        category = (m.get("category") or "").lower()
-        tags     = [t.lower() for t in (m.get("tags") or [])]
+        title      = (m.get("title") or "").lower()
+        category   = (m.get("category") or "").lower()
+        tags       = [t.lower() for t in (m.get("tags") or [])]
+        close_time = m.get("close_time", "")
+
+        # Block futures and politics regardless
+        if any(pat in title for pat in _KALSHI_FUTURES):
+            continue
+
+        # Only single-game markets (ends within 48 h)
+        if not _kalshi_is_game_day(close_time):
+            continue
 
         is_sports = (
             "sports" in category

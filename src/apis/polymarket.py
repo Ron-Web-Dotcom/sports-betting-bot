@@ -23,12 +23,21 @@ _BASE = "https://gamma-api.polymarket.com"
 
 # Sports keywords to filter markets — Polymarket has no sport category flag
 _SPORT_KEYWORDS = [
-    "nba", "nfl", "mlb", "nhl", "ufc", "mma", "world cup", "fifa",
-    "champions league", "premier league", "mls", "nba finals", "stanley cup",
-    "super bowl", "world series", "wimbledon", "us open", "french open",
-    "australian open", "masters", "pga", "formula 1", "f1",
-    "win", "championship", "finals", "playoffs", "series",
-    "defeat", "beat", "advance", "qualify",
+    "nba", "nfl", "mlb", "nhl", "ufc", "mma",
+    "champions league", "premier league", "mls",
+    "wimbledon", "us open", "french open", "australian open",
+    "masters", "pga", "formula 1", "f1",
+    "defeat", "beat",
+]
+
+# Patterns that indicate a tournament FUTURES contract — NOT a single-game pick
+_FUTURES_PATTERNS = [
+    "win the", "win the 2", "world cup", "fifa", "championship", "champion",
+    "stanley cup", "super bowl", "world series", "nba finals",
+    "advance to", "qualify for", "make the playoffs", "make playoffs",
+    "win series", "win title", "presidential", "election", "president",
+    "primary", "governor", "senate", "congress", "bitcoin", "crypto",
+    "will it", "by end of", "before ", "next year", "in 202",
 ]
 
 _SPORT_MAP = {
@@ -65,14 +74,44 @@ def _detect_sport(question: str) -> str:
     return "sports"
 
 
+def _is_futures_market(question: str) -> bool:
+    """Return True if this looks like a tournament futures/politics contract."""
+    q = question.lower()
+    return any(pat in q for pat in _FUTURES_PATTERNS)
+
+
+def _is_game_day_market(end_date: str) -> bool:
+    """Return True only if the market ends within 48 hours (i.e. a single game)."""
+    if not end_date:
+        return False
+    try:
+        from datetime import datetime, timezone, timedelta
+        # Polymarket end_date formats: ISO string or Unix timestamp
+        if isinstance(end_date, (int, float)):
+            dt = datetime.fromtimestamp(float(end_date), tz=timezone.utc)
+        else:
+            # Try ISO parse — strip trailing Z
+            dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        return timedelta(0) <= (dt - now) <= timedelta(hours=48)
+    except Exception:
+        return False
+
+
 def _is_sports_market(question: str) -> bool:
     q = question.lower()
+    if _is_futures_market(question):
+        return False
     return any(kw in q for kw in _SPORT_KEYWORDS)
 
 
 def _parse_market(m: dict) -> dict | None:
     question = m.get("question") or m.get("title") or ""
     if not question:
+        return None
+    end_date = m.get("endDate") or m.get("end_date_iso") or m.get("endDateIso") or ""
+    # Only accept single-game markets (ends within 48 h) that are not futures/politics
+    if not _is_game_day_market(end_date):
         return None
     if not _is_sports_market(question):
         return None
