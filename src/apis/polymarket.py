@@ -31,7 +31,8 @@ _SPORT_KEYWORDS = [
     # game-specific terms (safe — futures don't use these)
     "match winner", "game winner", "moneyline", "spread",
     "over/under", "total points", "total goals",
-    "vs ", " vs", "at the", "game 1", "game 2", "game 3",
+    " vs ", " v ", "at the", "game 1", "game 2", "game 3",
+    " to win", "will win",  # single-game winner markets
     "basketball", "baseball", "hockey", "soccer", "football", "tennis", "golf",
     # team names that only appear in single-game markets
     "lakers", "celtics", "heat", "warriors", "knicks", "nuggets", "bucks",
@@ -202,6 +203,12 @@ def get_sports_markets(limit: int = 200) -> list[dict]:
     if not isinstance(raw, list):
         logger.warning("Polymarket: unexpected response shape: %s", type(raw))
         return []
+
+    # Debug: log first 5 raw titles so we can see what Polymarket sends
+    for m in raw[:5]:
+        q = m.get("question") or m.get("title") or ""
+        ed = m.get("endDate") or m.get("end_date_iso") or ""
+        logger.info("Polymarket raw sample: %r  end=%r", q[:80], str(ed)[:30])
 
     out = []
     for m in raw:
