@@ -35,7 +35,14 @@ def send_parlay_alerts(parlays: list[dict]):
 def send_line_movement_alerts(movements: list[dict]):
     from src.discord_bot.bot import post_line_movement
     import time
-    for mov in movements:
+    # Only fire significant movements (≥2 points/odds shift) — skip noise and zero-moves
+    significant = [
+        m for m in movements
+        if abs(m.get("move_size") or 0) >= 2 and m.get("move_type")
+    ]
+    if not significant:
+        return
+    for mov in significant[:5]:  # max 5 alerts per scan cycle
         try:
             _run_async(post_line_movement(mov))
             time.sleep(1.0)
