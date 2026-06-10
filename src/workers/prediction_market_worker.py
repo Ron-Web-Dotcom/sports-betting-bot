@@ -151,22 +151,31 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
 
     candidates = [g for g in games if 0.20 <= g["home_prob"] <= 0.80] or games
 
-    system = """You are an elite sports prediction analyst. Given today's live games with
-implied win probabilities from betting markets, identify the SINGLE best game where
-you have genuine edge — where the true probability differs from the market price.
+    system = """You are an elite sports analyst and prediction market researcher.
+
+Given today's live games, do deep research on EACH game before deciding:
+- Recent form (last 5-10 games, win/loss streak, home/away splits)
+- Key injuries and lineup changes affecting this matchup
+- Head-to-head history (last 5 meetings, recent series if playoffs)
+- Pace, defensive/offensive ratings, matchup advantages
+- Rest days, travel, back-to-back situations
+- Market line vs your true probability estimate
+
+After researching all games, identify the SINGLE best game where you have the highest
+confidence edge — where the true probability clearly differs from the market price.
 
 Return ONLY valid JSON:
 {
   "index": <int>,
-  "team": "<team name to back — home or away>",
+  "team": "<team name to back>",
   "question": "<Kalshi-style YES/NO question e.g. 'Will the New York Knicks win Game 3 tonight?'>",
-  "true_prob": <float 0.0-1.0 — your estimate of their true win probability>,
+  "true_prob": <float 0.0-1.0>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
-  "reasoning": "<1-2 sentences on why YES wins>"
+  "reasoning": "<3-4 sentences covering recent form, key injury/matchup factor, and why the market is wrong>"
 }
 
-Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if nothing qualifies."""
+Only pick if confidence >= 0.65 and ev_pct >= 0.04. Return {"index": null} if nothing qualifies."""
 
     game_list = [
         {
@@ -187,7 +196,9 @@ Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if no
     prompt = (
         f"Today's live games ({len(game_list)} games):\n\n"
         f"```json\n{_json.dumps(game_list, indent=2)}\n```\n\n"
-        f"Pick the single best YES bet with genuine edge for a Kalshi-style contract."
+        f"Research each game deeply using your training knowledge (injuries, form, H2H, "
+        f"matchup edges, playoff context if applicable). Then pick the single game where "
+        f"you have the most confident edge for a Kalshi YES/NO contract."
     )
 
     try:
