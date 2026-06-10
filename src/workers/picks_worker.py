@@ -787,13 +787,33 @@ def _generate_hardrock_entry(period: str) -> dict:
         raw_props = _build_prop_candidates(sofascore_events)
         pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
 
-        entry: list[dict]          = []
+        # Thresholds — a pick must clear BOTH to be included.
+        # The number of picks (0, 1, or 2) falls out naturally from quality.
+        # Second pick needs a slightly higher bar so we never force a weak leg.
+        CONF_FLOOR    = 0.87   # minimum calibrated confidence to include any pick
+        EV_FLOOR      = 0.02   # minimum expected-value edge (2%)
+        CONF_SECOND   = 0.89   # second pick must clear a higher bar
+        EV_SECOND     = 0.03   # second pick needs more edge too
+
+        entry: list[dict]            = []
         blocked_event_keys: set[str] = set()
         seen_players: set[str]       = set()
 
         for pick in pool:
             if len(entry) == 2:
                 break
+
+            conf = pick["confidence"]
+            ev   = pick.get("ev_pct", 0)
+
+            # Apply the right threshold depending on whether this is the 1st or 2nd pick
+            if len(entry) == 0:
+                if conf < CONF_FLOOR or ev < EV_FLOOR:
+                    continue
+            else:
+                if conf < CONF_SECOND or ev < EV_SECOND:
+                    continue
+
             if pick["type"] == "prop":
                 player_key = pick["player"].lower()
                 event_key  = pick.get("event_id", "")
