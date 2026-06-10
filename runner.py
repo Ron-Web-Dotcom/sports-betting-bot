@@ -35,10 +35,11 @@ logger = logging.getLogger("runner")
 # ── Task imports ───────────────────────────────────────────────────────────────
 
 def _import_tasks():
-    from src.workers.odds_worker       import scan_and_save_odds, scan_player_props, refresh_active_sports
-    from src.workers.news_worker       import fetch_and_save_news
-    from src.workers.picks_worker      import generate_picks, generate_parlays, scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
-    from src.workers.alert_worker      import send_pregame_alerts
+    from src.workers.odds_worker            import scan_and_save_odds, scan_player_props, refresh_active_sports
+    from src.workers.news_worker            import fetch_and_save_news
+    from src.workers.picks_worker           import generate_picks, generate_parlays, scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
+    from src.workers.alert_worker           import send_pregame_alerts
+    from src.workers.prediction_market_worker import scan_prediction_markets
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
     from src.workers.analytics_worker  import (
         enter_sleep_mode, wake_up_brief, send_daily_summary,
@@ -47,7 +48,8 @@ def _import_tasks():
         cleanup_old_snapshots,
     )
     return {
-        "scan_and_save_odds":     scan_and_save_odds,
+        "scan_prediction_markets":    scan_prediction_markets,
+        "scan_and_save_odds":         scan_and_save_odds,
         "scan_player_props":      scan_player_props,
         "refresh_active_sports":  refresh_active_sports,
         "fetch_and_save_news":    fetch_and_save_news,
@@ -78,13 +80,14 @@ def _import_tasks():
 
 INTERVAL_TASKS = [
     # (interval_seconds, task_name)
-    (300,  "send_pregame_alerts"),    # every 5 min — 30-min/5-min windows don't need per-minute polling
-    (600,  "scan_and_save_odds"),     # 10 min — odds don't move every 5 min
-    (1200, "scan_player_props"),      # 20 min — props are stable
-    (1200, "generate_picks"),         # 20 min — unified game + prop picks
-    (1800, "fetch_and_save_news"),    # 30 min — injuries don't change by the minute
-    (1800, "settle_completed_picks"), # 30 min — keep
-    (3600, "record_closing_lines"),   # 60 min — keep
+    (180,  "scan_prediction_markets"), # 3 min — catches in-game price swings on Kalshi/Poly
+    (300,  "send_pregame_alerts"),     # 5 min
+    (600,  "scan_and_save_odds"),      # 10 min — odds don't move every 5 min
+    (1200, "scan_player_props"),       # 20 min — props are stable
+    (1200, "generate_picks"),          # 20 min — unified game + prop picks
+    (1800, "fetch_and_save_news"),     # 30 min
+    (1800, "settle_completed_picks"),  # 30 min
+    (3600, "record_closing_lines"),    # 60 min
 ]
 
 CRON_TASKS = [
