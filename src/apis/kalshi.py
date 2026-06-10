@@ -230,17 +230,22 @@ def get_sports_markets() -> list[dict]:
 
     logger.info("Kalshi fetched %d events", len(events))
 
+    # Log first event's full keys so we know the structure
+    if events:
+        e0 = events[0]
+        logger.info("Kalshi event keys: %s", list(e0.keys()))
+        logger.info("Kalshi event sample: title=%r ticker=%r exp=%r markets_count=%d",
+                    (e0.get("title") or e0.get("event_ticker") or "")[:60],
+                    e0.get("ticker") or e0.get("event_ticker") or "",
+                    e0.get("expected_expiration_time") or e0.get("close_time") or "",
+                    len(e0.get("markets") or []))
+
     for event in events:
         exp = event.get("expected_expiration_time") or event.get("close_time") or ""
         for mkt in (event.get("markets") or []):
             mkt["close_time"] = mkt.get("close_time") or exp
             mkt["category"]   = mkt.get("category") or (event.get("category") or "").lower()
             markets_raw.append(mkt)
-
-    # Log first 5 titles to understand the structure
-    for m in markets_raw[:5]:
-        logger.info("Kalshi event market: title=%r close=%r",
-                    (m.get("title") or "")[:70], m.get("close_time", "")[:25])
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
 
