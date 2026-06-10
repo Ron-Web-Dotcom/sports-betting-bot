@@ -1,7 +1,6 @@
-"""News/injury worker — fetches ESPN + Sleeper data, detects status changes, alerts on prop impact."""
+"""News/injury worker — fetches ESPN injury data, detects status changes, alerts on prop impact."""
 import logging
 from src.engines.news_engine import fetch_all_injuries, save_injuries
-from src.apis.sleeper import get_all_injured_players
 
 logger = logging.getLogger(__name__)
 
@@ -227,49 +226,19 @@ def fetch_and_save_news():
         import redis as _redis
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-        # ── Fetch injury data from both ESPN and Sleeper in parallel ──────────
-        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
-        espn_result: dict  = {}
-        sleeper_result: list[dict] = []
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            espn_fut    = pool.submit(fetch_all_injuries)
-            sleeper_fut = pool.submit(get_all_injured_players)
-            for fut in _as_completed([espn_fut, sleeper_fut], timeout=30):
-                if fut is espn_fut:
-                    try:
-                        espn_result = fut.result()
-                    except Exception as e:
-                        logger.warning("ESPN injury fetch failed: %s", e)
-                else:
-                    try:
-                        sleeper_result = fut.result()
-                    except Exception as e:
-                        logger.warning("Sleeper injury fetch failed: %s", e)
+        # ── Fetch injury data from ESPN ───────────────────────────────────────
+        try:
+            espn_result: dict = fetch_all_injuries()
+        except Exception as e:
+            logger.warning("ESPN injury fetch failed: %s", e)
+            espn_result = {}
 
         espn_flat = [inj for lst in espn_result.values() for inj in lst]
-
-        # Group Sleeper injuries by sport for per-sport change detection
-        sleeper_by_sport: dict[str, list[dict]] = {}
-        for inj in sleeper_result:
-            sk = inj.get("sport", "")
-            sleeper_by_sport.setdefault(sk, []).append(inj)
-
-        # Merge and save to DB
-        all_injuries = _merge_injury_sources(espn_flat, sleeper_result)
-        save_injuries(all_injuries)
+        save_injuries(espn_flat)
 
         # ── Detect changes and alert on prop-impacting updates ────────────────
-        # Build combined per-sport view for change detection
-        combined_by_sport: dict[str, list[dict]] = {}
-        for sport_key, injuries in espn_result.items():
-            combined_by_sport.setdefault(sport_key, []).extend(injuries)
-        for sport_key, injuries in sleeper_by_sport.items():
-            if sport_key and sport_key not in combined_by_sport:
-                combined_by_sport[sport_key] = injuries  # Sleeper-only sport
-
         all_alerts = []
-        for sport_key, injuries in combined_by_sport.items():
+        for sport_key, injuries in espn_result.items():
             prev = _load_prev_injuries(r, sport_key)
             changes = _detect_changes(prev, injuries)
             _save_current_injuries(r, sport_key, injuries)
@@ -285,15 +254,12 @@ def fetch_and_save_news():
         if all_alerts:
             from src.workers.alert_worker import send_lineup_alerts
             send_lineup_alerts(all_alerts)
-            logger.info("Lineup alerts fired: %d changes affect active props", len(all_alerts))
 
-        logger.info("News worker: %d injuries (ESPN:%d + Sleeper:%d), %d prop-impacting changes",
-                    len(all_injuries), len(espn_flat), len(sleeper_result), len(all_alerts))
+        logger.info("News worker: %d injuries (ESPN), %d prop-impacting changes",
+                    len(espn_flat), len(all_alerts))
         return {
-            "injuries":       len(all_injuries),
-            "espn_injuries":  len(espn_flat),
-            "sleeper_injuries": len(sleeper_result),
-            "alerts":         len(all_alerts),
+            "injuries": len(espn_flat),
+            "alerts":   len(all_alerts),
         }
 
     except Exception as exc:

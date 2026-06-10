@@ -446,7 +446,6 @@ def scan_todays_games():
     r.setex("sofascore:night_games", 86400, json.dumps(night_games))
 
     # Store all today's games in a flat lookup keyed by lowercased team name
-    # so generate_picks() can validate any game is actually scheduled today
     all_today = day_games + night_games
     team_index: dict[str, dict] = {}
     for ev in all_today:

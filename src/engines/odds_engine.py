@@ -201,9 +201,6 @@ def _get_active_sports_cached() -> set[str]:
         from src.apis.sofascore import get_active_sports_today, SPORT_MAP
         active_from_sofascore = get_active_sports_today()
 
-        # Expand: if a sport_key is active, also mark all its player-prop variants active.
-        # e.g. basketball_nba active → basketball_wnba, basketball_ncaab also included
-        # because Sofascore checks by slug ("basketball") which covers all variants.
         from src.apis.sofascore import SPORT_MAP as _SM
         slug_to_keys: dict[str, list[str]] = {}
         for sk, slug in _SM.items():
@@ -215,13 +212,11 @@ def _get_active_sports_cached() -> set[str]:
             if slug:
                 active.update(slug_to_keys.get(slug, []))
 
-        # Also include ALL PLAYER_PROP_SPORTS that share a slug with any active sport
         for sk in list(PLAYER_PROP_SPORTS):
             slug = _SM.get(sk)
             if slug and any(_SM.get(a) == slug for a in active_from_sofascore):
                 active.add(sk)
 
-        # TTL = seconds until midnight ET
         now_et = et_naive()
         from datetime import datetime as _dt, timedelta
         midnight = _dt.combine(now_et.date(), _dt.min.time()) + timedelta(days=1)
@@ -231,7 +226,7 @@ def _get_active_sports_cached() -> set[str]:
         return active
     except Exception as e:
         logger.warning("Active sports cache failed: %s — defaulting to all sports", e)
-        return set(PLAYER_PROP_SPORTS)  # fail open
+        return set(PLAYER_PROP_SPORTS)
 
 
 def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:

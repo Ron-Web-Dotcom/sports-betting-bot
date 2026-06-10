@@ -43,7 +43,7 @@ except Exception as _e:
 # ── Task imports ───────────────────────────────────────────────────────────────
 
 def _import_tasks():
-    from src.workers.odds_worker             import scan_and_save_odds, refresh_active_sports
+    from src.workers.odds_worker             import scan_and_save_odds, scan_player_props, refresh_active_sports
     from src.workers.news_worker             import fetch_and_save_news
     from src.workers.picks_worker            import scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
     from src.workers.prediction_market_worker import (
@@ -60,6 +60,7 @@ def _import_tasks():
     )
     return {
         "scan_and_save_odds":                       scan_and_save_odds,
+        "scan_player_props":                        scan_player_props,
         "refresh_active_sports":                    refresh_active_sports,
         "fetch_and_save_news":                      fetch_and_save_news,
         "scan_todays_games":                        scan_todays_games,
@@ -91,6 +92,7 @@ def _import_tasks():
 INTERVAL_TASKS = [
     (180,  "track_slips"),            # 3 min — slip lifecycle alerts
     (600,  "scan_and_save_odds"),     # 10 min — keep odds fresh
+    (1200, "scan_player_props"),      # 20 min — player + team props for HardRock entries
     (1800, "fetch_and_save_news"),    # 30 min
     (1800, "settle_completed_picks"), # 30 min
     (3600, "record_closing_lines"),   # 60 min

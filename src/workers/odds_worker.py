@@ -207,7 +207,6 @@ def scan_player_props():
         logger.debug("scan_player_props: sleep window active, skipping")
         return {"skipped": "sleep_mode"}
     try:
-        from src.apis.kalshi import get_sports_markets as kalshi_markets
         from src.engines.odds_engine import fetch_all_player_props, scan_all_sports
         from src.core.config import REDIS_URL
         import redis as _redis
@@ -215,24 +214,15 @@ def scan_player_props():
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-        # Fetch Odds API player props
+        # Fetch Odds API player props (team + individual)
         odds_props = []
-        all_events = {}
         try:
             all_events = scan_all_sports()
             odds_props = fetch_all_player_props(all_events)
         except Exception as e:
             logger.warning("Odds API player props failed: %s", e)
 
-        # Kalshi only (Polymarket disabled)
-        kalshi_result = []
-        try:
-            kalshi_result = kalshi_markets() or []
-        except Exception as e:
-            logger.warning("Kalshi scan failed: %s", e)
-
-        # Detect changes on Odds API props
-        all_changes: list[dict] = []
+        # Detect changes
         prev_raw = r.get("props:odds_api")
         prev_props: list[dict] = json.loads(prev_raw) if prev_raw else []
         all_changes = _detect_prop_changes(prev_props, odds_props, "odds_api")
@@ -240,16 +230,13 @@ def scan_player_props():
         # Cache
         r.setex("props:odds_api", 1500, json.dumps(odds_props))
         r.setex("props:all",      1500, json.dumps(odds_props))
-        if kalshi_result:
-            r.setex("kalshi:markets", 1500, json.dumps(kalshi_result))
 
         if all_changes:
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
             _alert_active_pick_changes(r, all_changes)
 
-        counts = {"odds_api": len(odds_props), "kalshi": len(kalshi_result)}
-        logger.info("Props scan complete: %s | total=%d", counts, len(odds_props))
-        return {**counts, "total": len(odds_props), "changes": len(all_changes)}
+        logger.info("Props scan complete: odds_api=%d | changes=%d", len(odds_props), len(all_changes))
+        return {"odds_api": len(odds_props), "total": len(odds_props), "changes": len(all_changes)}
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)
