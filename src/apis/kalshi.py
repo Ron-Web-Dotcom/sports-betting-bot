@@ -211,44 +211,35 @@ def get_sports_markets() -> list[dict]:
     Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
     Excludes tournament futures and politics.
     """
-    # First: discover active series tickers from /series
+    # Known Kalshi sports series tickers (hardcoded — /series has 10k+ non-sports entries)
+    SPORTS_SERIES = [
+        "KXMLB", "KXNBA", "KXNHL", "KXNFL", "KXNCAAF", "KXNCAAB", "KXWNBA",
+        "KXUFC", "KXMMA", "KXSOCCER", "KXFIFA", "KXWC", "KXWORLDCUP",
+        "KXEPL", "KXCHAMPIONS", "KXTENNIS", "KXGOLF", "KXPGA", "KXNASCAR",
+        "MLB", "NBA", "NHL", "NFL", "NCAAF", "NCAAB", "SOCCER", "UFC",
+    ]
+
     markets_raw = []
-    series_data = _get("/series", {"limit": 100})
-    active_tickers = []
-    if isinstance(series_data, dict):
-        for s in (series_data.get("series") or []):
-            ticker = s.get("ticker") or s.get("series_ticker") or ""
-            if ticker:
-                active_tickers.append(ticker)
-        logger.info("Kalshi series tickers (%d): %s", len(active_tickers), active_tickers[:15])
-
-    # Fallback hardcoded tickers if series endpoint fails
-    if not active_tickers:
-        active_tickers = ["KXNBA", "KXNFL", "KXMLB", "KXNHL", "KXSOCCER",
-                          "KXUFC", "KXNCAAF", "KXNCAAB", "KXWNBA",
-                          "NBA", "NFL", "MLB", "NHL", "SOCCER"]
-
-    for ticker in active_tickers[:12]:
-        edata = _get("/events", {"limit": 50, "series_ticker": ticker, "status": "active"})
-        if not edata:
+    found_tickers = []
+    for ticker in SPORTS_SERIES:
+        edata = _get("/events", {"limit": 100, "series_ticker": ticker})
+        if not isinstance(edata, dict):
             continue
-        events = edata.get("events", []) if isinstance(edata, dict) else []
+        events = edata.get("events") or []
+        if events:
+            found_tickers.append(ticker)
         for event in events:
             for mkt in (event.get("markets") or []):
                 mkt.setdefault("close_time", event.get("expected_expiration_time", ""))
                 mkt.setdefault("category", ticker.lower())
                 markets_raw.append(mkt)
 
-    # Last resort: try /events with no filter
-    if not markets_raw:
-        edata = _get("/events", {"limit": 200, "status": "active"})
-        if isinstance(edata, dict):
-            for event in (edata.get("events") or []):
-                for mkt in (event.get("markets") or []):
-                    mkt.setdefault("close_time", event.get("expected_expiration_time", ""))
-                    markets_raw.append(mkt)
+    if found_tickers:
+        logger.info("Kalshi sports series with events: %s → %d markets", found_tickers, len(markets_raw))
+    else:
+        logger.warning("Kalshi: no events found for any sports series ticker")
 
-    logger.info("Kalshi /events returned %d markets total", len(markets_raw))
+    # Log a sample so we can verify
     if markets_raw:
         m0 = markets_raw[0]
         logger.info("Kalshi sample: title=%r close=%r",
