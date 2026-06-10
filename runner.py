@@ -49,7 +49,7 @@ def _import_tasks():
         enter_sleep_mode, wake_up_brief, send_daily_summary,
         send_weekly_summary, send_weekly_fresh_start, run_self_improvement,
         snapshot_portfolio, send_monthly_summary, yesterday_recap,
-        cleanup_old_snapshots,
+        cleanup_old_snapshots, flush_memory,
     )
     return {
         "scan_prediction_markets":                  scan_prediction_markets,
@@ -77,6 +77,7 @@ def _import_tasks():
         "send_monthly_summary":   send_monthly_summary,
         "yesterday_recap":        yesterday_recap,
         "cleanup_old_snapshots":  cleanup_old_snapshots,
+        "flush_memory":           flush_memory,
     }
 
 
@@ -103,6 +104,7 @@ CRON_TASKS = [
     (0,  1,  "send_monthly_summary",    None, 1),     # 1st of month
     (2,  0,  "run_self_improvement",    None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),
+    (2,  58, "flush_memory",            None, None),
     (3,  0,  "enter_sleep_mode",        None, None),
     (5,  0,  "wake_up_brief",            None, None),
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan

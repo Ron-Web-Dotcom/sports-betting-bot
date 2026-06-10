@@ -311,6 +311,51 @@ def snapshot_portfolio():
     return stats
 
 
+def flush_memory():
+    """
+    Run just before sleep mode (2:55 AM ET) to free RAM:
+    - Vacuum systemd journal down to 50 MB
+    - Flush Redis expired keys
+    - Force Python garbage collection
+    Keeps everything running — just clears accumulated waste.
+    """
+    import gc
+    import subprocess
+
+    freed = {}
+
+    # 1. Vacuum systemd journal — logs pile up silently and eat RAM
+    try:
+        result = subprocess.run(
+            ["journalctl", "--vacuum-size=50M"],
+            capture_output=True, text=True, timeout=30,
+        )
+        freed["journal"] = "vacuumed to 50MB"
+        logger.info("flush_memory: journal vacuumed")
+    except Exception as e:
+        logger.warning("flush_memory: journal vacuum failed: %s", e)
+
+    # 2. Redis — remove all expired keys immediately
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        # DEBUG SLEEP forces Redis to purge expired keys now rather than lazily
+        info = r.info("memory")
+        freed["redis_used_mb"] = round(info.get("used_memory", 0) / 1024 / 1024, 1)
+        logger.info("flush_memory: Redis using %s MB", freed["redis_used_mb"])
+    except Exception as e:
+        logger.warning("flush_memory: Redis flush failed: %s", e)
+
+    # 3. Python garbage collection — clears circular refs and unreferenced objects
+    collected = gc.collect()
+    freed["gc_collected"] = collected
+    logger.info("flush_memory: GC collected %d objects", collected)
+
+    logger.info("flush_memory complete: %s", freed)
+    return freed
+
+
 def cleanup_old_snapshots():
     """Delete OddsSnapshots older than 7 days — prevents unbounded table growth.
 
