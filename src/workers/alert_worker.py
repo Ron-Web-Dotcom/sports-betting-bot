@@ -264,51 +264,108 @@ def send_hardrock_entry(games: list[dict]):
 
 
 def send_kalshi_entry(markets: list[dict]):
-    """Post Kalshi AI-scored prediction market entry card."""
+    """Post Kalshi AI-scored prediction market entry card — styled like Kalshi's dark-green ticket."""
     from src.discord_bot.bot import _post
-    import asyncio
+    import asyncio, hashlib
+    from datetime import datetime
+    import zoneinfo
     if not markets:
         return
 
-    n = min(len(markets), 6)
-    markets = markets[:n]
+    m          = markets[0]           # max 1 pick
+    title_text = m.get("title") or m.get("question") or m.get("market_id", "?")
+    yes_price  = m.get("yes_price")
+    no_price   = m.get("no_price")
+    direction  = m.get("ai_direction", "yes").upper()
+    confidence = m.get("ai_confidence")
+    reasoning  = m.get("ai_reasoning", "")
+    ev_pct     = m.get("ai_ev_pct", 0)
+    outcomes   = m.get("outcomes", ["Yes", "No"])
+    volume     = m.get("volume", 0)
+    sport_key  = m.get("sport_key", "")
+    game_time  = m.get("game_time", "")
 
-    lines = []
-    for i, m in enumerate(markets, 1):
-        title_text  = m.get("title") or m.get("question") or m.get("market_id", "?")
-        yes_price   = m.get("yes_price")
-        no_price    = m.get("no_price")
-        direction   = m.get("ai_direction", "yes").upper()
-        confidence  = m.get("ai_confidence")
-        reasoning   = m.get("ai_reasoning", "")
-        ev_pct      = m.get("ai_ev_pct", 0)
+    # Sport badge — mirrors Kalshi's top-left chip (e.g. ⚽ SOCCER)
+    _SPORT_BADGE = {
+        "soccer": "⚽  SOCCER", "basketball": "🏀  BASKETBALL",
+        "football": "🏈  FOOTBALL", "baseball": "⚾  BASEBALL",
+        "hockey": "🏒  HOCKEY", "tennis": "🎾  TENNIS",
+        "mma": "🥊  MMA", "golf": "⛳  GOLF",
+    }
+    badge = next((v for k, v in _SPORT_BADGE.items() if k in sport_key.lower()), "🏆  SPORTS")
 
-        yes_pct = round(float(yes_price) * 100) if yes_price is not None else "?"
-        no_pct  = round(float(no_price)  * 100) if no_price  is not None else "?"
-        price_str = f"YES {yes_pct}¢  /  NO {no_pct}¢"
+    # Resolve pick label (team name or Yes/No)
+    if outcomes and len(outcomes) == 2 and outcomes[0].lower() not in ("yes", "no"):
+        pick_label = outcomes[0] if direction == "YES" else outcomes[1]
+    else:
+        pick_label = direction
 
-        conf_str = f"{round(confidence * 100)}% conf" if confidence else ""
-        ev_str   = f"+{round(ev_pct * 100, 1)}% edge" if ev_pct else ""
-        meta     = "  ·  ".join(filter(None, [conf_str, ev_str]))
+    # Kalshi prices: 0–1 probability displayed as % chance
+    yes_pct  = round(float(yes_price) * 100) if yes_price is not None else None
+    no_pct   = round(float(no_price)  * 100) if no_price  is not None else None
+    pick_pct = yes_pct if direction == "YES" else no_pct
 
-        lines.append(
-            f"`{i}.` ✅ Bet **{direction}** — **{title_text}**\n"
-            f"     └ {price_str}" + (f"  ·  {meta}" if meta else "")
-            + (f"\n     └ {reasoning}" if reasoning else "")
-        )
+    # Cost / max payout — targeting $10 payout
+    try:
+        cost      = round(float(pick_pct) / 100 * 10, 2)      # cost = prob × target
+        max_pay   = 10.00
+    except Exception:
+        cost, max_pay = "?", "?"
+
+    conf_str  = f"{round(confidence * 100)}%" if confidence else "—"
+    ev_str    = f"+{round(ev_pct * 100, 1)}%" if ev_pct else "—"
+    vol_str   = f"${volume:,.0f}" if volume else "—"
+
+    ET        = zoneinfo.ZoneInfo("America/New_York")
+    now_et    = datetime.now(ET)
+    date_str  = now_et.strftime("%-m.%-d.%y %-I:%M%p").lower()   # e.g. 6.10.26 9:04am
+    slip_id   = hashlib.md5(f"kalshi{date_str}".encode()).hexdigest()[:8].upper()
+    time_line = f"📅 {game_time}" if game_time else ""
 
     embed = {
-        "title": f"📈 Kalshi Entry — {n} Predictions",
-        "description": "\n\n".join(lines),
-        "color": 0x00ACC1,
+        "title": f"{badge}  ·  Kalshi",
+        "description": (
+            f"{time_line}\n"
+            f"**{title_text}**\n"
+            f"━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━  `{slip_id}`\n"
+        ).strip(),
         "fields": [
-            {"name": "⚠️", "value": "Place manually on Kalshi. Prediction markets — not a sportsbook.", "inline": False},
+            {
+                "name": "PICK",
+                "value": f"**{pick_label}**\nYes @ **{pick_pct}% chance**",
+                "inline": True,
+            },
+            {
+                "name": "VOLUME",
+                "value": vol_str,
+                "inline": True,
+            },
+            {
+                "name": "COST",
+                "value": f"**${cost}**",
+                "inline": True,
+            },
+            {
+                "name": "MAX PAYOUT",
+                "value": f"**${max_pay}**",
+                "inline": True,
+            },
+            {
+                "name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "value": (
+                    f"Confidence  **{conf_str}**   Edge  **{ev_str}**\n"
+                    f"{date_str}   OPEN POSITION"
+                    + (f"\n_{reasoning}_" if reasoning else "")
+                ),
+                "inline": False,
+            },
         ],
-        "footer": {"text": "Kalshi · AI-scored sports predictions · Bet responsibly"},
+        "color": 0x1B5E20,   # Kalshi dark green
+        "footer": {"text": "Kalshi · Place manually · Prediction markets — not a sportsbook · Bet responsibly"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
-        logger.info("Kalshi entry posted: %d markets", n)
+        logger.info("Kalshi entry posted")
     except Exception as e:
         logger.error("Failed to send Kalshi entry: %s", e)
 
@@ -475,59 +532,100 @@ def send_watchlist_update(watchlist: list[dict]):
 def send_polymarket_entry(markets: list[dict]):
     """Post Polymarket AI-scored sports prediction entry card."""
     from src.discord_bot.bot import _post
-    import asyncio
+    import asyncio, hashlib
+    from datetime import datetime
+    import zoneinfo
     if not markets:
         return
 
-    n = min(len(markets), 6)
-    markets = markets[:n]
+    m          = markets[0]           # max 1 pick
+    title_text = m.get("title") or m.get("question") or m.get("market_id", "?")
+    yes_price  = m.get("yes_price")
+    no_price   = m.get("no_price")
+    direction  = m.get("ai_direction", "yes").upper()
+    confidence = m.get("ai_confidence")
+    reasoning  = m.get("ai_reasoning", "")
+    ev_pct     = m.get("ai_ev_pct", 0)
+    outcomes   = m.get("outcomes", ["Yes", "No"])
+    volume     = m.get("volume", 0)
+    game_time  = m.get("game_time", "")
 
-    lines = []
-    for i, m in enumerate(markets, 1):
-        title_text = m.get("title") or m.get("question") or m.get("market_id", "?")
-        yes_price  = m.get("yes_price")
-        no_price   = m.get("no_price")
-        direction  = m.get("ai_direction", "yes").upper()
-        confidence = m.get("ai_confidence")
-        reasoning  = m.get("ai_reasoning", "")
-        ev_pct     = m.get("ai_ev_pct", 0)
-        outcomes   = m.get("outcomes", ["Yes", "No"])
-        volume     = m.get("volume", 0)
+    # Resolve pick label (team name or Yes/No)
+    if outcomes and len(outcomes) == 2 and outcomes[0].lower() not in ("yes", "no"):
+        pick_label  = outcomes[0] if direction == "YES" else outcomes[1]
+        other_label = outcomes[1] if direction == "YES" else outcomes[0]
+    else:
+        pick_label  = direction
+        other_label = "NO" if direction == "YES" else "YES"
 
-        yes_pct = round(float(yes_price) * 100) if yes_price is not None else "?"
-        no_pct  = round(float(no_price)  * 100) if no_price  is not None else "?"
+    # Polymarket prices are 0–1 probability; display as cents
+    yes_pct  = round(float(yes_price) * 100) if yes_price is not None else "?"
+    no_pct   = round(float(no_price)  * 100) if no_price  is not None else "?"
+    pick_pct = yes_pct if direction == "YES" else no_pct
+    other_pct= no_pct  if direction == "YES" else yes_pct
 
-        # For team vs team markets, show outcome names
-        if outcomes and len(outcomes) == 2 and outcomes[0].lower() not in ("yes", "no"):
-            price_str = f"{outcomes[0]}: {yes_pct}¢  ·  {outcomes[1]}: {no_pct}¢"
-            bet_label = outcomes[0] if direction == "YES" else outcomes[1]
-        else:
-            price_str = f"YES {yes_pct}¢  /  NO {no_pct}¢"
-            bet_label = direction
+    # Cost to win $10  (Polymarket: cost = prob / (1-prob) * target)
+    try:
+        cost_to_win = round(float(pick_pct) / (100 - float(pick_pct)) * 10, 2) if isinstance(pick_pct, int) else "?"
+    except Exception:
+        cost_to_win = "?"
 
-        conf_str = f"{round(confidence * 100)}% conf" if confidence else ""
-        ev_str   = f"+{round(ev_pct * 100, 1)}% edge" if ev_pct else ""
-        vol_str  = f"${volume:,.0f} vol" if volume else ""
-        meta     = "  ·  ".join(filter(None, [conf_str, ev_str, vol_str]))
+    conf_str  = f"{round(confidence * 100)}%" if confidence else "—"
+    ev_str    = f"+{round(ev_pct * 100, 1)}%" if ev_pct else "—"
+    vol_str   = f"${volume:,.0f}" if volume else "—"
+    time_line = f"📅 {game_time}  ·  " if game_time else ""
 
-        lines.append(
-            f"`{i}.` ✅ Bet **{bet_label}** — **{title_text}**\n"
-            f"     └ {price_str}" + (f"  ·  {meta}" if meta else "")
-            + (f"\n     └ {reasoning}" if reasoning else "")
-        )
+    ET       = zoneinfo.ZoneInfo("America/New_York")
+    date_str = datetime.now(ET).strftime("%b %-d, %Y")
+    slip_id  = hashlib.md5(f"poly{date_str}".encode()).hexdigest()[:8].upper()
 
     embed = {
-        "title": f"🟣 Polymarket Entry — {n} Predictions",
-        "description": "\n\n".join(lines),
-        "color": 0x6C3FC5,
+        "title": "🟣  POLYMARKET  ·  Prediction Market Entry",
+        "description": (
+            f"{time_line}📅 {date_str}  ·  Slip `#{slip_id}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
         "fields": [
-            {"name": "⚠️", "value": "Place manually on Polymarket. Decentralised prediction market — USDC on Polygon.", "inline": False},
+            {
+                "name": "CONTRACT",
+                "value": f"**{title_text}**",
+                "inline": False,
+            },
+            {
+                "name": "┣  PICK",
+                "value": f"**{pick_label}**  `{pick_pct}¢`",
+                "inline": True,
+            },
+            {
+                "name": "┣  OTHER SIDE",
+                "value": f"{other_label}  `{other_pct}¢`",
+                "inline": True,
+            },
+            {
+                "name": "┣  VOLUME",
+                "value": vol_str,
+                "inline": True,
+            },
+            {
+                "name": "┗  COST → TO WIN",
+                "value": f"**${cost_to_win}**  to win  **$10**",
+                "inline": False,
+            },
+            {
+                "name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "value": (
+                    f"Confidence  **{conf_str}**   Edge  **{ev_str}**\n"
+                    + (f"_{reasoning}_" if reasoning else "")
+                ),
+                "inline": False,
+            },
         ],
-        "footer": {"text": "Polymarket · AI-scored sports predictions · Bet responsibly"},
+        "color": 0x6C3FC5,
+        "footer": {"text": "Polymarket · Place manually · USDC on Polygon · Bet responsibly"},
     }
     try:
         asyncio.run(_post({"embeds": [embed]}))
-        logger.info("Polymarket entry posted: %d markets", n)
+        logger.info("Polymarket entry posted")
     except Exception as e:
         logger.error("Failed to send Polymarket entry: %s", e)
 
