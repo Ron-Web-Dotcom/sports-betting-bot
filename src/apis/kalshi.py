@@ -212,12 +212,17 @@ def get_sports_markets() -> list[dict]:
     Excludes tournament futures and politics.
     """
     data = _get("/markets", {"limit": 200, "status": "open"})
+    logger.info("Kalshi raw response type=%s keys=%s", type(data).__name__,
+                list(data.keys())[:5] if isinstance(data, dict) else str(data)[:80])
     if not data:
         return []
 
     markets_raw = data.get("markets", []) if isinstance(data, dict) else []
     if not markets_raw:
+        # Try without status filter
         data2 = _get("/markets", {"limit": 200})
+        logger.info("Kalshi fallback response type=%s keys=%s", type(data2).__name__,
+                    list(data2.keys())[:5] if isinstance(data2, dict) else str(data2)[:80])
         markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
