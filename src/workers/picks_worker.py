@@ -739,12 +739,13 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
             "inline": False,
         })
 
+    slip_type = "Single" if n_legs == 1 else f"{n_legs}-Bet Parlay"
     embed = {
         "title": f"🎟️  HARDROCK SLIP  ·  {period_emoji} {period_label}",
         "description": (
             f"```\n"
             f"  Ticket #{ticket_id}          {date_str}\n"
-            f"  {n_legs}-Bet Parlay         Odds  {parlay_fmt}\n"
+            f"  {slip_type:<20} Odds  {parlay_fmt}\n"
             f"```"
         ),
         "fields": bet_fields + [
@@ -791,7 +792,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         seen_players: set[str]       = set()
 
         for pick in pool:
-            if len(entry) == 3:
+            if len(entry) == 2:
                 break
             if pick["type"] == "prop":
                 player_key = pick["player"].lower()
