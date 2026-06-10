@@ -253,30 +253,19 @@ def generate_picks():
             if p["type"] == "prop":
                 hr_odds = _hr_odds(p["books_odds"], p["best_odds"])
                 pick_fields.append({
-                    "name": f"{i}. {get_emoji(sport)}  {p['player']}",
-                    "value": (
-                        f"**{p['stat']} {p['direction']} {p['line']}**  `{_fmt(hr_odds)}`\n"
-                        f"{get_name(sport)}\n"
-                        f"Confidence: **{conf}%**  {bar}\n"
-                        f"📍 HardRock Sportsbook"
-                    ),
+                    "name": f"{i}. {get_emoji(sport)} {p['player']} · {p['stat']} {p['direction']} {p['line']} `{_fmt(hr_odds)}`",
+                    "value": f"{get_name(sport)} · **{conf}%** {bar} · 📍 HardRock",
                     "inline": False,
                 })
             else:
-                mkt   = _MARKET.get(p["market"], p["market"].upper())
+                mkt     = _MARKET.get(p["market"], p["market"].upper())
                 hr_odds = _hr_odds(p["books_odds"], p["best_odds"])
-                gt    = _gt(p["commence_time"])
+                gt      = _gt(p["commence_time"])
                 insight = p.get("insight", "")
+                val = f"{get_name(sport)} · {mkt}: **{p['selection']}** `{_fmt(hr_odds)}`{f' · 🕐 {gt}' if gt else ''}\n**{conf}%** {bar} · 📍 HardRock{f'  · 💡 {insight}' if insight else ''}"
                 pick_fields.append({
-                    "name": f"{i}. {get_emoji(sport)}  {p['away_team']} @ {p['home_team']}",
-                    "value": (
-                        f"**{mkt}: {p['selection']}**  `{_fmt(hr_odds)}`"
-                        f"{f'  🕐 {gt}' if gt else ''}\n"
-                        f"{get_name(sport)}\n"
-                        f"Confidence: **{conf}%**  {bar}\n"
-                        f"{f'💡 {insight}' + chr(10) if insight else ''}"
-                        f"📍 HardRock Sportsbook"
-                    ),
+                    "name": f"{i}. {get_emoji(sport)} {p['away_team']} @ {p['home_team']}",
+                    "value": val,
                     "inline": False,
                 })
 
