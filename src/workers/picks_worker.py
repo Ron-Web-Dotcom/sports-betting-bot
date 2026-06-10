@@ -70,8 +70,14 @@ def generate_picks():
             return fallback_time
 
         def _sf_confirmed(home: str, away: str) -> bool:
-            """Always returns True — all sports scanned, Sofascore enriches but never blocks."""
-            return True
+            """True if either team is in Sofascore's today index (game is real and scheduled).
+            If Sofascore index is empty (e.g. 8 AM scan hasn't run yet), allow all through."""
+            if not sofascore_index:
+                return True
+            for name in (home.lower(), away.lower()):
+                if name in sofascore_index:
+                    return True
+            return False
 
         # -- 1. Score game picks (ML / spread / total) --------------------
         snapshots  = get_latest_snapshots_by_game()
@@ -89,9 +95,9 @@ def generate_picks():
             home_team = best_snap.get("home_team", "")
             away_team = best_snap.get("away_team", "")
 
-            # Sofascore confirmation: skip games not on today's schedule
+            # Sofascore drives the picks — only process games it confirmed for today
             if not _sf_confirmed(home_team, away_team):
-                logger.debug("Skipping %s vs %s — not in Sofascore today index", away_team, home_team)
+                logger.debug("Skipping %s vs %s — Sofascore has no game today", away_team, home_team)
                 continue
             # Use Sofascore's exact kick-off time if available, else fall back to Odds API
             commence  = _sf_enrich(home_team, away_team, str(best_snap.get("commence_time", "")))
