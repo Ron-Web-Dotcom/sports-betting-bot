@@ -193,14 +193,15 @@ _KALSHI_FUTURES = [
 
 
 def _kalshi_is_game_day(close_time: str) -> bool:
-    """Return True only if market closes within 24 hours — today's games only."""
+    """Return True if market closes within 18 hours — today's games only."""
     if not close_time:
-        return False  # no date = skip
+        return False
     try:
         from datetime import datetime, timezone, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        return timedelta(0) <= (dt - now) <= timedelta(hours=12)
+        hours_out = (dt - now).total_seconds() / 3600
+        return 0 <= hours_out <= 18
     except Exception:
         return False
 
@@ -219,6 +220,10 @@ def get_sports_markets() -> list[dict]:
         data2 = _get("/markets", {"limit": 200})
         markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
 
+    # Debug: log first 3 raw close times so we can verify the time gate
+    for m in markets_raw[:3]:
+        logger.info("Kalshi raw sample: %r  close=%r", (m.get("title") or "")[:60], m.get("close_time", ""))
+
     out = []
     for m in markets_raw:
         title      = (m.get("title") or "").lower()
@@ -230,7 +235,7 @@ def get_sports_markets() -> list[dict]:
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
-        # Only single-game markets (ends within 48 h)
+        # Only today's game markets
         if not _kalshi_is_game_day(close_time):
             continue
 
