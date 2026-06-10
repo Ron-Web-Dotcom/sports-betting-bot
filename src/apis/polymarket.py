@@ -187,36 +187,52 @@ def _parse_market(m: dict) -> dict | None:
 
 def get_sports_markets(limit: int = 200) -> list[dict]:
     """
-    Fetch active sports prediction markets from Polymarket.
-    Routed through Decodo proxy automatically (not in bypass list).
+    Fetch active sports markets from Polymarket using the /events endpoint
+    with sports tag filter — avoids pop culture / politics flood from /markets.
     """
-    data = get_json(
-        f"{_BASE}/markets",
-        params={"active": "true", "closed": "false", "limit": limit},
-    )
+    # Try sports-tagged events first (most reliable)
+    sports_tags = ["sports", "soccer", "basketball", "baseball", "nfl", "nba",
+                   "mlb", "nhl", "ufc", "tennis", "golf", "mma"]
 
-    if not data:
-        logger.warning("Polymarket: no data returned")
+    raw_markets: list[dict] = []
+
+    for tag in sports_tags[:4]:  # Try first 4 tags to avoid too many requests
+        data = get_json(
+            f"{_BASE}/events",
+            params={"active": "true", "closed": "false", "limit": limit, "tag": tag},
+        )
+        if not data:
+            continue
+        events = data if isinstance(data, list) else data.get("events", data.get("data", []))
+        if not isinstance(events, list):
+            continue
+        # Each event has a markets array
+        for event in events:
+            for m in (event.get("markets") or []):
+                m.setdefault("endDate", event.get("endDate", ""))
+                raw_markets.append(m)
+        if raw_markets:
+            break  # Found markets — stop trying tags
+
+    # Fallback: /markets with sports tag
+    if not raw_markets:
+        data = get_json(
+            f"{_BASE}/markets",
+            params={"active": "true", "closed": "false", "limit": limit, "tag": "sports"},
+        )
+        if data:
+            raw_markets = data if isinstance(data, list) else data.get("markets", data.get("data", []))
+
+    if not raw_markets:
+        logger.warning("Polymarket: no data returned from events or markets endpoint")
         return []
-
-    raw = data if isinstance(data, list) else data.get("markets", data.get("data", []))
-    if not isinstance(raw, list):
-        logger.warning("Polymarket: unexpected response shape: %s", type(raw))
-        return []
-
-    # Debug: log first 5 raw titles so we can see what Polymarket sends
-    for m in raw[:5]:
-        q = m.get("question") or m.get("title") or ""
-        ed = m.get("endDate") or m.get("end_date_iso") or ""
-        logger.info("Polymarket raw sample: %r  end=%r", q[:80], str(ed)[:30])
 
     out = []
-    for m in raw:
+    for m in raw_markets:
         parsed = _parse_market(m)
         if parsed:
             out.append(parsed)
 
-    # Sort by volume descending — higher volume = more liquid = more reliable price
     out.sort(key=lambda x: x.get("volume", 0), reverse=True)
     logger.info("Polymarket: %d sports markets fetched", len(out))
     return out
