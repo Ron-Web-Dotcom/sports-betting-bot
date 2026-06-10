@@ -4,6 +4,7 @@ Discord integration — webhook-only.
 All alerts are sent as HTTP POST to DISCORD_WEBHOOK_URL.
 No bot token, no slash commands, no discord.py bot process needed.
 """
+import asyncio
 import json
 import logging
 import httpx
@@ -12,26 +13,39 @@ from src.core.config import DISCORD_WEBHOOK_URL
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10  # seconds
+_MAX_RETRIES = 3
 
 
 # ── Core send ──────────────────────────────────────────────────────────────────
 
 async def _post(payload: dict) -> bool:
-    """POST payload to the webhook URL. Returns True on success."""
+    """POST payload to the webhook URL. Respects Discord rate-limit headers."""
     if not DISCORD_WEBHOOK_URL:
         logger.warning("DISCORD_WEBHOOK_URL not set — alert suppressed")
         return False
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                DISCORD_WEBHOOK_URL,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            if resp.status_code == 204:
-                return True
-            logger.error("Webhook POST failed: %s %s", resp.status_code, resp.text[:200])
-            return False
+            for attempt in range(_MAX_RETRIES):
+                resp = await client.post(
+                    DISCORD_WEBHOOK_URL,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                if resp.status_code == 204:
+                    return True
+                if resp.status_code == 429:
+                    # Rate limited — honour retry_after before next attempt
+                    try:
+                        retry_after = float(resp.json().get("retry_after", 1.0))
+                    except Exception:
+                        retry_after = 1.0
+                    logger.warning("Discord rate limit — waiting %.1fs (attempt %d)", retry_after, attempt + 1)
+                    await asyncio.sleep(retry_after + 0.1)
+                    continue
+                logger.error("Webhook POST failed: %s %s", resp.status_code, resp.text[:200])
+                return False
+        logger.error("Webhook POST failed after %d retries (rate limited)", _MAX_RETRIES)
+        return False
     except httpx.HTTPError as e:
         logger.error("Webhook HTTP error: %s", e)
         return False

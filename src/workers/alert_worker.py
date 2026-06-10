@@ -12,27 +12,33 @@ def _run_async(coro):
 
 def send_pick_alerts(picks: list[dict]):
     from src.discord_bot.bot import post_pick
+    import time
     for pick in picks:
         try:
             _run_async(post_pick(pick))
+            time.sleep(1.0)  # 1 s gap — Discord allows ~30 msgs/min per webhook
         except Exception as e:
             logger.error("Failed to send pick alert: %s", e)
 
 
 def send_parlay_alerts(parlays: list[dict]):
     from src.discord_bot.bot import post_parlay
+    import time
     for parlay in parlays:
         try:
             _run_async(post_parlay(parlay))
+            time.sleep(1.0)
         except Exception as e:
             logger.error("Failed to send parlay alert: %s", e)
 
 
 def send_line_movement_alerts(movements: list[dict]):
     from src.discord_bot.bot import post_line_movement
+    import time
     for mov in movements:
         try:
             _run_async(post_line_movement(mov))
+            time.sleep(1.0)
         except Exception as e:
             logger.error("Failed to send line movement alert: %s", e)
 
