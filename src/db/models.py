@@ -101,7 +101,8 @@ class Game(Base):
     __tablename__ = "games"
     id            = Column(Integer, primary_key=True)
     external_id   = Column(String(100), unique=True, nullable=False)
-    sport_id      = Column(Integer, ForeignKey("sports.id"))
+    sport         = Column(String(50), index=True)   # e.g. basketball_nba
+    sport_id      = Column(Integer, ForeignKey("sports.id"), nullable=True)
     home_team_id  = Column(Integer, ForeignKey("teams.id"), nullable=True)
     away_team_id  = Column(Integer, ForeignKey("teams.id"), nullable=True)
     home_team     = Column(String(200))

@@ -336,16 +336,35 @@ def scan_all_sports() -> dict[str, list[dict]]:
 
 
 def save_snapshots_to_db(all_events: dict[str, list[dict]]) -> None:
-    """Persist all current odds as OddsSnapshots for line-movement tracking."""
+    """Persist all current odds as OddsSnapshots. Upserts Game records on the fly."""
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
+    from dateutil.parser import parse as _parse
+    from datetime import timezone
 
     with get_db() as db:
         for sport_key, events in all_events.items():
             for event in events:
-                game = db.query(Game).filter_by(external_id=event["id"]).first()
+                ext_id = event["id"]
+
+                # Upsert game — create if missing, update commence_time if changed
+                game = db.query(Game).filter_by(external_id=ext_id).first()
                 if not game:
-                    continue
+                    ct_raw = event.get("commence_time")
+                    try:
+                        ct = _parse(ct_raw).replace(tzinfo=None) if isinstance(ct_raw, str) else ct_raw
+                    except Exception:
+                        ct = datetime.utcnow()
+                    game = Game(
+                        external_id   = ext_id,
+                        sport         = sport_key,
+                        home_team     = event.get("home_team", ""),
+                        away_team     = event.get("away_team", ""),
+                        commence_time = ct,
+                    )
+                    db.add(game)
+                    db.flush()  # get game.id immediately
+
                 for market, selections in event["markets"].items():
                     for sel, entries in selections.items():
                         for entry in entries:
