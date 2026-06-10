@@ -89,31 +89,18 @@ def _better_platform(km: dict, pm: dict) -> tuple[str, dict]:
 # ── Build the entry ────────────────────────────────────────────────────────────
 
 def _fetch_all_markets() -> tuple[list[dict], list[dict]]:
+    """Kalshi only — Polymarket disabled (returns pop culture / futures noise)."""
     from src.apis.kalshi import get_sports_markets
-    from src.apis.polymarket import get_sports_markets as poly_get
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    kalshi, poly = [], []
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        k_fut = pool.submit(get_sports_markets)
-        p_fut = pool.submit(poly_get)
-        for fut in as_completed([k_fut, p_fut], timeout=20):
-            try:
-                result = fut.result() or []
-                if fut is k_fut:
-                    kalshi = result
-                else:
-                    poly = result
-            except Exception as e:
-                logger.warning("Prediction market fetch error: %s", e)
-    return kalshi, poly
+    try:
+        kalshi = get_sports_markets() or []
+    except Exception as e:
+        logger.warning("Kalshi fetch error: %s", e)
+        kalshi = []
+    return kalshi, []  # poly always empty
 
 
 def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks: int = 5) -> list[dict]:
-    """
-    Match markets across platforms, pick the best-value platform per game,
-    return top picks sorted by volume (most liquid = most reliable price signal).
-    """
+    """Build entry from Kalshi markets only (Polymarket disabled)."""
     picks = []
     seen_titles: set[str] = set()
 
@@ -124,50 +111,18 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
         title_key = " ".join(sorted(_tokens(title)))
         if title_key in seen_titles:
             continue
-
-        pm = _best_match(km, poly_markets)
-
-        if pm:
-            platform, best = _better_platform(km, pm)
-            seen_titles.add(title_key)
-            # Mark poly match so it doesn't get processed again as standalone
-            pm["_matched"] = True
-        else:
-            platform, best = "kalshi", km
-            seen_titles.add(title_key)
-
-        vol = float(best.get("volume") or 0)
-        picks.append({
-            "title":     title,
-            "platform":  platform,
-            "market":    best,
-            "kalshi":    km,
-            "poly":      pm,
-            "volume":    vol,
-            "sport_key": km.get("sport_key") or (pm.get("sport_key") if pm else ""),
-            "yes_price": float(best.get("yes_price") or 0),
-            "no_price":  float(best.get("no_price")  or 0),
-        })
-
-    # Also add Polymarket-only markets (no Kalshi match)
-    for pm in poly_markets:
-        if pm.get("_matched") or not pm.get("yes_price"):
-            continue
-        title = pm.get("title", "")
-        title_key = " ".join(sorted(_tokens(title)))
-        if title_key in seen_titles:
-            continue
         seen_titles.add(title_key)
+
         picks.append({
             "title":     title,
-            "platform":  "polymarket",
-            "market":    pm,
-            "kalshi":    None,
-            "poly":      pm,
-            "volume":    float(pm.get("volume") or 0),
-            "sport_key": pm.get("sport_key") or "",
-            "yes_price": float(pm.get("yes_price") or 0),
-            "no_price":  float(pm.get("no_price")  or 0),
+            "platform":  "kalshi",
+            "market":    km,
+            "kalshi":    km,
+            "poly":      None,
+            "volume":    float(km.get("volume") or 0),
+            "sport_key": km.get("sport_key") or "",
+            "yes_price": float(km.get("yes_price") or 0),
+            "no_price":  float(km.get("no_price")  or 0),
         })
 
     # Sort by volume descending — highest liquidity = most reliable price
@@ -385,11 +340,8 @@ def scan_prediction_markets() -> dict:
                     r.expire(_ALERTED_CACHE, 3600)
                     alerts += 1
 
-        logger.info(
-            "Prediction market scan: K=%d P=%d moves=%d",
-            len(kalshi), len(poly), alerts,
-        )
-        return {"kalshi": len(kalshi), "polymarket": len(poly), "alerts": alerts}
+        logger.info("Prediction market scan: K=%d moves=%d", len(kalshi), alerts)
+        return {"kalshi": len(kalshi), "alerts": alerts}
 
     except Exception as exc:
         logger.error("Prediction market scan failed: %s", exc)
