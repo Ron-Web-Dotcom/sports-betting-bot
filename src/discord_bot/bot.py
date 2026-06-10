@@ -393,9 +393,9 @@ async def post_result(pick: dict, result: str) -> None:
             f"```"
         ),
         "fields": [
-            {"name": "BET",    "value": f"**{bet}**", "inline": True},
-            {"name": "WAGER",  "value": wager,        "inline": True},
-            {"name": "PAID",   "value": f"**{paid}**" if is_win else "—", "inline": True},
+            {"name": "BET",    "value": f"**{bet}**",                                       "inline": True},
+            {"name": "WAGER",  "value": wager,                                               "inline": True},
+            {"name": "PAID",   "value": f"**{paid}**" if is_win else ("**$0.00**" if not is_push else "**Returned**"), "inline": True},
             {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
              "value": f"{date_str}  ·  ID `#{slip_id}`", "inline": False},
         ],
