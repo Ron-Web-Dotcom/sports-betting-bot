@@ -121,6 +121,9 @@ def generate_picks():
             )
             if confidence.calibrated_score < 0.65:
                 continue
+            # Require positive EV — our win probability must beat the market
+            if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
+                continue
             market    = ai.get("market", best_snap.get("market", "h2h"))
             selection = ai.get("selection", "")
             books_odds = {s["book"]: s["best_odds"] for s in snap_list
@@ -180,10 +183,19 @@ def generate_picks():
                 conf = implied_prob(best_odds_val)
                 if conf < 0.65:
                     continue
+                # Vig-remove using both sides — if opposite side available use it, else estimate
+                opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
+                                else max(over_odds.values()) if direction == "Under" and over_odds
+                                else None)
+                prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
+                                   opponent_odds=opp_odds_val)
+                # Require positive EV — our estimated prob must beat the no-vig market prob
+                if prop_ev.ev_pct <= 0 or conf <= prop_ev.no_vig_prob:
+                    continue
                 is_team = prop.get("is_team_prop", False)
                 prop_pool.append({
                     "type":         "prop",
-                    "score":        conf,
+                    "score":        conf * (1 + prop_ev.ev_pct),
                     "game_key":     event_id,
                     "player":       player,
                     "stat":         stat,
@@ -194,8 +206,8 @@ def generate_picks():
                     "best_odds":    best_odds_val,
                     "books_odds":   all_book_odds,
                     "confidence":   conf,
-                    "ev_pct":       0.0,
-                    "units":        1.0,
+                    "ev_pct":       prop_ev.ev_pct,
+                    "units":        float(prop_ev.units or 1),
                     "is_team_prop": is_team,
                 })
         except Exception as pe:
@@ -541,6 +553,9 @@ def _build_hardrock_candidates(
 
         if confidence.calibrated_score < 0.85:
             continue
+        # Require genuine edge — win probability must beat the vig-free market probability
+        if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
+            continue
 
         market    = ai.get("market", best_snap.get("market", "h2h"))
         selection = ai.get("selection", "")
@@ -574,7 +589,7 @@ def _build_hardrock_candidates(
 def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     """Pull player props from Redis, score them. Deduplication happens in the entry builder."""
     from src.core.config import REDIS_URL
-    from src.engines.ev_engine import implied_prob
+    from src.engines.ev_engine import implied_prob, evaluate
     import json, redis as _redis
 
     try:
@@ -614,20 +629,29 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         if conf < 0.85:
             continue
 
+        opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
+                        else max(over_odds.values()) if direction == "Under" and over_odds
+                        else None)
+        prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
+                           opponent_odds=opp_odds_val)
+        if prop_ev.ev_pct <= 0 or conf <= prop_ev.no_vig_prob:
+            continue
+
         candidates.append({
-            "type":      "prop",
-            "score":     conf,
-            "player":    player,
-            "stat":      stat,
-            "line":      line,
-            "direction": direction,
-            "sport_key": sport_key,
-            "event_id":  event_id,
-            "best_odds": best_odds_val,
-            "books_odds":all_book_odds,
-            "confidence":conf,
-            "ev_pct":    0.0,
-            "units":     1.0,
+            "type":         "prop",
+            "score":        conf * (1 + prop_ev.ev_pct),
+            "player":       player,
+            "stat":         stat,
+            "line":         line,
+            "direction":    direction,
+            "sport_key":    sport_key,
+            "event_id":     event_id,
+            "best_odds":    best_odds_val,
+            "books_odds":   all_book_odds,
+            "confidence":   conf,
+            "ev_pct":       prop_ev.ev_pct,
+            "units":        float(prop_ev.units or 1),
+            "is_team_prop": prop.get("is_team_prop", False),
         })
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
