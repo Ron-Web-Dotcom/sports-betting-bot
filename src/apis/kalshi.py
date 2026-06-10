@@ -211,29 +211,36 @@ def get_sports_markets() -> list[dict]:
     Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
     Excludes tournament futures and politics.
     """
-    # status=open returns the full market list on Kalshi
-    data = _get("/markets", {"limit": 200, "status": "open"})
-    markets_raw = (data.get("markets") or []) if isinstance(data, dict) else []
+    # Game-winner markets live in /events, not /markets (which is all combos)
+    markets_raw = []
+    data = _get("/events", {"limit": 200})
+    events = (data.get("events") or []) if isinstance(data, dict) else []
 
-    # Page through to get more if available
+    # Paginate events
     cursor = (data.get("cursor") or "") if isinstance(data, dict) else ""
-    while cursor and len(markets_raw) < 2000:
-        page = _get("/markets", {"limit": 200, "status": "open", "cursor": cursor})
+    while cursor and len(events) < 1000:
+        page = _get("/events", {"limit": 200, "cursor": cursor})
         if not isinstance(page, dict):
             break
-        batch = page.get("markets") or []
-        markets_raw.extend(batch)
+        batch = page.get("events") or []
+        events.extend(batch)
         cursor = page.get("cursor") or ""
         if not batch:
             break
 
-    logger.info("Kalshi fetched %d total open markets", len(markets_raw))
-    if markets_raw:
-        singles = [m for m in markets_raw if "," not in (m.get("title") or "")][:3]
-        for m in singles:
-            logger.info("Kalshi single-game sample: title=%r close=%r cat=%r tags=%s",
-                        (m.get("title") or "")[:70], m.get("close_time", "")[:25],
-                        m.get("category"), (m.get("tags") or [])[:3])
+    logger.info("Kalshi fetched %d events", len(events))
+
+    for event in events:
+        exp = event.get("expected_expiration_time") or event.get("close_time") or ""
+        for mkt in (event.get("markets") or []):
+            mkt["close_time"] = mkt.get("close_time") or exp
+            mkt["category"]   = mkt.get("category") or (event.get("category") or "").lower()
+            markets_raw.append(mkt)
+
+    # Log first 5 titles to understand the structure
+    for m in markets_raw[:5]:
+        logger.info("Kalshi event market: title=%r close=%r",
+                    (m.get("title") or "")[:70], m.get("close_time", "")[:25])
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
 
