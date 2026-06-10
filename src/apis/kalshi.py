@@ -200,7 +200,7 @@ def _kalshi_is_game_day(close_time: str) -> bool:
         from datetime import datetime, timezone, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        return timedelta(0) <= (dt - now) <= timedelta(hours=24)
+        return timedelta(0) <= (dt - now) <= timedelta(hours=12)
     except Exception:
         return False
 
