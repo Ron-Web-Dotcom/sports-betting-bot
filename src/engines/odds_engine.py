@@ -231,16 +231,13 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     from datetime import timezone, timedelta
     from dateutil.parser import parse as _parse
 
-    active_sports = _get_active_sports_cached()
-
     cutoff = datetime.now(timezone.utc) + timedelta(hours=24)
     tasks  = []
     for sport_key, events in all_events.items():
         if sport_key not in PLAYER_PROP_SPORTS:
             continue
-        if sport_key not in active_sports:
-            logger.debug("Skipping player props for %s — not active today per Sofascore", sport_key)
-            continue
+        # If scan_all_sports returned events for this sport, it's active — no need
+        # to double-gate against Sofascore cache (which can be stale or miss sports)
         if not events:
             continue
         for ev in events:
@@ -248,8 +245,11 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
             try:
                 if isinstance(ct, str):
                     ct = _parse(ct)
-                if ct and ct.replace(tzinfo=timezone.utc) > cutoff:
-                    continue
+                if ct:
+                    # Use astimezone (not .replace) to correctly convert tz-aware datetimes
+                    ct_utc = ct.astimezone(timezone.utc) if ct.tzinfo else ct.replace(tzinfo=timezone.utc)
+                    if ct_utc > cutoff:
+                        continue
             except Exception:
                 pass
             tasks.append((sport_key, ev["id"]))
