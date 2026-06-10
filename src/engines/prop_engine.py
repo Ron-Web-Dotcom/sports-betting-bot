@@ -128,7 +128,7 @@ def _sample_props(props: list[dict], max_per_sport: int = 30) -> list[dict]:
     return sampled
 
 
-def score_props(props: list[dict]) -> tuple[list[PropPick], list[PropPick]]:
+def score_props(props: list[dict]) -> tuple[list[PropPick], list[PropPick]]:  # noqa: returns (picks, watchlist)
     """
     Analyse props using a SINGLE batch OpenAI call per sport group.
     Reduces API calls from N (one per prop) to ~5 (one per sport).
