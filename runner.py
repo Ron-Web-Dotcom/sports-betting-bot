@@ -102,7 +102,7 @@ INTERVAL_TASKS = [
     (300,  "send_pregame_alerts"),     # 5 min
     (600,  "scan_and_save_odds"),      # 10 min — odds don't move every 5 min
     (1200, "scan_player_props"),       # 20 min — props are stable
-    (1200, "generate_picks"),          # 20 min — unified game + prop picks
+    # (1200, "generate_picks"),          # disabled — HardRock day/night entries replace this
     (1800, "fetch_and_save_news"),     # 30 min
     (1800, "settle_completed_picks"),  # 30 min
     (3600, "record_closing_lines"),    # 60 min
