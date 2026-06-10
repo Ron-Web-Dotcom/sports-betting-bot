@@ -180,21 +180,23 @@ def generate_picks():
                 conf = implied_prob(best_odds_val)
                 if conf < 0.65:
                     continue
+                is_team = prop.get("is_team_prop", False)
                 prop_pool.append({
-                    "type":      "prop",
-                    "score":     conf,
-                    "game_key":  event_id,
-                    "player":    player,
-                    "stat":      stat,
-                    "line":      line,
-                    "direction": direction,
-                    "sport_key": sport_key,
-                    "event_id":  event_id,
-                    "best_odds": best_odds_val,
-                    "books_odds":all_book_odds,
-                    "confidence":conf,
-                    "ev_pct":    0.0,
-                    "units":     1.0,
+                    "type":         "prop",
+                    "score":        conf,
+                    "game_key":     event_id,
+                    "player":       player,
+                    "stat":         stat,
+                    "line":         line,
+                    "direction":    direction,
+                    "sport_key":    sport_key,
+                    "event_id":     event_id,
+                    "best_odds":    best_odds_val,
+                    "books_odds":   all_book_odds,
+                    "confidence":   conf,
+                    "ev_pct":       0.0,
+                    "units":        1.0,
+                    "is_team_prop": is_team,
                 })
         except Exception as pe:
             logger.warning("Props pool build failed: %s", pe)
@@ -266,10 +268,11 @@ def generate_picks():
             bar   = _conf_bar(conf)
 
             if p["type"] == "prop":
-                hr_odds = _hr_odds(p["books_odds"], p["best_odds"])
+                hr_odds   = _hr_odds(p["books_odds"], p["best_odds"])
+                prop_tag  = "🏟️ Team Prop" if p.get("is_team_prop") else "👤 Player Prop"
                 pick_fields.append({
-                    "name": f"{i}. {get_emoji(sport)} {p['player']} · {p['stat']} {p['direction']} {p['line']} `{_fmt(hr_odds)}`",
-                    "value": f"{get_name(sport)} · **{conf}%** {bar} · 📍 HardRock",
+                    "name":  f"{i}. {get_emoji(sport)} {p['player']}  ·  {p['stat']} {p['direction']} {p['line']}  `{_fmt(hr_odds)}`",
+                    "value": f"{get_name(sport)}  ·  {prop_tag}  ·  **{conf}%** {bar}  ·  📍 HardRock",
                     "inline": False,
                 })
             else:

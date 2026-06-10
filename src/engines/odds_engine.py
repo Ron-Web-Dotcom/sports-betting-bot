@@ -99,22 +99,30 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     _SOCCER_MARKETS     = ["player_shots_on_target", "player_goals", "player_assists", "player_cards"]
     _BASKETBALL_MARKETS = ["player_points", "player_rebounds", "player_assists", "player_threes"]
     _TENNIS_MARKETS     = ["player_games_won", "player_sets_won"]
+
+    # Team prop markets — available on HardRock and most books
+    _TEAM_BASKETBALL = ["team_totals", "team_first_basket", "team_points_q1"]
+    _TEAM_FOOTBALL   = ["team_totals", "team_first_td_scorer"]
+    _TEAM_BASEBALL   = ["team_totals", "team_first_to_score"]
+    _TEAM_HOCKEY     = ["team_totals", "team_first_goal_scorer"]
+    _TEAM_SOCCER     = ["team_totals", "team_first_goal"]
+
     _sport_markets = {
-        "basketball_nba":               _BASKETBALL_MARKETS,
-        "basketball_wnba":              _BASKETBALL_MARKETS,
-        "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists"],
-        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"],
-        "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
-        "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"],
-        "baseball_mlb":                 ["batter_home_runs", "batter_hits", "batter_total_bases", "pitcher_strikeouts"],
-        "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"],
+        "basketball_nba":               _BASKETBALL_MARKETS + _TEAM_BASKETBALL,
+        "basketball_wnba":              _BASKETBALL_MARKETS + _TEAM_BASKETBALL,
+        "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL,
+        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL,
+        "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"] + _TEAM_FOOTBALL,
+        "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"] + _TEAM_FOOTBALL,
+        "baseball_mlb":                 ["batter_home_runs", "batter_hits", "batter_total_bases", "pitcher_strikeouts"] + _TEAM_BASEBALL,
+        "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"] + _TEAM_HOCKEY,
         "tennis_atp_french_open":       _TENNIS_MARKETS,
         "tennis_wta_french_open":       _TENNIS_MARKETS,
         "mma_mixed_martial_arts":       ["player_method_of_victory", "player_total_rounds"],
-        "soccer_usa_nwsl":              _SOCCER_MARKETS,
-        "soccer_fifa_womens_world_cup": _SOCCER_MARKETS,
+        "soccer_usa_nwsl":              _SOCCER_MARKETS + _TEAM_SOCCER,
+        "soccer_fifa_womens_world_cup": _SOCCER_MARKETS + _TEAM_SOCCER,
         # All other soccer leagues
-        **{league: _SOCCER_MARKETS for league in _SOCCER_LEAGUES},
+        **{league: _SOCCER_MARKETS + _TEAM_SOCCER for league in _SOCCER_LEAGUES},
     }
     markets = _sport_markets.get(sport_key, [])
     if not markets:
@@ -129,11 +137,15 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     if not data:
         return []
 
+    _TEAM_MARKET_PREFIXES = ("team_",)
+
     props = []
     for bk in data.get("bookmakers", []):
         book = bk["key"]
         for mkt in bk.get("markets", []):
-            stat = mkt["key"].replace("player_", "").replace("_", " ").title()
+            mkt_key    = mkt["key"]
+            is_team    = mkt_key.startswith(_TEAM_MARKET_PREFIXES)
+            stat       = mkt_key.replace("player_", "").replace("team_", "").replace("_", " ").title()
             for outcome in mkt.get("outcomes", []):
                 player     = outcome.get("description", outcome.get("name", ""))
                 direction  = outcome.get("name", "").lower()  # "Over" or "Under"
@@ -148,14 +160,15 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
                 existing = next((p for p in props if (p["player"], p["stat"], p["line"]) == key), None)
                 if not existing:
                     existing = {
-                        "player":      player,
-                        "stat":        stat,
-                        "line":        line,
-                        "over_odds":   {},   # book -> odds
-                        "under_odds":  {},
-                        "sport_key":   sport_key,
-                        "event_id":    event_id,
-                        "source":      "odds_api",
+                        "player":       player,
+                        "stat":         stat,
+                        "line":         line,
+                        "over_odds":    {},
+                        "under_odds":   {},
+                        "sport_key":    sport_key,
+                        "event_id":     event_id,
+                        "source":       "odds_api",
+                        "is_team_prop": is_team,
                     }
                     props.append(existing)
 

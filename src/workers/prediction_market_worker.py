@@ -200,7 +200,8 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         return
     r.setex(hash_key, 7200, entry_hash)
 
-    period_label = "DAY" if period == "day" else "NIGHT"
+    period_emoji = "☀️" if period == "day" else "🌙"
+    period_label = "Day" if period == "day" else "Night"
     rows = []
 
     for i, pick in enumerate(picks, 1):
@@ -214,33 +215,32 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         vol      = f"${int(pick['volume']):,}" if pick["volume"] else "—"
         sport    = (pick.get("sport_key") or "").split("_")[-1].upper()
 
-        # Show both platform prices if matched — this is the live contract price right now
-        both_line = ""
+        # Show both platform prices if both available
+        compare_line = ""
         if pick["kalshi"] and pick["poly"]:
             ky = _pct(pick["kalshi"].get("yes_price"))
             py = _pct(pick["poly"].get("yes_price"))
-            both_line = f"\n`🔵 Kalshi {ky}  |  🟣 Polymarket {py}`  → play **{platform}**"
+            compare_line = f"\n> `🔵 Kalshi {ky}  vs  🟣 Poly {py}`  →  best: **{platform}**"
 
         rows.append(
-            f"**{i}. {title}** `{sport}`\n"
-            f"{emoji} **{platform}** — "
-            f"YES **{yes_pct}** ({yes_am})  ·  NO **{no_pct}** ({no_am})\n"
-            f"Volume: {vol}  _(live price — moves before & during game)_{both_line}"
+            f"**{i}.** `{sport}`  {emoji} **{platform}**\n"
+            f"**{title}**\n"
+            f"YES **{yes_pct}** ({yes_am})  ·  NO **{no_pct}** ({no_am})  ·  Vol {vol}"
+            + compare_line
         )
 
-    description = "\n\n".join(rows)
+    description = "\n─────────────────────────\n".join(rows)
 
     embed = {
-        "title":       f"📊 Prediction Market — {period_label} Games",
+        "title":       f"📊  {period_emoji} {period_label} Prediction Markets",
         "description": (
-            f"**{len(picks)} live contract{'s' if len(picks) > 1 else ''}** "
-            f"· Best platform per game\n"
-            f"Price floats up & down before and during the game.\n"
-            f"Buy YES or NO — you can exit at any time.\n\n"
+            f"**{len(picks)} team outcome contract{'s' if len(picks) > 1 else ''}**  ·  Best platform per game\n"
+            f"Price moves live before & during the game  ·  Buy YES or NO  ·  Exit any time\n"
+            f"─────────────────────────\n"
             + description
         ),
         "color": 0x4A148C,
-        "footer": {"text": "🔵 Kalshi  🟣 Polymarket  —  price updates every 3 min  —  alerts fire on 5%+ moves"},
+        "footer": {"text": "🔵 Kalshi  🟣 Polymarket  ·  Price updates every 3 min  ·  5%+ moves trigger alerts"},
     }
 
     try:
