@@ -663,26 +663,20 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
     from src.core.sport_labels import get_emoji, get_name
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
-    import zoneinfo
+    import zoneinfo, hashlib
     from datetime import datetime
 
     ET           = zoneinfo.ZoneInfo("America/New_York")
     now_et       = datetime.now(ET)
-    now_str      = now_et.strftime("%I:%M %p ET")
-    date_str     = now_et.strftime("%A, %B %-d")
-    period_label = "☀️ Day" if period == "day" else "🌙 Night"
+    date_str     = now_et.strftime("%b %-d, %Y")
+    time_str     = now_et.strftime("%-I:%M %p ET")
+    period_label = "DAY" if period == "day" else "NIGHT"
+    period_emoji = "☀️" if period == "day" else "🌙"
     _MARKET      = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
+    ticket_id    = hashlib.md5(f"{period}{date_str}".encode()).hexdigest()[:8].upper()
 
     def _fmt(v) -> str:
         return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
-
-    def _books_line(books_odds: dict, best_book: str) -> str:
-        best_book = (best_book or "").lower()
-        parts = []
-        for bk, odds in sorted(books_odds.items(), key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
-            bk_label = bk.upper().replace("_", " ")
-            parts.append(f"**{bk_label} {_fmt(odds)}**" if bk.lower() == best_book else f"{bk_label} {_fmt(odds)}")
-        return "  ·  ".join(parts[:5]) or "—"
 
     def _game_time(commence: str) -> str:
         try:
@@ -691,52 +685,54 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
         except Exception:
             return ""
 
-    pick_lines: list[str] = []
+    # ── Build each leg as a slip row ──────────────────────────────────────────
+    legs: list[str] = []
     for i, p in enumerate(entry, 1):
         conf  = round(p["confidence"] * 100)
+        ev    = round(p.get("ev_pct", 0) * 100, 1)
         sport = p["sport_key"]
+        emoji = get_emoji(sport)
+        sport_name = get_name(sport)
+
         if p["type"] == "prop":
-            pick_lines.append(
-                f"**{i}.** {get_emoji(sport)} **{p['player']}**  ·  {p['stat']} {p['direction']} **{p['line']}**  `{_fmt(p['best_odds'])}`  ·  {conf}% conf\n"
-                f"> {get_name(sport)}\n"
-                f"> 📚 {_books_line(p['books_odds'], '')}"
+            prop_tag = "🏟️" if p.get("is_team_prop") else "👤"
+            legs.append(
+                f"`LEG {i}`  {prop_tag} {emoji} **{p['player']}**\n"
+                f"┣  {sport_name}  ·  {p['stat']} **{p['direction']} {p['line']}**\n"
+                f"┣  Odds  `{_fmt(p['best_odds'])}`  ·  Conf  **{conf}%**  ·  Edge  **+{ev}%**\n"
+                f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             )
         else:
             market = _MARKET.get(p["market"], p["market"].upper())
-            ev     = round(p.get("ev_pct", 0) * 100, 1)
-            units  = round(p.get("units", 1), 1)
-            gt     = _game_time(p["commence_time"])
-            inj    = "  ⚠️" if p.get("injuries", 0) > 0 else ""
-            factors   = p.get("key_factors") or []
-            reasoning = (p.get("reasoning") or "").strip()
-            insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
-            pick_lines.append(
-                f"**{i}.** {get_emoji(sport)} **{p['away_team']} @ {p['home_team']}**  `{gt}`{inj}\n"
-                f"> {get_name(sport)}  ·  {market}: **{p['selection']} {_fmt(p['best_odds'])}**  ·  {conf}% conf  ·  +{ev}% EV  ·  {units}u\n"
-                f"> 📚 {_books_line(p['books_odds'], p.get('best_book', ''))}"
-                + (f"\n> *{insight}*" if insight else "")
+            gt     = _game_time(p.get("commence_time", ""))
+            inj    = "  ⚠️ injury alert" if p.get("injuries", 0) > 0 else ""
+            legs.append(
+                f"`LEG {i}`  {emoji} **{p['away_team']} @ {p['home_team']}**{inj}\n"
+                f"┣  {sport_name}  ·  {market}  ·  🕐 {gt}\n"
+                f"┣  Pick  **{p['selection']}**  `{_fmt(p['best_odds'])}`  ·  Conf  **{conf}%**  ·  Edge  **+{ev}%**\n"
+                f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             )
 
     avg_conf = round(sum(p["confidence"] for p in entry) / len(entry) * 100)
-    total_u  = round(sum(p.get("units", 1) for p in entry), 1)
-    divider  = "─" * 34
+    n_legs   = len(entry)
+    slip_body = "\n".join(legs)
 
     embed = {
-        "title":       f"🪨  HardRock {period_label} Entry  ·  {date_str}",
-        "description": f"{divider}\n\n" + f"\n\n{divider}\n\n".join(pick_lines) + f"\n\n{divider}",
-        "color":       0x1565C0 if period == "day" else 0x4A148C,
-        "fields": [
-            {"name": "Picks",       "value": f"**{len(entry)}**",   "inline": True},
-            {"name": "Avg Conf",    "value": f"**{avg_conf}%**",    "inline": True},
-            {"name": "Total Units", "value": f"**{total_u}u**",     "inline": True},
-            {"name": "Generated",   "value": now_str,               "inline": True},
-            {"name": "Action",      "value": "📲 Place on HardRock Bet", "inline": True},
-        ],
-        "footer": {"text": "Odds API · Sofascore · AI research · Bet responsibly"},
+        "title": f"🎟️  HARDROCK BET SLIP  ·  {period_emoji} {period_label}",
+        "description": (
+            f"```\n"
+            f"  Ticket #{ticket_id}        {date_str}\n"
+            f"  {time_str}           {n_legs}-LEG SLIP\n"
+            f"```\n"
+            f"{slip_body}\n\n"
+            f"**Avg Confidence: {avg_conf}%**  ·  📲 Place on **HardRock Bet**"
+        ),
+        "color": 0x1565C0 if period == "day" else 0x4A148C,
+        "footer": {"text": f"HardRock Sportsbook  ·  {n_legs} leg{'s' if n_legs != 1 else ''}  ·  All legs must hit to cash  ·  Bet responsibly"},
     }
 
     _run_async(_post({"embeds": [embed]}))
-    logger.info("HardRock %s entry posted: %d picks, %.1fu", period, len(entry), total_u)
+    logger.info("HardRock %s entry posted: %d picks", period, len(entry))
 
 
 def _generate_hardrock_entry(period: str) -> dict:

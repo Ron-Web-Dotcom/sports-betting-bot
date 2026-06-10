@@ -200,14 +200,22 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         return
     r.setex(hash_key, 7200, entry_hash)
 
+    import hashlib
+    from datetime import datetime
+    import zoneinfo
+    ET           = zoneinfo.ZoneInfo("America/New_York")
+    now_et       = datetime.now(ET)
+    date_str     = now_et.strftime("%b %-d, %Y")
+    time_str     = now_et.strftime("%-I:%M %p ET")
     period_emoji = "☀️" if period == "day" else "🌙"
-    period_label = "Day" if period == "day" else "Night"
-    rows = []
+    period_label = "DAY" if period == "day" else "NIGHT"
+    ticket_id    = hashlib.md5(f"pred{period}{date_str}".encode()).hexdigest()[:8].upper()
 
+    rows = []
     for i, pick in enumerate(picks, 1):
         emoji    = _PLATFORM_EMOJI[pick["platform"]]
         platform = _PLATFORM_LABEL[pick["platform"]]
-        title    = pick["title"][:60]
+        title    = pick["title"][:55]
         yes_pct  = _pct(pick["yes_price"])
         no_pct   = _pct(pick["no_price"])
         yes_am   = _american(pick["yes_price"])
@@ -215,32 +223,34 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         vol      = f"${int(pick['volume']):,}" if pick["volume"] else "—"
         sport    = (pick.get("sport_key") or "").split("_")[-1].upper()
 
-        # Show both platform prices if both available
         compare_line = ""
         if pick["kalshi"] and pick["poly"]:
             ky = _pct(pick["kalshi"].get("yes_price"))
             py = _pct(pick["poly"].get("yes_price"))
-            compare_line = f"\n> `🔵 Kalshi {ky}  vs  🟣 Poly {py}`  →  best: **{platform}**"
+            compare_line = f"\n┣  🔵 Kalshi **{ky}**  vs  🟣 Poly **{py}**  →  play **{platform}**"
 
         rows.append(
-            f"**{i}.** `{sport}`  {emoji} **{platform}**\n"
-            f"**{title}**\n"
-            f"YES **{yes_pct}** ({yes_am})  ·  NO **{no_pct}** ({no_am})  ·  Vol {vol}"
-            + compare_line
+            f"`CONTRACT`  {emoji} **{platform}**  `{sport}`\n"
+            f"┣  **{title}**\n"
+            f"┣  YES **{yes_pct}** ({yes_am})  ·  NO **{no_pct}** ({no_am})"
+            + compare_line +
+            f"\n┗  Volume: {vol}  ·  _(price moves live)_"
         )
 
-    description = "\n─────────────────────────\n".join(rows)
+    slip_body = "\n\n".join(rows)
 
     embed = {
-        "title":       f"📊  {period_emoji} {period_label} Prediction Markets",
+        "title": f"🎟️  PREDICTION MARKET SLIP  ·  {period_emoji} {period_label}",
         "description": (
-            f"**{len(picks)} team outcome contract{'s' if len(picks) > 1 else ''}**  ·  Best platform per game\n"
-            f"Price moves live before & during the game  ·  Buy YES or NO  ·  Exit any time\n"
-            f"─────────────────────────\n"
-            + description
+            f"```\n"
+            f"  Ticket #{ticket_id}        {date_str}\n"
+            f"  {time_str}         TEAM OUTCOME\n"
+            f"```\n"
+            f"{slip_body}\n\n"
+            f"Buy **YES** or **NO**  ·  Exit any time before final whistle"
         ),
         "color": 0x4A148C,
-        "footer": {"text": "🔵 Kalshi  🟣 Polymarket  ·  Price updates every 3 min  ·  5%+ moves trigger alerts"},
+        "footer": {"text": "🔵 Kalshi  🟣 Polymarket  ·  Price updates every 3 min  ·  5%+ move triggers alert"},
     }
 
     try:
