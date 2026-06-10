@@ -161,11 +161,13 @@ def send_weekly_fresh_start():
 
     week_num = datetime.now().isocalendar()[1]
     embed = _embed(
-        title="🟢 New Week — Fresh Start",
+        title=f"🟢  New Week — Week {week_num}",
         description=(
-            f"**Week {week_num}** is now live.\n\n"
-            "Props scanning restarts. Picks engine is active.\n"
-            "All sports monitored 24/7. Good luck this week! 🎯"
+            f"─────────────────────────\n"
+            f"Fresh slate. Record resets.\n\n"
+            f"All sports scanning  ·  Props + game picks active\n"
+            f"☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**\n\n"
+            f"Let's build the streak  🎯"
         ),
         color=0x1565C0,
     )
@@ -181,18 +183,30 @@ def send_monthly_summary():
     now = datetime.utcnow()
     monthly = get_monthly_summary(year=now.year, month=now.month)
 
-    lines = [
-        f"**Monthly Summary — {now.strftime('%B %Y')}**",
-        f"Total Bets: {monthly['total_bets']} | P&L: {monthly['total_profit']:+.2f}u | ROI: {monthly['total_roi']:.1%}",
-        f"Best Sport: {monthly['best_sport'] or '—'} | Best Market: {monthly['best_market'] or '—'}",
-        f"Avg CLV: {monthly['avg_clv']:.2%}",
-        f"Win Streak: {monthly['largest_winning_streak']} | Loss Streak: {monthly['largest_losing_streak']}",
-    ]
-    summary = "\n".join(lines)
+    roi_str   = f"{monthly['total_roi']:.1%}"
+    pnl_sign  = "+" if monthly['total_profit'] >= 0 else ""
+    clv_sign  = "+" if monthly['avg_clv'] >= 0 else ""
+    color     = 0x1B5E20 if monthly['total_profit'] >= 0 else 0xB71C1C
+
+    embed_body = (
+        f"─────────────────────────\n"
+        f"**Bets:**  {monthly['total_bets']}  ·  "
+        f"**P&L:**  {pnl_sign}{monthly['total_profit']:+.2f}u  ·  "
+        f"**ROI:**  {roi_str}\n\n"
+        f"**Avg CLV:**  {clv_sign}{monthly['avg_clv']:.2%}\n"
+        f"**Best Sport:**  {monthly['best_sport'] or '—'}  ·  "
+        f"**Best Market:**  {monthly['best_market'] or '—'}\n\n"
+        f"🔥 Win Streak: **{monthly['largest_winning_streak']}**  ·  "
+        f"💔 Loss Streak: **{monthly['largest_losing_streak']}**"
+    )
 
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import send_to_channel
-    _run_async(send_to_channel("monthly-summary", content=summary))
+    from src.discord_bot.bot import _post, _embed
+    _run_async(_post({"embeds": [_embed(
+        title=f"🗓️  Monthly Summary  ·  {now.strftime('%B %Y')}",
+        description=embed_body,
+        color=color,
+    )]}))
 
     logger.info("Monthly summary sent")
     return {"summary_length": len(summary), "stats": monthly}
@@ -257,13 +271,14 @@ def enter_sleep_mode():
         fields.append({"name": "✅ Top Winners", "value": win_text, "inline": False})
 
     embed = _embed(
-        title="🌙 Goodnight — See you at 5 AM",
+        title="🌙  Goodnight — Back at 5 AM ET",
         description=(
-            f"Scanning paused until **5:00 AM ET**.\n"
-            "Self-improvement cycle running on tonight's results."
+            f"Scanning paused  ·  Self-improvement running on tonight's data.\n"
+            f"─────────────────────────\n"
+            f"**Today's Record:**  {record_str}"
+            + (f"\n\n✅ **Top Winners**\n{win_text}" if winners else "")
         ),
         color=color,
-        fields=fields,
     )
     _run_async(_post({"embeds": [embed]}))
     logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
@@ -276,8 +291,14 @@ def wake_up_brief():
     from src.discord_bot.bot import _post, _embed
 
     embed = _embed(
-        title="🟢 Bot is Up and Ready To Make Some Money Today",
-        description="Scanning live props every 5 minutes. Picks posted when high-confidence bets are found.",
+        title="🟢  Bot is Live — Let's Get It",
+        description=(
+            "Scanning all sports every few minutes.\n"
+            "High-confidence picks posted as they're found.\n\n"
+            "─────────────────────────\n"
+            "☀️  Day entry  →  **10:30 AM ET**\n"
+            "🌙  Night entry  →  **4:30 PM ET**"
+        ),
         color=0x00C851,
     )
     _run_async(_post({"embeds": [embed]}))
@@ -560,18 +581,22 @@ def yesterday_recap():
         logger.warning("yesterday_recap: today's games fetch failed: %s", e)
         today_games_text = "—"
 
+    sport_section = f"\n**By Sport:**  {sport_breakdown}" if sport_breakdown and sport_breakdown != "—" else ""
+
     embed = {
-        "title": f"📊 Yesterday's Results — {yesterday.strftime('%A, %B %-d')}",
-        "description": record_str,
+        "title":       f"📊  Morning Recap  ·  {yesterday.strftime('%A, %B %-d')}",
+        "description": (
+            f"**Yesterday's Record:**  {record_str}"
+            + sport_section
+        ),
         "color": color,
         "fields": [
-            {"name": "✅ Winners",        "value": win_text,        "inline": True},
-            {"name": "❌ Losers",         "value": loss_text,       "inline": True},
-            {"name": "By Sport",          "value": sport_breakdown, "inline": False},
-            {"name": "📅 Today's Games",  "value": today_games_text, "inline": False},
-            {"name": "Next Picks",        "value": "Props scanning every 5 min — posted when found", "inline": False},
+            {"name": "✅  Winners",      "value": win_text,         "inline": True},
+            {"name": "❌  Losers",       "value": loss_text,        "inline": True},
+            {"name": "📅  Today's Games","value": today_games_text, "inline": False},
+            {"name": "⏰  Entry Times",  "value": "☀️ Day entry **10:30 AM ET**  ·  🌙 Night entry **4:30 PM ET**", "inline": False},
         ],
-        "footer": {"text": f"6:00 AM ET recap · {et.strftime('%B %-d, %Y')}"},
+        "footer": {"text": f"6:00 AM ET · {et.strftime('%B %-d, %Y')} · Scanning all sports"},
     }
 
     try:

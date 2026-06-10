@@ -443,12 +443,28 @@ async def post_parlay(parlay: dict) -> None:
 
 
 async def post_daily_summary(summary_text: str) -> None:
-    embed = _embed(title="Daily Summary", description=summary_text, color=0x1565C0)
+    import zoneinfo
+    from datetime import datetime
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    embed = _embed(
+        title=f"📈  Daily Summary  ·  {et.strftime('%A, %B %-d')}",
+        description=f"─────────────────────────\n{summary_text}",
+        color=0x1565C0,
+    )
+    embed["footer"] = {"text": f"End of day recap · {et.strftime('%-I:%M %p ET')}"}
     await _post({"embeds": [embed]})
 
 
 async def post_weekly_summary(summary_text: str) -> None:
-    embed = _embed(title="Weekly Summary", description=summary_text, color=0x4A148C)
+    import zoneinfo
+    from datetime import datetime
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    embed = _embed(
+        title=f"📅  Weekly Summary  ·  Week {et.isocalendar()[1]}",
+        description=f"─────────────────────────\n{summary_text}",
+        color=0x4A148C,
+    )
+    embed["footer"] = {"text": f"Sunday midnight recap · {et.strftime('%B %-d, %Y')}"}
     await _post({"embeds": [embed]})
 
 

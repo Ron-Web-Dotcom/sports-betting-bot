@@ -159,55 +159,89 @@ def _pick_summary(picks: list[dict]) -> str:
     return "\n".join(lines) or "—"
 
 
+def _conf_bar(picks: list[dict]) -> str:
+    avg = sum(p.get("confidence", 0) for p in picks) / max(len(picks), 1)
+    filled = round(avg * 10)
+    return "🟢" * filled + "⚫" * (10 - filled) + f"  {round(avg * 100)}%"
+
+
 def _alert_starting_soon(slip: dict, pick: dict) -> None:
-    gt = _fmt_time(pick.get("commence_time", ""))
+    gt       = _fmt_time(pick.get("commence_time", ""))
     platform = _platform_label(slip["platform"])
-    name = pick.get("player") or f"{pick.get('away_team','')} @ {pick.get('home_team','')}"
+    name     = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+    period   = slip.get("period", "").capitalize()
+    n        = len(slip["picks"])
     _post_embed({
-        "title":       f"🔔 Game Starting Soon — {name}",
+        "title":       f"🔔  Game Starting Soon",
         "description": (
-            f"**{platform}** slip has a game starting in ~30 min\n"
-            f"🕐 Tip-off: **{gt}**\n\n"
-            f"{_pick_summary(slip['picks'])}"
+            f"**{name}**\n"
+            f"─────────────────────────\n"
+            f"🕐  Tip-off in ~30 min  ·  **{gt}**\n"
+            f"📋  {platform} {period} Entry  ·  {n} pick{'s' if n != 1 else ''}\n\n"
+            f"{_pick_summary(slip['picks'])}\n\n"
+            f"{_conf_bar(slip['picks'])}"
         ),
         "color": 0xF9A825,
+        "footer": {"text": "Get your entry in now before tip-off ⏱️"},
     })
 
 
 def _alert_live(slip: dict, pick: dict) -> None:
     platform = _platform_label(slip["platform"])
-    name = pick.get("player") or f"{pick.get('away_team','')} @ {pick.get('home_team','')}"
+    name     = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+    period   = slip.get("period", "").capitalize()
+    n        = len(slip["picks"])
     _post_embed({
-        "title":       f"🔴 LIVE NOW — {name}",
+        "title":       f"🔴  LIVE NOW — {name}",
         "description": (
-            f"**{platform}** slip is now active — game is live\n\n"
-            f"{_pick_summary(slip['picks'])}"
+            f"─────────────────────────\n"
+            f"📋  {platform} {period} Entry  ·  {n} pick{'s' if n != 1 else ''} on the line\n\n"
+            f"{_pick_summary(slip['picks'])}\n\n"
+            f"{_conf_bar(slip['picks'])}"
         ),
         "color": 0xE53935,
+        "footer": {"text": "Game is live — tracking result 🎯"},
     })
 
 
 def _alert_result(slip: dict, result: str, ratio: dict) -> None:
-    platform = _platform_label(slip["platform"])
+    platform    = _platform_label(slip["platform"])
     picks_count = len(slip["picks"])
-    w, l = ratio["wins"], ratio["losses"]
+    period      = slip.get("period", "").capitalize()
+    w, l, p     = ratio["wins"], ratio["losses"], ratio.get("pushes", 0)
+    total       = w + l
 
     if result == "cashed":
-        title = f"✅ CASHED — {platform} Entry WON"
-        desc  = f"All {picks_count} pick{'s' if picks_count > 1 else ''} hit. Ticket is a winner.\n\n"
+        icon  = "✅"
+        title = f"✅  CASHED — {platform} {period} Entry WON"
         color = 0x1B5E20
-    else:
-        title = f"❌ DEAD — {platform} Entry LOST"
-        desc  = f"A pick lost — ticket is dead.\n\n"
+        verdict = f"All **{picks_count}** pick{'s' if picks_count != 1 else ''} hit  🎉  Ticket is a winner."
+    elif result == "dead":
+        icon  = "❌"
+        title = f"❌  DEAD — {platform} {period} Entry LOST"
         color = 0xB71C1C
+        verdict = f"A pick missed  💔  Ticket is dead."
+    else:
+        icon  = "➖"
+        title = f"➖  PUSH — {platform} {period} Entry"
+        color = 0x607D8B
+        verdict = "Entry pushed — no win, no loss."
 
-    desc += f"{_pick_summary(slip['picks'])}\n\n"
-    desc += f"**Record: {w}W — {l}L**"
-    if w + l > 0:
-        pct = round(w / (w + l) * 100)
-        desc += f"  ({pct}% win rate)"
+    pct_str = f"  ·  **{round(w / total * 100)}% win rate**" if total > 0 else ""
+    record  = f"**{w}W – {l}L**{' – ' + str(p) + 'P' if p else ''}{pct_str}"
 
-    _post_embed({"title": title, "description": desc, "color": color})
+    _post_embed({
+        "title":       title,
+        "description": (
+            f"{verdict}\n"
+            f"─────────────────────────\n"
+            f"{_pick_summary(slip['picks'])}\n"
+            f"─────────────────────────\n"
+            f"📊  Record:  {record}"
+        ),
+        "color": color,
+        "footer": {"text": f"{platform} · Slip tracking · {slip.get('id', '')}"},
+    })
 
 
 # ── Result checking ────────────────────────────────────────────────────────────
