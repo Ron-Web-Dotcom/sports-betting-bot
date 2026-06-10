@@ -28,6 +28,17 @@ _SPORT_KEYWORDS = [
     "wimbledon", "us open", "french open", "australian open",
     "masters", "pga", "formula 1", "f1",
     "defeat", "beat",
+    # game-specific terms (safe — futures don't use these)
+    "match winner", "game winner", "moneyline", "spread",
+    "over/under", "total points", "total goals",
+    "vs ", " vs", "at the", "game 1", "game 2", "game 3",
+    "basketball", "baseball", "hockey", "soccer", "football", "tennis", "golf",
+    # team names that only appear in single-game markets
+    "lakers", "celtics", "heat", "warriors", "knicks", "nuggets", "bucks",
+    "yankees", "dodgers", "mets", "red sox", "cubs", "astros",
+    "chiefs", "eagles", "cowboys", "patriots",
+    "portugal", "brazil", "france", "argentina", "spain", "england",
+    "real madrid", "barcelona", "manchester",
 ]
 
 # Patterns that indicate a tournament FUTURES contract — NOT a single-game pick
