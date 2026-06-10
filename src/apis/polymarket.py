@@ -81,21 +81,19 @@ def _is_futures_market(question: str) -> bool:
 
 
 def _is_game_day_market(end_date: str) -> bool:
-    """Return True only if the market ends within 48 hours (i.e. a single game)."""
+    """Return True if market ends within 7 days (single-game) — futures end months out."""
     if not end_date:
-        return False
+        return True  # no date info — let futures blocklist handle it
     try:
         from datetime import datetime, timezone, timedelta
-        # Polymarket end_date formats: ISO string or Unix timestamp
         if isinstance(end_date, (int, float)):
             dt = datetime.fromtimestamp(float(end_date), tz=timezone.utc)
         else:
-            # Try ISO parse — strip trailing Z
             dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        return timedelta(0) <= (dt - now) <= timedelta(hours=48)
+        return timedelta(0) <= (dt - now) <= timedelta(days=7)
     except Exception:
-        return False
+        return True  # parse failure — rely on keyword filter
 
 
 def _is_sports_market(question: str) -> bool:
