@@ -211,15 +211,14 @@ def get_sports_markets() -> list[dict]:
     Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
     Excludes tournament futures and politics.
     """
-    # Fetch all active markets — sports game markets are in here
-    # Single-game markets: binary YES/NO, no commas in title, close today
-    data = _get("/markets", {"limit": 1000, "status": "active"})
+    # status=open returns the full market list on Kalshi
+    data = _get("/markets", {"limit": 200, "status": "open"})
     markets_raw = (data.get("markets") or []) if isinstance(data, dict) else []
 
-    # Cursor through pages if needed
+    # Page through to get more if available
     cursor = (data.get("cursor") or "") if isinstance(data, dict) else ""
-    while cursor and len(markets_raw) < 3000:
-        page = _get("/markets", {"limit": 1000, "status": "active", "cursor": cursor})
+    while cursor and len(markets_raw) < 2000:
+        page = _get("/markets", {"limit": 200, "status": "open", "cursor": cursor})
         if not isinstance(page, dict):
             break
         batch = page.get("markets") or []
@@ -228,24 +227,15 @@ def get_sports_markets() -> list[dict]:
         if not batch:
             break
 
-    logger.info("Kalshi fetched %d total active markets", len(markets_raw))
+    logger.info("Kalshi fetched %d total open markets", len(markets_raw))
     if markets_raw:
-        # Log 3 samples to see what single-game markets look like
         singles = [m for m in markets_raw if "," not in (m.get("title") or "")][:3]
         for m in singles:
-            logger.info("Kalshi single-game sample: title=%r close=%r",
-                        (m.get("title") or "")[:70], m.get("close_time", "")[:25])
+            logger.info("Kalshi single-game sample: title=%r close=%r cat=%r tags=%s",
+                        (m.get("title") or "")[:70], m.get("close_time", "")[:25],
+                        m.get("category"), (m.get("tags") or [])[:3])
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
-
-    # Debug: log unique categories and sample tags from first 20 markets
-    cats = set()
-    tag_sample = []
-    for m in markets_raw[:20]:
-        cats.add((m.get("category") or "").lower())
-        tag_sample.extend([t.lower() for t in (m.get("tags") or [])])
-    logger.info("Kalshi categories seen: %s", sorted(cats))
-    logger.info("Kalshi tags sample: %s", sorted(set(tag_sample))[:20])
 
     out = []
     for m in markets_raw:
