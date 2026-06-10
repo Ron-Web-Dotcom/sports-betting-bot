@@ -159,11 +159,11 @@ Return ONLY valid JSON:
 {
   "index": <int>,
   "team": "<team name to back — home or away>",
+  "question": "<Kalshi-style YES/NO question e.g. 'Will the New York Knicks win Game 3 tonight?'>",
   "true_prob": <float 0.0-1.0 — your estimate of their true win probability>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
-  "reasoning": "<2-3 sentences>",
-  "key_factors": ["<factor1>", "<factor2>", "<factor3>"]
+  "reasoning": "<1-2 sentences on why YES wins>"
 }
 
 Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if nothing qualifies."""
@@ -214,21 +214,23 @@ Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if no
     yes_prob  = game["home_prob"] if is_home else game["away_prob"]
     no_prob   = round(1 - yes_prob, 4)
 
+    question = result.get("question") or f"Will {team} win tonight?"
+
     return [{
-        "title":       game["title"],
-        "team":        team,
-        "sport_key":   game["sport_key"],
-        "yes_price":   yes_prob,
-        "no_price":    no_prob,
-        "true_prob":   true_prob,
-        "side":        "yes",
-        "confidence":  confidence,
-        "ev_pct":      ev_pct,
-        "reasoning":   result.get("reasoning", ""),
-        "key_factors": result.get("key_factors", []),
-        "home_odds":   game["home_odds"],
-        "away_odds":   game["away_odds"],
-        "commence":    game.get("commence", ""),
+        "title":      game["title"],
+        "team":       team,
+        "question":   question,
+        "sport_key":  game["sport_key"],
+        "yes_price":  yes_prob,
+        "no_price":   no_prob,
+        "true_prob":  true_prob,
+        "side":       "yes",
+        "confidence": confidence,
+        "ev_pct":     ev_pct,
+        "reasoning":  result.get("reasoning", ""),
+        "home_odds":  game["home_odds"],
+        "away_odds":  game["away_odds"],
+        "commence":   game.get("commence", ""),
     }]
 
 
@@ -267,38 +269,64 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     ticket_id    = hashlib.md5(f"pred{period}{date_str}".encode()).hexdigest()[:8].upper()
 
     pick      = picks[0]
-    title     = pick["title"][:60]
-    team      = pick.get("team", "")
+    question  = pick.get("question", f"Will {pick.get('team', '')} win tonight?")
     sport     = (pick.get("sport_key") or "").split("_")[-1].upper() or "SPORTS"
     yes_pct   = round(pick["yes_price"] * 100)
     no_pct    = round(pick["no_price"]  * 100)
-    conf      = f"{round((pick.get('confidence') or 0) * 100)}%"
+    conf      = round((pick.get("confidence") or 0) * 100)
     ev        = f"+{round((pick.get('ev_pct') or 0) * 100, 1)}%"
     cost      = round(pick["yes_price"] * 10, 2)
     reasoning = pick.get("reasoning", "")
-    factors   = pick.get("key_factors", [])
-    factors_str = "  ·  ".join(f"**{f}**" for f in factors[:3]) if factors else "—"
-    commence  = pick.get("commence", "")[:16]
+
+    try:
+        from dateutil.parser import parse as _p
+        import zoneinfo as _zi
+        _ET = _zi.ZoneInfo("America/New_York")
+        game_time = _p(pick["commence"]).astimezone(_ET).strftime("%-I:%M %p ET") if pick.get("commence") else ""
+    except Exception:
+        game_time = ""
 
     embed = {
-        "title": f"🎟️  KALSHI SLIP  ·  {period_emoji} {period_label}",
+        "title": f"🔵  KALSHI SLIP  ·  {period_emoji} {period_label}",
         "description": (
             f"```\n"
-            f"  Ticket #{ticket_id}        {date_str}\n"
-            f"  {time_str}         GAME OUTCOME\n"
+            f"  Ticket #{ticket_id}          {date_str}\n"
+            f"  {time_str}\n"
             f"```"
         ),
         "fields": [
-            {"name": "CONTRACT", "value": f"🔵 **Kalshi**  `{sport}`\n**{title}**", "inline": False},
-            {"name": "PICK",     "value": f"**Yes · {team}**\nYes @ **{yes_pct}% chance**", "inline": True},
-            {"name": "COST",     "value": f"**${cost}**\nfor $10 payout", "inline": True},
-            {"name": "EDGE",     "value": f"**{ev}** edge\n{conf} confidence", "inline": True},
-            {"name": "REASONING", "value": reasoning[:300] if reasoning else "—", "inline": False},
-            {"name": "KEY FACTORS", "value": factors_str, "inline": False},
-            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-             "value": f"🔵 Kalshi  ·  Place manually  ·  Game {commence} UTC", "inline": False},
+            {
+                "name":   "❓  QUESTION",
+                "value":  f"**{question}**",
+                "inline": False,
+            },
+            {
+                "name":   "✅  ANSWER",
+                "value":  f"**YES**  ·  {yes_pct}% chance",
+                "inline": True,
+            },
+            {
+                "name":   "❌  OTHER SIDE",
+                "value":  f"**NO**  ·  {no_pct}% chance",
+                "inline": True,
+            },
+            {
+                "name":   "💰  COST / PAYOUT",
+                "value":  f"**${cost}** → $10  ·  Edge **{ev}**  ·  Conf **{conf}%**",
+                "inline": False,
+            },
+            {
+                "name":   "🧠  REASONING",
+                "value":  reasoning[:300] if reasoning else "—",
+                "inline": False,
+            },
+            {
+                "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "value":  f"🔵 Kalshi  ·  Place manually  ·  {game_time or sport}",
+                "inline": False,
+            },
         ],
-        "color": 0x1B5E20,
+        "color": 0x1565C0,
     }
 
     try:
