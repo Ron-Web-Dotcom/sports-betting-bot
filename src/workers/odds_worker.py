@@ -208,12 +208,10 @@ def scan_player_props():
         return {"skipped": "sleep_mode"}
     try:
         from src.apis.kalshi import get_sports_markets as kalshi_markets
-        from src.apis.polymarket import get_sports_markets as polymarket_markets
         from src.engines.odds_engine import fetch_all_player_props, scan_all_sports
         from src.core.config import REDIS_URL
         import redis as _redis
         import json
-        from concurrent.futures import ThreadPoolExecutor
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
@@ -226,19 +224,12 @@ def scan_player_props():
         except Exception as e:
             logger.warning("Odds API player props failed: %s", e)
 
-        # Kalshi + Polymarket in parallel
-        kalshi_result, polymarket_result = [], []
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            kf = pool.submit(kalshi_markets)
-            pf = pool.submit(polymarket_markets)
-            try:
-                kalshi_result = kf.result(timeout=15)
-            except Exception as e:
-                logger.warning("Kalshi scan failed: %s", e)
-            try:
-                polymarket_result = pf.result(timeout=15)
-            except Exception as e:
-                logger.warning("Polymarket scan failed: %s", e)
+        # Kalshi only (Polymarket disabled)
+        kalshi_result = []
+        try:
+            kalshi_result = kalshi_markets() or []
+        except Exception as e:
+            logger.warning("Kalshi scan failed: %s", e)
 
         # Detect changes on Odds API props
         all_changes: list[dict] = []
@@ -246,23 +237,17 @@ def scan_player_props():
         prev_props: list[dict] = json.loads(prev_raw) if prev_raw else []
         all_changes = _detect_prop_changes(prev_props, odds_props, "odds_api")
 
-        # Cache everything
+        # Cache
         r.setex("props:odds_api", 1500, json.dumps(odds_props))
         r.setex("props:all",      1500, json.dumps(odds_props))
         if kalshi_result:
-            r.setex("kalshi:markets",    1500, json.dumps(kalshi_result))
-        if polymarket_result:
-            r.setex("polymarket:markets", 1500, json.dumps(polymarket_result))
+            r.setex("kalshi:markets", 1500, json.dumps(kalshi_result))
 
         if all_changes:
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
             _alert_active_pick_changes(r, all_changes)
 
-        counts = {
-            "odds_api":   len(odds_props),
-            "kalshi":     len(kalshi_result),
-            "polymarket": len(polymarket_result),
-        }
+        counts = {"odds_api": len(odds_props), "kalshi": len(kalshi_result)}
         logger.info("Props scan complete: %s | total=%d", counts, len(odds_props))
         return {**counts, "total": len(odds_props), "changes": len(all_changes)}
 

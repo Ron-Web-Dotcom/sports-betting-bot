@@ -220,9 +220,7 @@ def get_sports_markets() -> list[dict]:
         data2 = _get("/markets", {"limit": 200})
         markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
 
-    # Debug: log first 3 raw close times so we can verify the time gate
-    for m in markets_raw[:3]:
-        logger.info("Kalshi raw sample: %r  close=%r", (m.get("title") or "")[:60], m.get("close_time", ""))
+    _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
 
     out = []
     for m in markets_raw:
@@ -231,7 +229,7 @@ def get_sports_markets() -> list[dict]:
         tags       = [t.lower() for t in (m.get("tags") or [])]
         close_time = m.get("close_time", "")
 
-        # Block futures and politics regardless
+        # Block futures and politics
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
@@ -239,10 +237,11 @@ def get_sports_markets() -> list[dict]:
         if not _kalshi_is_game_day(close_time):
             continue
 
+        # Trust Kalshi's own category/tags — they know their own markets
         is_sports = (
             "sports" in category
+            or any(t in _SPORT_TAG_KEYS for t in tags)
             or any(kw in title for kw in _SPORTS_KEYWORDS)
-            or any(kw in " ".join(tags) for kw in _SPORTS_KEYWORDS)
         )
         if not is_sports:
             continue
