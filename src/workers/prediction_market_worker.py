@@ -88,66 +88,47 @@ def _better_platform(km: dict, pm: dict) -> tuple[str, dict]:
 
 # ── Build the entry ────────────────────────────────────────────────────────────
 
-def _fetch_todays_games(period: str) -> list[dict]:
-    """
-    Pull today's games from Odds API snapshots already in Redis/DB.
-    Returns list of game dicts with home_team, away_team, sport_key, odds.
-    """
+def _fetch_todays_games() -> list[dict]:
+    """Pull today's games from Odds API snapshots in the DB."""
     try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
-        from src.core.timezone import et_naive
-        from datetime import timedelta
-        import zoneinfo
-        from datetime import datetime
-
         snapshots = get_latest_snapshots_by_game()
         games = {}
         for game_id, snaps in snapshots.items():
             if not snaps:
                 continue
             s = snaps[0]
-            commence = s.get("commence_time", "")
             home = s.get("home_team", "")
             away = s.get("away_team", "")
             sport = s.get("sport_key", "")
             if not home or not away:
                 continue
-
-            # Get moneyline odds for each team
             home_odds = next((x["best_odds"] for x in snaps
                               if x.get("market") == "h2h" and x.get("selection") == home), None)
             away_odds = next((x["best_odds"] for x in snaps
                               if x.get("market") == "h2h" and x.get("selection") == away), None)
-
             if not home_odds or not away_odds:
                 continue
 
-            # Convert American odds to implied probability
             def to_prob(o):
                 o = int(o)
                 return 100 / (100 + o) if o > 0 else abs(o) / (abs(o) + 100)
 
-            home_prob = to_prob(home_odds)
-            away_prob = to_prob(away_odds)
-
-            # Normalise to sum to 1
-            total = home_prob + away_prob
-            home_prob = round(home_prob / total, 4)
-            away_prob = round(away_prob / total, 4)
-
+            hp = to_prob(home_odds)
+            ap = to_prob(away_odds)
+            total = hp + ap
             games[game_id] = {
-                "game_id":     game_id,
-                "title":       f"{away} vs {home}",
-                "home_team":   home,
-                "away_team":   away,
-                "sport_key":   sport,
-                "commence":    commence,
-                "home_prob":   home_prob,
-                "away_prob":   away_prob,
-                "home_odds":   home_odds,
-                "away_odds":   away_odds,
+                "game_id":   game_id,
+                "title":     f"{away} vs {home}",
+                "home_team": home,
+                "away_team": away,
+                "sport_key": sport,
+                "commence":  s.get("commence_time", ""),
+                "home_prob": round(hp / total, 4),
+                "away_prob": round(ap / total, 4),
+                "home_odds": home_odds,
+                "away_odds": away_odds,
             }
-
         return list(games.values())
     except Exception as e:
         logger.warning("_fetch_todays_games failed: %s", e)
@@ -158,19 +139,17 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
     """
     Use AI to score today's games from Odds API and return the single best
     pick formatted as a Kalshi-style YES/NO contract.
+    kalshi_markets and poly_markets are accepted for signature compat but unused.
     """
-    import json
+    import json as _json
     from src.engines.ai_engine import _call_json
 
-    games = _fetch_todays_games("all")
+    games = _fetch_todays_games()
     if not games:
         logger.info("Kalshi entry: no games from Odds API")
         return []
 
-    # Filter extreme faves — no edge
-    candidates = [g for g in games if 0.20 <= g["home_prob"] <= 0.80]
-    if not candidates:
-        candidates = games  # fallback
+    candidates = [g for g in games if 0.20 <= g["home_prob"] <= 0.80] or games
 
     system = """You are an elite sports prediction analyst. Given today's live games with
 implied win probabilities from betting markets, identify the SINGLE best game where
@@ -207,7 +186,7 @@ Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if no
 
     prompt = (
         f"Today's live games ({len(game_list)} games):\n\n"
-        f"```json\n{json.dumps(game_list, indent=2)}\n```\n\n"
+        f"```json\n{_json.dumps(game_list, indent=2)}\n```\n\n"
         f"Pick the single best YES bet with genuine edge for a Kalshi-style contract."
     )
 
@@ -236,7 +215,7 @@ Only pick if confidence >= 0.62 and ev_pct >= 0.04. Return {"index": null} if no
     no_prob   = round(1 - yes_prob, 4)
 
     return [{
-        "title":       f"{game['away_team']} vs {game['home_team']}",
+        "title":       game["title"],
         "team":        team,
         "sport_key":   game["sport_key"],
         "yes_price":   yes_prob,
@@ -268,9 +247,8 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
 
     r = _redis()
 
-    # Idempotency — only post if picks changed
     entry_hash = hashlib.md5(
-        json.dumps([p["title"] + p["platform"] for p in picks]).encode()
+        json.dumps([p["title"] + p.get("team", "") for p in picks]).encode()
     ).hexdigest()
     hash_key = f"{_ENTRY_HASH_KEY}:{period}"
     if r.get(hash_key) == entry_hash:
@@ -278,9 +256,8 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         return
     r.setex(hash_key, 7200, entry_hash)
 
-    import hashlib
-    from datetime import datetime
     import zoneinfo
+    from datetime import datetime
     ET           = zoneinfo.ZoneInfo("America/New_York")
     now_et       = datetime.now(ET)
     date_str     = now_et.strftime("%b %-d, %Y")
@@ -297,8 +274,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     no_pct    = round(pick["no_price"]  * 100)
     conf      = f"{round((pick.get('confidence') or 0) * 100)}%"
     ev        = f"+{round((pick.get('ev_pct') or 0) * 100, 1)}%"
-    cost      = round(pick["yes_price"] * 10, 2)   # cost for $10 payout
-    max_pay   = 10.00
+    cost      = round(pick["yes_price"] * 10, 2)
     reasoning = pick.get("reasoning", "")
     factors   = pick.get("key_factors", [])
     factors_str = "  ·  ".join(f"**{f}**" for f in factors[:3]) if factors else "—"
@@ -399,12 +375,7 @@ def generate_prediction_market_night_entry() -> dict:
 
 def _generate_entry(period: str) -> dict:
     try:
-        kalshi, poly = _fetch_all_markets()
-        if not kalshi and not poly:
-            logger.info("Prediction market %s entry: no markets available", period)
-            return {"picks": 0, "posted": False}
-
-        picks = _build_entry(kalshi, poly, max_picks=1)
+        picks = _build_entry([], [], max_picks=1)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks", period)
             return {"picks": 0, "posted": False}
@@ -424,42 +395,5 @@ def _generate_entry(period: str) -> dict:
 
 
 def scan_prediction_markets() -> dict:
-    """
-    Interval scan (every 3 min) — detects live price moves on active markets
-    and fires alerts. Does NOT re-post the full entry.
-    """
-    try:
-        r = _redis()
-        kalshi, poly = _fetch_all_markets()
-        alerts = 0
-
-        all_markets = [(m, "kalshi") for m in kalshi] + [(m, "polymarket") for m in poly]
-
-        for market, platform in all_markets:
-            mid = market.get("market_id", "")
-            if not mid:
-                continue
-            yes = float(market.get("yes_price") or 0)
-            no  = float(market.get("no_price")  or 0)
-            if not yes and not no:
-                continue
-
-            key  = f"{platform}:{mid}"
-            prev = _load_price(r, key)
-            move = _check_move(prev, yes, no)
-            _save_price(r, key, yes, no)
-
-            if move:
-                alert_key = f"move:{key}"
-                if not r.sismember(_ALERTED_CACHE, alert_key):
-                    _post_move_alert(market, move, platform)
-                    r.sadd(_ALERTED_CACHE, alert_key)
-                    r.expire(_ALERTED_CACHE, 3600)
-                    alerts += 1
-
-        logger.info("Prediction market scan: K=%d moves=%d", len(kalshi), alerts)
-        return {"kalshi": len(kalshi), "alerts": alerts}
-
-    except Exception as exc:
-        logger.error("Prediction market scan failed: %s", exc)
-        return {"error": str(exc)}
+    """No-op: live price scan disabled — Kalshi slips use Odds API data."""
+    return {"skipped": "not_applicable"}
