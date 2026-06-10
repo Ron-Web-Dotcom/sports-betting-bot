@@ -222,6 +222,15 @@ def get_sports_markets() -> list[dict]:
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
 
+    # Debug: log unique categories and sample tags from first 20 markets
+    cats = set()
+    tag_sample = []
+    for m in markets_raw[:20]:
+        cats.add((m.get("category") or "").lower())
+        tag_sample.extend([t.lower() for t in (m.get("tags") or [])])
+    logger.info("Kalshi categories seen: %s", sorted(cats))
+    logger.info("Kalshi tags sample: %s", sorted(set(tag_sample))[:20])
+
     out = []
     for m in markets_raw:
         title      = (m.get("title") or "").lower()
