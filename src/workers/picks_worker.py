@@ -70,13 +70,8 @@ def generate_picks():
             return fallback_time
 
         def _sf_confirmed(home: str, away: str) -> bool:
-            """True if either team appears in Sofascore's today schedule."""
-            if not sofascore_index:
-                return True  # no Sofascore data → don't filter out
-            for name in (home.lower(), away.lower()):
-                if name in sofascore_index:
-                    return True
-            return False
+            """Always returns True — all sports scanned, Sofascore enriches but never blocks."""
+            return True
 
         # -- 1. Score game picks (ML / spread / total) --------------------
         snapshots  = get_latest_snapshots_by_game()
