@@ -322,12 +322,25 @@ def best_odds(event_norm: dict, market: str, selection: str) -> dict | None:
 
 def scan_all_sports() -> dict[str, list[dict]]:
     """
-    Fetch and normalise all events across all tracked sports.
-    Returns {sport_key: [normalised_event, ...]}
-    Deduplicates sport_keys so each league is fetched exactly once.
+    Fetch and normalise events — only for sports Sofascore confirms have games today.
+    Sofascore is the schedule oracle: if it says no basketball today, skip the Odds API
+    basketball call entirely. Saves API credits and memory.
+    Falls back to scanning all sports if Sofascore cache is empty.
     """
+    active_sports = _get_active_sports_cached()
+    all_keys = set(SPORTS.values())
+
+    # Only scan sports Sofascore confirmed as active today
+    sports_to_scan = all_keys & active_sports if active_sports else all_keys
+
+    if active_sports:
+        skipped = all_keys - sports_to_scan
+        if skipped:
+            logger.info("Odds scan: skipping %d inactive sports per Sofascore: %s",
+                        len(skipped), sorted(skipped))
+
     result: dict[str, list[dict]] = {}
-    for sport_key in set(SPORTS.values()):  # deduplicate aliases like soccer/epl → soccer_epl
+    for sport_key in sports_to_scan:
         events = fetch_events(sport_key)
         if events:
             result[sport_key] = [normalise_event(e, sport_key) for e in events]

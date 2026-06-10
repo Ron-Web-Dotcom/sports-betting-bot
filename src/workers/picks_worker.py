@@ -56,13 +56,34 @@ def generate_picks():
         ET = zoneinfo.ZoneInfo("America/New_York")
         r  = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
+        # Load Sofascore today index — validate games are actually scheduled today
+        # and enrich with Sofascore's exact commence times when available
+        _sf_raw = r.get("sofascore:today_index")
+        sofascore_index: dict[str, dict] = json.loads(_sf_raw) if _sf_raw else {}
+
+        def _sf_enrich(home: str, away: str, fallback_time: str) -> str:
+            """Return Sofascore commence_time if found, else Odds API time."""
+            for name in (home.lower(), away.lower()):
+                ev = sofascore_index.get(name)
+                if ev and ev.get("commence_time"):
+                    return ev["commence_time"]
+            return fallback_time
+
+        def _sf_confirmed(home: str, away: str) -> bool:
+            """True if either team appears in Sofascore's today schedule."""
+            if not sofascore_index:
+                return True  # no Sofascore data → don't filter out
+            for name in (home.lower(), away.lower()):
+                if name in sofascore_index:
+                    return True
+            return False
+
         # -- 1. Score game picks (ML / spread / total) --------------------
         snapshots  = get_latest_snapshots_by_game()
         injuries   = get_recent_injuries()
         game_pool  = []
 
         # Cap games processed per run to avoid OOM on 1GB VPS.
-        # Snapshots are already sorted best-odds first; take top 20 games.
         snapshot_items = list(snapshots.items())[:20]
 
         for game_id, snap_list in snapshot_items:
@@ -72,7 +93,13 @@ def generate_picks():
             sport_key = best_snap.get("sport_key", "")
             home_team = best_snap.get("home_team", "")
             away_team = best_snap.get("away_team", "")
-            commence  = str(best_snap.get("commence_time", ""))
+
+            # Sofascore confirmation: skip games not on today's schedule
+            if not _sf_confirmed(home_team, away_team):
+                logger.debug("Skipping %s vs %s — not in Sofascore today index", away_team, home_team)
+                continue
+            # Use Sofascore's exact kick-off time if available, else fall back to Odds API
+            commence  = _sf_enrich(home_team, away_team, str(best_snap.get("commence_time", "")))
             event     = {"sport_key": sport_key, "home_team": home_team,
                          "away_team": away_team, "commence_time": commence}
             game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
@@ -414,8 +441,20 @@ def scan_todays_games():
     r.setex("sofascore:day_games",   86400, json.dumps(day_games))
     r.setex("sofascore:night_games", 86400, json.dumps(night_games))
 
-    logger.info("Today's games scan: %d day games, %d night games", len(day_games), len(night_games))
-    return {"day": len(day_games), "night": len(night_games)}
+    # Store all today's games in a flat lookup keyed by lowercased team name
+    # so generate_picks() can validate any game is actually scheduled today
+    all_today = day_games + night_games
+    team_index: dict[str, dict] = {}
+    for ev in all_today:
+        for field in ("home_team", "away_team"):
+            name = (ev.get(field) or "").lower().strip()
+            if name:
+                team_index[name] = ev
+    r.setex("sofascore:today_index", 86400, json.dumps(team_index))
+
+    logger.info("Today's games scan: %d day, %d night, %d total (%d teams indexed)",
+                len(day_games), len(night_games), len(all_today), len(team_index))
+    return {"day": len(day_games), "night": len(night_games), "total": len(all_today)}
 
 
 def _load_todays_games(period: str) -> list[dict]:
