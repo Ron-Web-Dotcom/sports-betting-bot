@@ -361,24 +361,46 @@ async def post_pick(pick: dict) -> None:
 
 
 async def post_result(pick: dict, result: str) -> None:
-    colors = {"won": 0x2E7D32, "lost": 0xC62828, "push": 0xF57F17}
-    labels = {"won": "WIN", "lost": "LOSS", "push": "PUSH"}
-    pnl = pick.get("actual_pnl_units", 0)
-    fields = [
-        {"name": "Game",  "value": pick.get("game", "—")},
-        {"name": "Sport", "value": pick.get("sport", "—")},
-        {"name": "Odds",  "value": f"{pick.get('odds', 0):+d}"},
-    ]
-    clv = pick.get("clv_pct")
-    if clv is not None:
-        fields.append({"name": "CLV", "value": f"{clv:+.2%}"})
+    import hashlib
+    from datetime import datetime
+    import zoneinfo
+    et      = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    date_str = et.strftime("%b %-d, %Y  ·  %-I:%M %p ET")
 
-    embed = _embed(
-        title=f"[{labels.get(result, (result or 'UNKNOWN').upper())}] {pick.get('bet', 'Unknown')}",
-        description=f"P&L: **{(pnl or 0):+.2f}u**",
-        color=colors.get(result, 0x757575),
-        fields=fields,
-    )
+    is_win  = result == "won"
+    is_push = result == "push"
+
+    color   = 0x2E7D32 if is_win else (0xF57F17 if is_push else 0xC62828)
+    banner  = "🏆  W I N N E R" if is_win else ("🤝  P U S H" if is_push else "❌  L O S S")
+
+    game    = pick.get("game") or f"{pick.get('away_team','')} @ {pick.get('home_team','')}"
+    bet     = pick.get("bet") or pick.get("selection", "—")
+    market  = pick.get("market", "MONEYLINE").upper()
+    odds    = pick.get("odds") or pick.get("american_odds_at_gen", 0)
+    odds_fmt = f"{int(odds):+d}" if odds else "—"
+    sport   = (pick.get("sport") or pick.get("sport_key") or "").split("_")[-1].upper()
+    wager   = pick.get("wager_display", "$10.00")
+    pnl     = pick.get("actual_pnl_units", 0)
+    paid    = f"${abs(float(pnl or 0)) * 10:.2f}" if pnl else "—"
+    slip_id = hashlib.md5(f"{game}{bet}{et.date()}".encode()).hexdigest()[:8].upper()
+
+    embed = {
+        "title": banner,
+        "description": (
+            f"```\n"
+            f"  {game[:45]}\n"
+            f"  {market}  ·  {sport}  ·  {odds_fmt}\n"
+            f"```"
+        ),
+        "fields": [
+            {"name": "BET",    "value": f"**{bet}**", "inline": True},
+            {"name": "WAGER",  "value": wager,        "inline": True},
+            {"name": "PAID",   "value": f"**{paid}**" if is_win else "—", "inline": True},
+            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+             "value": f"{date_str}  ·  ID `#{slip_id}`", "inline": False},
+        ],
+        "color": color,
+    }
     await _post({"embeds": [embed]})
 
 
