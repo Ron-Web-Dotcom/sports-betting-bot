@@ -104,7 +104,7 @@ def generate_picks():
                 sport               = sport_key,
                 market              = "h2h",
             )
-            if confidence.calibrated_score < 0.52:
+            if confidence.calibrated_score < 0.58:
                 continue
             market    = ai.get("market", best_snap.get("market", "h2h"))
             selection = ai.get("selection", "")
@@ -163,7 +163,7 @@ def generate_picks():
                 if direction is None or best_odds_val is None:
                     continue
                 conf = implied_prob(best_odds_val)
-                if conf < 0.52:
+                if conf < 0.65:
                     continue
                 prop_pool.append({
                     "type":      "prop",
@@ -215,7 +215,7 @@ def generate_picks():
              for p in entry], sort_keys=True).encode()).hexdigest()
         if r.get("picks:last_hash") == entry_hash:
             return {"picks": len(entry), "posted": False}
-        r.setex("picks:last_hash", 1800, entry_hash)
+        r.setex("picks:last_hash", 21600, entry_hash)  # 6h — prevents re-post spam
 
         # -- 5. Build and post Discord embed -----------------------------
         _MARKET  = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
@@ -226,15 +226,12 @@ def generate_picks():
         def _fmt(v):
             return f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v)
 
-        def _books(books_odds, best_book):
-            bb = (best_book or "").lower()
-            parts = []
-            for bk, odds in sorted(books_odds.items(),
-                                   key=lambda x: -(x[1] if isinstance(x[1], (int, float)) else -9999)):
-                lbl = bk.upper().replace("_", " ")
-                parts.append(f"**{lbl} {_fmt(odds)}**" if bk.lower() == bb
-                              else f"{lbl} {_fmt(odds)}")
-            return "  .  ".join(parts[:5]) or "--"
+        def _hr_odds(books_odds, best_odds_val):
+            """Return HardRock odds if available, otherwise best available odds."""
+            for key, odds in books_odds.items():
+                if "hardrock" in key.lower():
+                    return odds
+            return best_odds_val
 
         def _gt(commence):
             try:
@@ -243,46 +240,64 @@ def generate_picks():
             except Exception:
                 return ""
 
-        pick_lines = []
+        def _conf_bar(conf_pct):
+            filled = round(conf_pct / 10)
+            return "🟢" * filled + "⚫" * (10 - filled)
+
+        pick_fields = []
         for i, p in enumerate(entry, 1):
             conf  = round(p["confidence"] * 100)
             sport = p["sport_key"]
+            bar   = _conf_bar(conf)
+
             if p["type"] == "prop":
-                pick_lines.append(
-                    f"**{i}.** {get_emoji(sport)} **{p['player']}**"
-                    f"  .  {p['stat']} {p['direction']} **{p['line']}**"
-                    f"  `{_fmt(p['best_odds'])}`  .  {conf}% conf\n"
-                    f"> {get_name(sport)}\n"
-                    f"> Books: {_books(p['books_odds'], '')}"
-                )
+                hr_odds = _hr_odds(p["books_odds"], p["best_odds"])
+                pick_fields.append({
+                    "name": f"{i}. {get_emoji(sport)}  {p['player']}",
+                    "value": (
+                        f"**{p['stat']} {p['direction']} {p['line']}**  `{_fmt(hr_odds)}`\n"
+                        f"{get_name(sport)}\n"
+                        f"Confidence: **{conf}%**  {bar}\n"
+                        f"📍 HardRock Sportsbook"
+                    ),
+                    "inline": False,
+                })
             else:
                 mkt   = _MARKET.get(p["market"], p["market"].upper())
-                ev    = round(p.get("ev_pct", 0) * 100, 1)
-                units = round(p.get("units", 1), 1)
-                line  = (
-                    f"**{i}.** {get_emoji(sport)} **{p['away_team']} @ {p['home_team']}**"
-                    f"  `{_gt(p['commence_time'])}`"
-                    f"{'  warning' if p.get('injuries',0)>0 else ''}\n"
-                    f"> {get_name(sport)}  .  {mkt}: **{p['selection']} {_fmt(p['best_odds'])}**"
-                    f"  .  {conf}% conf  .  +{ev}% EV  .  {units}u\n"
-                    f"> Books: {_books(p['books_odds'], p.get('best_book', ''))}"
-                )
-                if p.get("insight"):
-                    line += f"\n> {p['insight']}"
-                pick_lines.append(line)
+                hr_odds = _hr_odds(p["books_odds"], p["best_odds"])
+                gt    = _gt(p["commence_time"])
+                insight = p.get("insight", "")
+                pick_fields.append({
+                    "name": f"{i}. {get_emoji(sport)}  {p['away_team']} @ {p['home_team']}",
+                    "value": (
+                        f"**{mkt}: {p['selection']}**  `{_fmt(hr_odds)}`"
+                        f"{f'  🕐 {gt}' if gt else ''}\n"
+                        f"{get_name(sport)}\n"
+                        f"Confidence: **{conf}%**  {bar}\n"
+                        f"{f'💡 {insight}' + chr(10) if insight else ''}"
+                        f"📍 HardRock Sportsbook"
+                    ),
+                    "inline": False,
+                })
 
         avg_conf = round(sum(p["confidence"] for p in entry) / len(entry) * 100)
-        divider  = "-" * 34
+
+        # Color based on avg confidence
+        if avg_conf >= 75:
+            color = 0x1B5E20   # deep green
+        elif avg_conf >= 65:
+            color = 0x2E7D32   # green
+        elif avg_conf >= 60:
+            color = 0xF9A825   # amber
+        else:
+            color = 0xE65100   # orange
+
         embed = {
-            "title":       f"Picks  .  {date_str}",
-            "description": f"{divider}\n\n" + f"\n\n{divider}\n\n".join(pick_lines) + f"\n\n{divider}",
-            "color":       0x2E7D32,
-            "fields": [
-                {"name": "Picks",    "value": f"**{len(entry)}**", "inline": True},
-                {"name": "Avg Conf", "value": f"**{avg_conf}%**",  "inline": True},
-                {"name": "Updated",  "value": now_str,             "inline": True},
-            ],
-            "footer": {"text": "Odds API . AI research . Bet responsibly"},
+            "title":       f"🏆  Daily Picks  —  {date_str}",
+            "description": f"**{len(entry)} pick{'s' if len(entry) > 1 else ''}**  ·  Avg confidence **{avg_conf}%**  ·  {now_str}",
+            "color":       color,
+            "fields":      pick_fields,
+            "footer":      {"text": "HardRock Sportsbook  ·  AI deep research  ·  Bet responsibly"},
         }
 
         _run_async(_post({"embeds": [embed]}))
