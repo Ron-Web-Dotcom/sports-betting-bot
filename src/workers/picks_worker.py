@@ -56,28 +56,19 @@ def generate_picks():
         ET = zoneinfo.ZoneInfo("America/New_York")
         r  = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-        # Load Sofascore today index — validate games are actually scheduled today
-        # and enrich with Sofascore's exact commence times when available
+        # Load Sofascore today index — used ONLY to get exact kick-off times
+        # (day vs night split). We already know what's playing from 8 AM scan.
+        # No re-checking, no filtering — Sofascore just tells us WHEN each game starts.
         _sf_raw = r.get("sofascore:today_index")
         sofascore_index: dict[str, dict] = json.loads(_sf_raw) if _sf_raw else {}
 
         def _sf_enrich(home: str, away: str, fallback_time: str) -> str:
-            """Return Sofascore commence_time if found, else Odds API time."""
+            """Return Sofascore's exact kick-off time if available, else Odds API time."""
             for name in (home.lower(), away.lower()):
                 ev = sofascore_index.get(name)
                 if ev and ev.get("commence_time"):
                     return ev["commence_time"]
             return fallback_time
-
-        def _sf_confirmed(home: str, away: str) -> bool:
-            """True if either team is in Sofascore's today index (game is real and scheduled).
-            If Sofascore index is empty (e.g. 8 AM scan hasn't run yet), allow all through."""
-            if not sofascore_index:
-                return True
-            for name in (home.lower(), away.lower()):
-                if name in sofascore_index:
-                    return True
-            return False
 
         # -- 1. Score game picks (ML / spread / total) --------------------
         snapshots  = get_latest_snapshots_by_game()
@@ -95,10 +86,6 @@ def generate_picks():
             home_team = best_snap.get("home_team", "")
             away_team = best_snap.get("away_team", "")
 
-            # Sofascore drives the picks — only process games it confirmed for today
-            if not _sf_confirmed(home_team, away_team):
-                logger.debug("Skipping %s vs %s — Sofascore has no game today", away_team, home_team)
-                continue
             # Use Sofascore's exact kick-off time if available, else fall back to Odds API
             commence  = _sf_enrich(home_team, away_team, str(best_snap.get("commence_time", "")))
             event     = {"sport_key": sport_key, "home_team": home_team,
@@ -132,7 +119,7 @@ def generate_picks():
                 sport               = sport_key,
                 market              = "h2h",
             )
-            if confidence.calibrated_score < 0.58:
+            if confidence.calibrated_score < 0.65:
                 continue
             market    = ai.get("market", best_snap.get("market", "h2h"))
             selection = ai.get("selection", "")
@@ -549,7 +536,7 @@ def _build_hardrock_candidates(
             market              = "h2h",
         )
 
-        if confidence.calibrated_score < 0.52 or ev_result.ev_pct < 0.005:
+        if confidence.calibrated_score < 0.85:
             continue
 
         market    = ai.get("market", best_snap.get("market", "h2h"))
@@ -621,7 +608,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         conf = implied_prob(best_odds_val)
-        if conf < 0.52:
+        if conf < 0.85:
             continue
 
         candidates.append({

@@ -322,28 +322,12 @@ def best_odds(event_norm: dict, market: str, selection: str) -> dict | None:
 
 def scan_all_sports() -> dict[str, list[dict]]:
     """
-    Sofascore-driven Odds API scan.
-
-    Step 1: Sofascore tells us which sports have games today (it scanned ALL sports).
-    Step 2: Odds API is called only for those sports — getting lines for real games.
-
-    This is the correct flow: Sofascore is the schedule oracle, Odds API is the
-    lines provider. We never pull odds for a sport with no games today.
-    Falls back to scanning all sports if Sofascore cache is unavailable.
+    Scan ALL sports on Odds API — every sport, every league, men's and women's.
+    No filtering, no gating. Sofascore already told us what's playing at 8 AM;
+    we don't re-check it here. We just pull every line available.
     """
-    active_sports = _get_active_sports_cached()
-    all_keys      = set(SPORTS.values())
-    sports_to_scan = (all_keys & active_sports) if active_sports else all_keys
-
-    if active_sports:
-        skipped = all_keys - sports_to_scan
-        if skipped:
-            logger.debug("Odds: skipping %d sports with no games today per Sofascore", len(skipped))
-    else:
-        logger.info("Odds: Sofascore cache empty — scanning all %d sports", len(all_keys))
-
     result: dict[str, list[dict]] = {}
-    for sport_key in sports_to_scan:
+    for sport_key in set(SPORTS.values()):
         events = fetch_events(sport_key)
         if events:
             result[sport_key] = [normalise_event(e, sport_key) for e in events]
