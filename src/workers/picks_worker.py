@@ -761,6 +761,13 @@ def _generate_hardrock_entry(period: str) -> dict:
             return {"picks": 0, "period": period, "posted": False}
 
         _post_hardrock_embed(period, entry)
+
+        try:
+            from src.workers.slip_tracker import save_slip
+            save_slip(period, "hardrock", entry)
+        except Exception as e:
+            logger.warning("slip_tracker.save_slip failed: %s", e)
+
         return {"period": period, "picks": len(entry), "posted": True}
 
     except Exception as exc:

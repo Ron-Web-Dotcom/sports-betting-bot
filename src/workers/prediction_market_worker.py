@@ -328,6 +328,13 @@ def _generate_entry(period: str) -> dict:
             return {"picks": 0, "posted": False}
 
         _post_prediction_entry(period, picks)
+
+        try:
+            from src.workers.slip_tracker import save_slip
+            save_slip(period, "kalshi", picks)
+        except Exception as e:
+            logger.warning("slip_tracker.save_slip failed: %s", e)
+
         return {"period": period, "picks": len(picks), "posted": True}
     except Exception as exc:
         logger.error("Prediction market %s entry failed: %s", period, exc)

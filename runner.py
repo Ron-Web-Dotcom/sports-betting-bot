@@ -45,6 +45,7 @@ def _import_tasks():
         generate_prediction_market_night_entry,
     )
     from src.workers.settlement_worker import settle_completed_picks, record_closing_lines
+    from src.workers.slip_tracker import track_slips
     from src.workers.analytics_worker  import (
         enter_sleep_mode, wake_up_brief, send_daily_summary,
         send_weekly_summary, send_weekly_fresh_start, run_self_improvement,
@@ -67,6 +68,7 @@ def _import_tasks():
         "send_pregame_alerts":    send_pregame_alerts,
         "settle_completed_picks": settle_completed_picks,
         "record_closing_lines":   record_closing_lines,
+        "track_slips":            track_slips,
         "enter_sleep_mode":       enter_sleep_mode,
         "wake_up_brief":          wake_up_brief,
         "send_daily_summary":     send_daily_summary,
@@ -87,6 +89,7 @@ def _import_tasks():
 
 INTERVAL_TASKS = [
     # (interval_seconds, task_name)
+    (180,  "track_slips"),              # 3 min — slip lifecycle alerts (soon/live/result/W-L)
     (180,  "scan_prediction_markets"), # 3 min — catches in-game price swings on Kalshi/Poly
     (300,  "send_pregame_alerts"),     # 5 min
     (600,  "scan_and_save_odds"),      # 10 min — odds don't move every 5 min
