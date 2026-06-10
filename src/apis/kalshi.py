@@ -193,16 +193,16 @@ _KALSHI_FUTURES = [
 
 
 def _kalshi_is_game_day(close_time: str) -> bool:
-    """Return True if market closes within 7 days — futures close months out."""
+    """Return True only if market closes within 24 hours — today's games only."""
     if not close_time:
-        return True  # no date — rely on keyword filter
+        return False  # no date = skip
     try:
         from datetime import datetime, timezone, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        return timedelta(0) <= (dt - now) <= timedelta(days=7)
+        return timedelta(0) <= (dt - now) <= timedelta(hours=24)
     except Exception:
-        return True
+        return False
 
 
 def get_sports_markets() -> list[dict]:
