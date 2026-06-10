@@ -78,7 +78,7 @@ def _import_tasks():
 
 INTERVAL_TASKS = [
     # (interval_seconds, task_name)
-    (60,   "send_pregame_alerts"),    # time-critical — keep sharp
+    (300,  "send_pregame_alerts"),    # every 5 min — 30-min/5-min windows don't need per-minute polling
     (600,  "scan_and_save_odds"),     # 10 min — odds don't move every 5 min
     (1200, "scan_player_props"),      # 20 min — props are stable
     (1200, "generate_picks"),         # 20 min — unified game + prop picks
