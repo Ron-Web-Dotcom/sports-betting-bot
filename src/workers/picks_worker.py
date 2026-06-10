@@ -551,7 +551,7 @@ def _build_hardrock_candidates(
             market              = "h2h",
         )
 
-        if confidence.calibrated_score < 0.85:
+        if confidence.calibrated_score < 0.68:
             continue
         # Require genuine edge — win probability must beat the vig-free market probability
         if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
@@ -626,7 +626,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         conf = implied_prob(best_odds_val)
-        if conf < 0.85:
+        if conf < 0.68:
             continue
 
         opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
@@ -788,12 +788,12 @@ def _generate_hardrock_entry(period: str) -> dict:
         pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
 
         # Thresholds — a pick must clear BOTH to be included.
-        # The number of picks (0, 1, or 2) falls out naturally from quality.
-        # Second pick needs a slightly higher bar so we never force a weak leg.
-        CONF_FLOOR    = 0.87   # minimum calibrated confidence to include any pick
-        EV_FLOOR      = 0.02   # minimum expected-value edge (2%)
-        CONF_SECOND   = 0.89   # second pick must clear a higher bar
-        EV_SECOND     = 0.03   # second pick needs more edge too
+        # Set low enough that we almost always find at least 1 pick,
+        # but the second leg still needs a bit more confidence than the first.
+        CONF_FLOOR    = 0.68   # minimum calibrated confidence for pick 1
+        EV_FLOOR      = 0.01   # minimum EV edge (1%)
+        CONF_SECOND   = 0.72   # second pick needs a slightly higher bar
+        EV_SECOND     = 0.015  # second pick needs a bit more edge
 
         entry: list[dict]            = []
         blocked_event_keys: set[str] = set()
