@@ -123,7 +123,9 @@ CRON_TASKS = [
     (16, 35, "generate_prediction_market_night_entry",   None, None),  # Kalshi/Poly night entry (5 min after)
     (22, 0,  "send_daily_summary",      None, None),  # checks if last game done; skips if not
     (23, 0,  "send_daily_summary",      None, None),  # retry at 11 PM
-    (0,  30, "send_daily_summary",      None, None),  # retry at 12:30 AM (late west coast games)
+    (0,  30, "send_daily_summary",      None, None),  # retry at 12:30 AM
+    (1,  30, "send_daily_summary",      None, None),  # retry at 1:30 AM (late west coast finishes)
+    (2,  30, "send_daily_summary",      None, None),  # final retry at 2:30 AM before sleep mode
     (0,  0,  "send_weekly_summary",     6,    None),  # Sunday
     (0,  5,  "send_weekly_fresh_start", 0,    None),  # Monday
 ]
