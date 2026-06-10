@@ -230,22 +230,40 @@ def get_sports_markets() -> list[dict]:
 
     logger.info("Kalshi fetched %d events", len(events))
 
-    # Log first event's full keys so we know the structure
-    if events:
-        e0 = events[0]
-        logger.info("Kalshi event keys: %s", list(e0.keys()))
-        logger.info("Kalshi event sample: title=%r ticker=%r exp=%r markets_count=%d",
-                    (e0.get("title") or e0.get("event_ticker") or "")[:60],
-                    e0.get("ticker") or e0.get("event_ticker") or "",
-                    e0.get("expected_expiration_time") or e0.get("close_time") or "",
-                    len(e0.get("markets") or []))
+    # Log unique categories to find sports ones
+    all_cats = sorted({(e.get("category") or "").lower() for e in events})
+    logger.info("Kalshi event categories: %s", all_cats[:30])
 
-    for event in events:
-        exp = event.get("expected_expiration_time") or event.get("close_time") or ""
-        for mkt in (event.get("markets") or []):
-            mkt["close_time"] = mkt.get("close_time") or exp
-            mkt["category"]   = mkt.get("category") or (event.get("category") or "").lower()
+    _SPORTS_CATS = {
+        "sports", "basketball", "baseball", "football", "hockey", "soccer",
+        "tennis", "golf", "mma", "ufc", "nba", "nfl", "mlb", "nhl",
+        "ncaa", "wnba", "rugby", "cricket", "boxing",
+    }
+
+    # Filter to sports events only, then fetch their markets
+    sports_events = [
+        e for e in events
+        if (e.get("category") or "").lower() in _SPORTS_CATS
+        or any(s in (e.get("series_ticker") or "").upper()
+               for s in ["MLB", "NBA", "NHL", "NFL", "UFC", "SOCCER", "NCAA", "WNBA"])
+    ]
+    logger.info("Kalshi sports events: %d", len(sports_events))
+
+    for event in sports_events[:50]:  # cap at 50 to avoid too many API calls
+        ticker = event.get("event_ticker") or ""
+        if not ticker:
+            continue
+        mdata = _get("/markets", {"event_ticker": ticker, "limit": 50})
+        if not isinstance(mdata, dict):
+            continue
+        for mkt in (mdata.get("markets") or []):
+            mkt.setdefault("category", (event.get("category") or "").lower())
             markets_raw.append(mkt)
+
+    if markets_raw:
+        logger.info("Kalshi sample market: title=%r close=%r",
+                    (markets_raw[0].get("title") or "")[:70],
+                    markets_raw[0].get("close_time", "")[:25])
 
     _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
 
