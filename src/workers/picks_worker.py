@@ -921,12 +921,31 @@ def _generate_hardrock_entry(period: str) -> dict:
                 "(best conf: %d%%) — trying Perplexity last resort",
                 period, best_conf,
             )
+            # Only trigger if a candidate is very close to the floor (0.70+, within 7 pts).
+            # With Sportradar + Sofascore + ESPN already in the pipeline, confidence
+            # should never need a web search rescue unless a candidate is nearly there.
+            # AND we haven't already used Perplexity twice today.
             close_candidates = [
                 p for p in pool
-                if 0.60 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) > 0
-            ][:2]
+                if 0.70 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) > 0
+            ][:1]  # one candidate only — absolute last resort
 
-            if close_candidates:
+            # Daily rate gate — max 2 Perplexity calls per day across all entries
+            _perplexity_allowed = False
+            try:
+                from src.core.config import REDIS_URL, PERPLEXITY_API_KEY
+                import redis as _redis
+                from datetime import datetime as _dt
+                if PERPLEXITY_API_KEY and close_candidates:
+                    _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+                    _date_key = f"perplexity:calls:{_dt.utcnow().strftime('%Y-%m-%d')}"
+                    _calls_today = int(_r.get(_date_key) or 0)
+                    if _calls_today < 2:
+                        _perplexity_allowed = True
+            except Exception:
+                pass
+
+            if close_candidates and _perplexity_allowed:
                 try:
                     from src.apis.websearch import search_game_news, search_player_news
                     from src.engines.ai_engine import analyse_pick as _analyse
@@ -1007,6 +1026,12 @@ def _generate_hardrock_entry(period: str) -> dict:
                                 "reasoning":  ai2.get("reasoning", candidate.get("reasoning", "")),
                             }
                             entry.append(updated)
+                            # Increment daily counter so we don't exceed 2 calls/day
+                            try:
+                                _r.incr(_date_key)
+                                _r.expire(_date_key, 86400)
+                            except Exception:
+                                pass
                             logger.info(
                                 "Perplexity last resort: %s qualified at conf=%.2f",
                                 candidate.get("player") or
