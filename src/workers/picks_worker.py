@@ -810,7 +810,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         seen_players: set[str]       = set()
 
         for pick in pool:
-            if len(entry) == 2:
+            if len(entry) == 3:
                 break
 
             conf = pick["confidence"]
@@ -819,8 +819,9 @@ def _generate_hardrock_entry(period: str) -> dict:
             if conf < CONF_FLOOR or ev < EV_FLOOR:
                 continue
 
-            # Before adding a second leg, verify the PARLAY as a whole is still profitable.
-            # If it isn't, skip this pick — better to post the single.
+            # Every leg added must keep the parlay profitable as a whole.
+            # If the combined win_prob × payout drops below 1.0, skip this leg.
+            # This naturally prevents 3-leg parlays unless all 3 genuinely earn it.
             if entry and not _parlay_is_profitable(entry + [pick]):
                 continue
 
