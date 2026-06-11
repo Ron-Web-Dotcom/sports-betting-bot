@@ -31,6 +31,14 @@ def _is_sleep_time() -> bool:
     return 3 <= et.hour < 5
 
 
+def _news_window() -> bool:
+    """News/injury reports only matter 6 AM–midnight ET. No games, no news needed."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 6 <= et.hour < 24
+
+
 def _load_prev_injuries(r, sport_key: str) -> dict[str, str]:
     """Load previous injury snapshot from Redis. Returns {player_name: status}."""
     import json
@@ -219,6 +227,9 @@ def _merge_injury_sources(espn_injuries: list[dict], sleeper_injuries: list[dict
 
 
 def fetch_and_save_news():
+    if not _news_window():
+        logger.debug("fetch_and_save_news: outside news window (6 AM–midnight ET), skipping")
+        return {"skipped": "outside_news_window"}
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
     try:

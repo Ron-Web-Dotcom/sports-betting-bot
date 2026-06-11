@@ -22,15 +22,18 @@ def _normalize_team_name(name: str) -> str:
     return re.sub(r'\s+', ' ', name).lower().strip()
 
 
-def settle_completed_picks():
-    """
-    Fetch completed games, match against open picks, settle W/L/Push,
-    compute actual P&L, and fire result alerts.
+def _settlement_window() -> bool:
+    """Settlement only needed when games could be finishing — noon to 3 AM ET."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return not (3 <= et.hour < 12)
 
-    Everything runs in a SINGLE DB session to prevent double-settlement.
-    Alerts are fired AFTER the session commits to prevent alert-fires-but-
-    commit-fails scenarios.
-    """
+
+def settle_completed_picks():
+    if not _settlement_window():
+        logger.debug("settle_completed_picks: outside window (3–12 AM ET), skipping")
+        return {"skipped": "outside_settlement_window"}
     try:
         from src.engines.odds_engine import fetch_scores
 
@@ -257,6 +260,13 @@ def _calculate_pnl(pick: Pick, result: str) -> float:
 
 
 def record_closing_lines():
+    """Only record closing lines when games are active — 8 AM to midnight ET."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    if not (8 <= et.hour < 24):
+        logger.debug("record_closing_lines: no active games outside 8 AM–midnight ET, skipping")
+        return {"skipped": "outside_window"}
     """Snapshot current odds for open picks — used later for CLV calculation."""
     from src.engines.clv_engine import record_clv
     from src.engines.odds_engine import get_latest_snapshots_by_game
