@@ -545,7 +545,7 @@ def _build_hardrock_candidates(
         # If AI is close but not there yet, run a Perplexity web search for
         # breaking news/injuries/lineup on this specific game, then re-ask.
         win_prob = ai.get("win_probability", 0)
-        if 0.72 <= win_prob <= 0.79:
+        if 0.69 <= win_prob <= 0.76:
             try:
                 from src.apis.websearch import search_game_news
                 from datetime import datetime as _dt
@@ -724,7 +724,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         # Dig deeper on borderline prop picks via Perplexity web search
-        if ai and 0.72 <= ai.get("win_probability", 0) <= 0.79:
+        if ai and 0.69 <= ai.get("win_probability", 0) <= 0.76:
             try:
                 from src.apis.websearch import search_player_news
                 web_news = search_player_news(player, stat, sport_key)
@@ -902,7 +902,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
-        CONF_FLOOR = 0.69   # ≈ AI 80%+ conviction after deep research
+        CONF_FLOOR = 0.66   # ≈ AI 77%+ conviction — 80%+ via dig-deeper/web search
         EV_FLOOR   = 0.005  # 0.5% minimum edge — even thin positive EV qualifies
 
         def _american_to_dec(odds: int) -> float:

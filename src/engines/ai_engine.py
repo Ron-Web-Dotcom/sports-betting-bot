@@ -81,7 +81,7 @@ Signals aligned → win_probability and confidence:
   6+ signals → 0.90-0.97
 
 STEP 3 — DIG DEEPER IF BORDERLINE:
-  If your initial research puts you at 0.72-0.79, do NOT stop there.
+  If your initial research puts you at 0.69-0.76, do NOT stop there.
   Go back and look harder:
     - Check if there are more recent games you haven't considered (use your knowledge)
     - Look for any motivational edges (revenge game, playoff elimination, home crowd)
@@ -90,12 +90,12 @@ STEP 3 — DIG DEEPER IF BORDERLINE:
     - Check if the line has moved again since opening (late sharp action)
     - Look at the specific players/matchups more carefully
     - For player props: has this player hit this line in 4 of last 5? Is the opponent bottom-10 defending this stat?
-  If after digging deeper you can reach 0.80+, do it.
-  If you genuinely cannot get past 0.79 after all that research, it is a PASS.
+  If after digging deeper you can reach 0.77+, do it.
+  If you genuinely cannot get past 0.76 after all that research, it is a PASS.
 
 STEP 4 — DECIDE:
-  BET  if confidence ≥ 0.80 AND ev_pct > 0 AND at least 3 signals fired
-  PASS if you cannot reach 0.80 — do not force it
+  BET  if confidence ≥ 0.77 AND ev_pct > 0 AND at least 3 signals fired
+  PASS if you cannot reach 0.77 — do not force it
 
 Return ONLY valid JSON — no markdown, no extra text:
 {
