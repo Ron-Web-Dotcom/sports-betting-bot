@@ -99,6 +99,10 @@ SPORTS = {
     "nhl":          "icehockey_nhl",
     "ncaab":        "basketball_ncaab",
     "ncaaf":        "americanfootball_ncaaf",
+    # ── Women's US Sports ─────────────────────────────────────────────────────
+    "wnba":         "basketball_wnba",
+    "ncaaw":        "basketball_wncaab",
+    "wncaab":       "basketball_wncaab",
     # ── Soccer — Top Leagues ──────────────────────────────────────────────────
     "epl":          "soccer_epl",               # England Premier League
     "soccer":       "soccer_epl",
@@ -109,27 +113,54 @@ SPORTS = {
     "mls":          "soccer_usa_mls",            # USA
     "eredivisie":   "soccer_netherlands_eredivisie",
     "portugal":     "soccer_portugal_primeira_liga",
+    "ligamx":       "soccer_mexico_ligamx",      # Mexico
+    "argentina":    "soccer_argentina_primera_division",
+    "brazil":       "soccer_brazil_campeonato",
+    "turkey":       "soccer_turkey_super_league",
+    "scotland":     "soccer_spl",               # Scottish Premiership
     # ── Soccer — Cups & International ────────────────────────────────────────
     "ucl":          "soccer_uefa_champs_league",
     "champions":    "soccer_uefa_champs_league",
     "europa":       "soccer_uefa_europa_league",
+    "conferenceleague": "soccer_uefa_europa_conference_league",
     "worldcup":     "soccer_fifa_world_cup",
     "wc":           "soccer_fifa_world_cup",
     "copaamerica":  "soccer_conmebol_copa_america",
     "conmebol":     "soccer_conmebol_copa_libertadores",
+    "copalibertadores": "soccer_conmebol_copa_libertadores",
+    "afcon":        "soccer_africa_cup_of_nations",
+    # ── Women's Soccer ────────────────────────────────────────────────────────
+    "nwsl":         "soccer_usa_nwsl",           # US National Women's Soccer League
+    "wwc":          "soccer_fifa_womens_world_cup",
+    "womenswc":     "soccer_fifa_womens_world_cup",
+    "wuefacl":      "soccer_uefa_womens_champs_league",
+    # ── Golf ─────────────────────────────────────────────────────────────────
+    "golf":         "golf_pga_tour",
+    "pga":          "golf_pga_tour",
+    "masters":      "golf_masters_tournament",
+    "pgachamp":     "golf_pga_championship",
+    "usopen_golf":  "golf_us_open",
+    "theopen":      "golf_the_open_championship",
+    "lpga":         "golf_lpga",
     # ── Combat Sports ────────────────────────────────────────────────────────
     "ufc":          "mma_mixed_martial_arts",
     "mma":          "mma_mixed_martial_arts",
-    # ── Tennis ───────────────────────────────────────────────────────────────
+    "boxing":       "boxing_boxing",
+    # ── Tennis — All Grand Slams + Tours ─────────────────────────────────────
     "tennis":       "tennis_atp_french_open",
     "atp":          "tennis_atp_french_open",
     "wta":          "tennis_wta_french_open",
     "wtennis":      "tennis_wta_french_open",
-    # ── Women's Sports ───────────────────────────────────────────────────────
-    "wnba":         "basketball_wnba",
-    "ncaaw":        "basketball_wncaab",
-    "wncaab":       "basketball_wncaab",
-    # golf removed — US Open not yet in Odds API, add back when available
+    "wimbledon":    "tennis_atp_wimbledon",
+    "wwimbledon":   "tennis_wta_wimbledon",
+    "usopen":       "tennis_atp_us_open",
+    "wusopen":      "tennis_wta_us_open",
+    "ausopen":      "tennis_atp_australian_open",
+    "wausopen":     "tennis_wta_australian_open",
+    # ── Aussie Rules + Rugby ──────────────────────────────────────────────────
+    "afl":          "aussierules_afl",
+    "rugbywc":      "rugbyunion_world_cup",
+    "nrl":          "rugbyleague_nrl",
 }
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]

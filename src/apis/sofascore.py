@@ -31,33 +31,64 @@ _BASE = "https://api.sofascore.com/api/v1"
 
 # Maps our internal sport_key → SofaScore sport slug
 SPORT_MAP = {
-    # US Sports
-    "americanfootball_nfl":             "american-football",
-    "americanfootball_ncaaf":           "american-football",
-    "basketball_nba":                   "basketball",
-    "basketball_wnba":                  "basketball",
-    "basketball_ncaab":                 "basketball",
-    "basketball_wncaab":                "basketball",
-    "baseball_mlb":                     "baseball",
-    "icehockey_nhl":                    "ice-hockey",
-    # Soccer
-    "soccer_epl":                       "football",
-    "soccer_spain_la_liga":             "football",
-    "soccer_germany_bundesliga":        "football",
-    "soccer_italy_serie_a":             "football",
-    "soccer_france_ligue_one":          "football",
-    "soccer_usa_mls":                   "football",
-    "soccer_netherlands_eredivisie":    "football",
-    "soccer_portugal_primeira_liga":    "football",
-    "soccer_uefa_champs_league":        "football",
-    "soccer_uefa_europa_league":        "football",
-    "soccer_fifa_world_cup":            "football",
-    "soccer_conmebol_copa_america":     "football",
-    "soccer_conmebol_copa_libertadores":"football",
-    # Combat + Tennis
-    "mma_mixed_martial_arts":           "mma",
-    "tennis_atp_french_open":           "tennis",
-    "tennis_wta_french_open":           "tennis",
+    # ── US Sports ─────────────────────────────────────────────────────────────
+    "americanfootball_nfl":                  "american-football",
+    "americanfootball_ncaaf":                "american-football",
+    "basketball_nba":                        "basketball",
+    "basketball_wnba":                       "basketball",
+    "basketball_ncaab":                      "basketball",
+    "basketball_wncaab":                     "basketball",
+    "baseball_mlb":                          "baseball",
+    "icehockey_nhl":                         "ice-hockey",
+    # ── Soccer — Top Leagues ──────────────────────────────────────────────────
+    "soccer_epl":                            "football",
+    "soccer_spain_la_liga":                  "football",
+    "soccer_germany_bundesliga":             "football",
+    "soccer_italy_serie_a":                  "football",
+    "soccer_france_ligue_one":               "football",
+    "soccer_usa_mls":                        "football",
+    "soccer_netherlands_eredivisie":         "football",
+    "soccer_portugal_primeira_liga":         "football",
+    "soccer_mexico_ligamx":                  "football",
+    "soccer_argentina_primera_division":     "football",
+    "soccer_brazil_campeonato":              "football",
+    "soccer_turkey_super_league":            "football",
+    "soccer_spl":                            "football",   # Scottish Premiership
+    # ── Soccer — Cups & International ────────────────────────────────────────
+    "soccer_uefa_champs_league":             "football",
+    "soccer_uefa_europa_league":             "football",
+    "soccer_uefa_europa_conference_league":  "football",
+    "soccer_fifa_world_cup":                 "football",
+    "soccer_conmebol_copa_america":          "football",
+    "soccer_conmebol_copa_libertadores":     "football",
+    "soccer_africa_cup_of_nations":          "football",
+    # ── Women's Soccer ────────────────────────────────────────────────────────
+    "soccer_usa_nwsl":                       "football",
+    "soccer_fifa_womens_world_cup":          "football",
+    "soccer_uefa_womens_champs_league":      "football",
+    # ── Golf ─────────────────────────────────────────────────────────────────
+    "golf_pga_tour":                         "golf",
+    "golf_masters_tournament":               "golf",
+    "golf_pga_championship":                 "golf",
+    "golf_us_open":                          "golf",
+    "golf_the_open_championship":            "golf",
+    "golf_lpga":                             "golf",
+    # ── Combat Sports ────────────────────────────────────────────────────────
+    "mma_mixed_martial_arts":                "mma",
+    "boxing_boxing":                         "boxing",
+    # ── Tennis — All Grand Slams ──────────────────────────────────────────────
+    "tennis_atp_french_open":                "tennis",
+    "tennis_wta_french_open":                "tennis",
+    "tennis_atp_wimbledon":                  "tennis",
+    "tennis_wta_wimbledon":                  "tennis",
+    "tennis_atp_us_open":                    "tennis",
+    "tennis_wta_us_open":                    "tennis",
+    "tennis_atp_australian_open":            "tennis",
+    "tennis_wta_australian_open":            "tennis",
+    # ── Aussie Rules + Rugby ──────────────────────────────────────────────────
+    "aussierules_afl":                       "australian-football",
+    "rugbyunion_world_cup":                  "rugby",
+    "rugbyleague_nrl":                       "rugby-league",
 }
 
 _HEADERS = {

@@ -18,21 +18,57 @@ MARKETS = ["h2h", "spreads", "totals"]
 
 # Player prop markets available on 100K+ plan
 PLAYER_PROP_MARKETS = [
+    # Basketball
     "player_points", "player_rebounds", "player_assists",
-    "player_threes", "player_pass_tds", "player_pass_yds",
-    "player_rush_yds", "player_reception_yds", "player_receptions",
-    "player_hits", "player_total_bases", "player_strikeouts",
-    "player_shots_on_target",
+    "player_threes", "player_blocks", "player_steals",
+    "player_points_rebounds_assists",
+    # Football
+    "player_pass_tds", "player_pass_yds", "player_pass_attempts", "player_pass_completions",
+    "player_rush_yds", "player_rush_attempts",
+    "player_reception_yds", "player_receptions", "player_receiving_tds",
+    # Baseball
+    "player_hits", "player_total_bases", "player_strikeouts", "player_home_runs",
+    "player_rbis", "player_runs_scored",
+    # Hockey
+    "player_shots_on_goal", "player_points",
+    # Soccer
+    "player_shots_on_target", "player_goals", "player_assists",
+    # Golf
+    "player_top_5_finish", "player_top_10_finish", "player_make_cut",
+    # MMA / Boxing
+    "player_method_of_victory",
+    # Tennis
+    "player_sets_won",
 ]
 
-# Soccer leagues — share the same prop markets
+# Soccer — all leagues share same prop market names
 _SOCCER_LEAGUES = {
     "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga",
     "soccer_italy_serie_a", "soccer_france_ligue_one", "soccer_usa_mls",
     "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga",
+    "soccer_mexico_ligamx", "soccer_argentina_primera_division",
+    "soccer_brazil_campeonato", "soccer_turkey_super_league", "soccer_spl",
     "soccer_uefa_champs_league", "soccer_uefa_europa_league",
-    "soccer_fifa_world_cup",
-    "soccer_conmebol_copa_america", "soccer_conmebol_copa_libertadores",
+    "soccer_uefa_europa_conference_league",
+    "soccer_fifa_world_cup", "soccer_conmebol_copa_america",
+    "soccer_conmebol_copa_libertadores", "soccer_africa_cup_of_nations",
+    # Women's soccer
+    "soccer_usa_nwsl", "soccer_fifa_womens_world_cup",
+    "soccer_uefa_womens_champs_league",
+}
+
+# Golf tournaments
+_GOLF_TOURNAMENTS = {
+    "golf_pga_tour", "golf_masters_tournament", "golf_pga_championship",
+    "golf_us_open", "golf_the_open_championship", "golf_lpga",
+}
+
+# Tennis — all grand slams + tours
+_TENNIS = {
+    "tennis_atp_french_open", "tennis_wta_french_open",
+    "tennis_atp_wimbledon",   "tennis_wta_wimbledon",
+    "tennis_atp_us_open",     "tennis_wta_us_open",
+    "tennis_atp_australian_open", "tennis_wta_australian_open",
 }
 
 # All sports that support player props on Odds API
@@ -41,9 +77,9 @@ PLAYER_PROP_SPORTS = {
     "americanfootball_nfl", "americanfootball_ncaaf",
     "baseball_mlb",
     "icehockey_nhl",
-    "tennis_atp_french_open", "tennis_wta_french_open",
-    "mma_mixed_martial_arts",
-} | _SOCCER_LEAGUES
+    "mma_mixed_martial_arts", "boxing_boxing",
+    "aussierules_afl",
+} | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS
 
 
 # ── Raw API calls ──────────────────────────────────────────────────────────────
