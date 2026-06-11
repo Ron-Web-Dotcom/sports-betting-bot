@@ -794,7 +794,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
-        CONF_FLOOR = 0.69   # ≈ AI 80%+ conviction after deep research
+        CONF_FLOOR = 0.65   # ≈ AI 76%+ conviction — 0.69 was silently blocking all night slips
         EV_FLOOR   = 0.01   # minimum 1% individual EV
 
         def _american_to_dec(odds: int) -> float:
@@ -846,7 +846,26 @@ def _generate_hardrock_entry(period: str) -> dict:
             entry.append(pick)
 
         if len(entry) < 1:
-            logger.info("HardRock %s entry: no qualifying picks", period)
+            best_conf = round(max((p["confidence"] for p in pool), default=0) * 100)
+            logger.info("HardRock %s entry: no qualifying picks (best conf found: %d%%)", period, best_conf)
+            # Notify Discord so the user knows the bot ran — silence is worse than "nothing today"
+            try:
+                from src.workers.alert_worker import _run_async
+                from src.discord_bot.bot import _post
+                period_emoji = "☀️" if period == "day" else "🌙"
+                period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
+                _run_async(_post({"embeds": [{
+                    "title": f"🎟️  HARDROCK SLIP  ·  {period_emoji} {period_label}",
+                    "description": (
+                        f"No qualifying picks for this session.\n"
+                        f"Best confidence found: **{best_conf}%** — below the 65% floor or no positive EV.\n"
+                        f"_Skipping to protect bankroll — no edge, no bet._"
+                    ),
+                    "color": 0x546E7A,
+                    "footer": {"text": "HardRock Bet  ·  Bet responsibly"},
+                }]}))
+            except Exception as _e:
+                logger.warning("Could not post no-picks alert: %s", _e)
             return {"picks": 0, "period": period, "posted": False}
 
         _post_hardrock_embed(period, entry)

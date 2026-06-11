@@ -448,6 +448,22 @@ def _generate_entry(period: str) -> dict:
         picks = _build_entry([], [], max_picks=1)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks", period)
+            try:
+                from src.workers.alert_worker import _run_async
+                from src.discord_bot.bot import _post
+                period_emoji = "☀️" if period == "day" else "🌙"
+                period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
+                _run_async(_post({"embeds": [{
+                    "title": f"📊  KALSHI SLIP  ·  {period_emoji} {period_label}",
+                    "description": (
+                        "No qualifying research pick for this session.\n"
+                        "Confidence below 65% or edge too thin — skipping to protect bankroll."
+                    ),
+                    "color": 0x546E7A,
+                    "footer": {"text": "Kalshi  ·  Research-backed  ·  Bet responsibly"},
+                }]}))
+            except Exception as _e:
+                logger.warning("Could not post no-picks Kalshi alert: %s", _e)
             return {"picks": 0, "posted": False}
 
         _post_prediction_entry(period, picks)
