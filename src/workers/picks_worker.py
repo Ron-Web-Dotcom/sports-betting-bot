@@ -591,9 +591,14 @@ def _build_hardrock_candidates(
 
 
 def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
-    """Pull player props from Redis, score them. Deduplication happens in the entry builder."""
+    """
+    Pull player/team props from Redis, pre-screen by odds, then run AI deep research
+    on the top 8 candidates. Confidence comes from AI analysis, not just implied prob.
+    """
     from src.core.config import REDIS_URL
     from src.engines.ev_engine import implied_prob, evaluate
+    from src.engines.ai_engine import analyse_pick
+    from src.apis.data_hub import build_player_context
     import json, redis as _redis
 
     try:
@@ -603,7 +608,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     except Exception:
         return []
 
-    candidates: list[dict] = []
+    # Phase 1: odds-based pre-screen (fast, no AI calls)
+    pre_screened: list[dict] = []
     for prop in all_props:
         player    = (prop.get("player") or prop.get("subject") or "").strip()
         stat      = prop.get("stat", "")
@@ -629,21 +635,18 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         if direction is None or best_odds_val is None:
             continue
 
-        conf = implied_prob(best_odds_val)
-        if conf < 0.62:
+        raw_prob = implied_prob(best_odds_val)
+        if raw_prob < 0.58:   # wider pre-screen — AI may find edge the market missed
             continue
 
         opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
                         else max(over_odds.values()) if direction == "Under" and over_odds
                         else None)
-        prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
+        prop_ev = evaluate(american_odds=best_odds_val, projected_prob=raw_prob,
                            opponent_odds=opp_odds_val)
-        if prop_ev.ev_pct <= 0 or conf <= prop_ev.no_vig_prob:
-            continue
 
-        candidates.append({
+        pre_screened.append({
             "type":         "prop",
-            "score":        conf * (1 + prop_ev.ev_pct),
             "player":       player,
             "stat":         stat,
             "line":         line,
@@ -652,10 +655,72 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             "event_id":     event_id,
             "best_odds":    best_odds_val,
             "books_odds":   all_book_odds,
-            "confidence":   conf,
+            "raw_prob":     raw_prob,
             "ev_pct":       prop_ev.ev_pct,
             "units":        float(prop_ev.units or 1),
             "is_team_prop": prop.get("is_team_prop", False),
+            "home_team":    prop.get("home_team", ""),
+            "away_team":    prop.get("away_team", ""),
+        })
+
+    # Sort by implied prob descending, take top 8 for AI research
+    pre_screened.sort(key=lambda x: x["raw_prob"], reverse=True)
+
+    candidates: list[dict] = []
+    for prop in pre_screened[:8]:
+        player    = prop["player"]
+        stat      = prop["stat"]
+        sport_key = prop["sport_key"]
+        direction = prop["direction"]
+        line      = prop["line"]
+
+        # Build player context (recent form, vs-opponent)
+        opponent = prop.get("away_team") or prop.get("home_team") or ""
+        try:
+            player_ctx = build_player_context(player, sport_key, opponent=opponent, n_games=5)
+        except Exception:
+            player_ctx = {}
+
+        # Run AI deep research on this prop
+        event = {
+            "sport_key":      sport_key,
+            "home_team":      prop.get("home_team", ""),
+            "away_team":      prop.get("away_team", ""),
+            "commence_time":  "",
+            "prop_player":    player,
+            "prop_stat":      stat,
+            "prop_line":      line,
+            "prop_direction": direction,
+            "description":    f"{player} {stat} {direction} {line}",
+        }
+        ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, player_ctx)
+
+        if not ai or ai.get("recommendation") == "PASS" or not ai.get("should_bet", True):
+            continue
+
+        conf      = ai.get("win_probability", prop["raw_prob"])
+        ev        = ai.get("ev_pct", prop["ev_pct"])
+        reasoning = ai.get("reasoning", "")
+
+        if ev <= 0:
+            continue
+
+        candidates.append({
+            "type":         "prop",
+            "score":        conf * (1 + ev),
+            "player":       player,
+            "stat":         stat,
+            "line":         line,
+            "direction":    direction,
+            "sport_key":    sport_key,
+            "event_id":     prop["event_id"],
+            "best_odds":    prop["best_odds"],
+            "books_odds":   prop["books_odds"],
+            "confidence":   conf,
+            "ev_pct":       ev,
+            "units":        prop["units"],
+            "is_team_prop": prop["is_team_prop"],
+            "reasoning":    reasoning,
         })
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -794,7 +859,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
-        CONF_FLOOR = 0.65   # ≈ AI 76%+ conviction — 0.69 was silently blocking all night slips
+        CONF_FLOOR = 0.69   # ≈ AI 80%+ conviction after deep research
         EV_FLOOR   = 0.01   # minimum 1% individual EV
 
         def _american_to_dec(odds: int) -> float:
