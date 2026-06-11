@@ -193,15 +193,14 @@ _KALSHI_FUTURES = [
 
 
 def _kalshi_is_game_day(close_time: str) -> bool:
-    """Return True if market closes within 18 hours — today's games only."""
+    """Return True only if market closes within 24 hours — today's games only."""
     if not close_time:
-        return False
+        return False  # no date = skip
     try:
         from datetime import datetime, timezone, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        hours_out = (dt - now).total_seconds() / 3600
-        return 0 <= hours_out <= 18
+        return timedelta(0) <= (dt - now) <= timedelta(hours=12)
     except Exception:
         return False
 
@@ -211,61 +210,14 @@ def get_sports_markets() -> list[dict]:
     Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
     Excludes tournament futures and politics.
     """
-    # Game-winner markets live in /events, not /markets (which is all combos)
-    markets_raw = []
-    data = _get("/events", {"limit": 200})
-    events = (data.get("events") or []) if isinstance(data, dict) else []
+    data = _get("/markets", {"limit": 200, "status": "open"})
+    if not data:
+        return []
 
-    # Paginate events
-    cursor = (data.get("cursor") or "") if isinstance(data, dict) else ""
-    while cursor and len(events) < 1000:
-        page = _get("/events", {"limit": 200, "cursor": cursor})
-        if not isinstance(page, dict):
-            break
-        batch = page.get("events") or []
-        events.extend(batch)
-        cursor = page.get("cursor") or ""
-        if not batch:
-            break
-
-    logger.info("Kalshi fetched %d events", len(events))
-
-    # Log unique categories to find sports ones
-    all_cats = sorted({(e.get("category") or "").lower() for e in events})
-    logger.info("Kalshi event categories: %s", all_cats[:30])
-
-    _SPORTS_CATS = {
-        "sports", "basketball", "baseball", "football", "hockey", "soccer",
-        "tennis", "golf", "mma", "ufc", "nba", "nfl", "mlb", "nhl",
-        "ncaa", "wnba", "rugby", "cricket", "boxing",
-    }
-
-    # Filter to sports events only, then fetch their markets
-    sports_events = [
-        e for e in events
-        if (e.get("category") or "").lower() in _SPORTS_CATS
-        or any(s in (e.get("series_ticker") or "").upper()
-               for s in ["MLB", "NBA", "NHL", "NFL", "UFC", "SOCCER", "NCAA", "WNBA"])
-    ]
-    logger.info("Kalshi sports events: %d", len(sports_events))
-
-    for event in sports_events[:50]:  # cap at 50 to avoid too many API calls
-        ticker = event.get("event_ticker") or ""
-        if not ticker:
-            continue
-        mdata = _get("/markets", {"event_ticker": ticker, "limit": 50})
-        if not isinstance(mdata, dict):
-            continue
-        for mkt in (mdata.get("markets") or []):
-            mkt.setdefault("category", (event.get("category") or "").lower())
-            markets_raw.append(mkt)
-
-    if markets_raw:
-        logger.info("Kalshi sample market: title=%r close=%r",
-                    (markets_raw[0].get("title") or "")[:70],
-                    markets_raw[0].get("close_time", "")[:25])
-
-    _SPORT_TAG_KEYS = {t.lower() for tag_list in _SPORT_TAGS.values() for t in tag_list}
+    markets_raw = data.get("markets", []) if isinstance(data, dict) else []
+    if not markets_raw:
+        data2 = _get("/markets", {"limit": 200})
+        markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
 
     out = []
     for m in markets_raw:
@@ -274,23 +226,18 @@ def get_sports_markets() -> list[dict]:
         tags       = [t.lower() for t in (m.get("tags") or [])]
         close_time = m.get("close_time", "")
 
-        # Skip combo/parlay markets — single-game markets have no commas
-        if "," in (m.get("title") or ""):
-            continue
-
-        # Block futures and politics
+        # Block futures and politics regardless
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
-        # Only today's game markets (closes within 18 h)
+        # Only single-game markets (ends within 48 h)
         if not _kalshi_is_game_day(close_time):
             continue
 
-        # Trust Kalshi's own category/tags or keyword match
         is_sports = (
             "sports" in category
-            or any(t in _SPORT_TAG_KEYS for t in tags)
             or any(kw in title for kw in _SPORTS_KEYWORDS)
+            or any(kw in " ".join(tags) for kw in _SPORTS_KEYWORDS)
         )
         if not is_sports:
             continue

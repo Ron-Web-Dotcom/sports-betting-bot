@@ -551,7 +551,7 @@ def _build_hardrock_candidates(
             market              = "h2h",
         )
 
-        if confidence.calibrated_score < 0.68:
+        if confidence.calibrated_score < 0.62:
             continue
         # Require genuine edge — win probability must beat the vig-free market probability
         if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
@@ -626,7 +626,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         conf = implied_prob(best_odds_val)
-        if conf < 0.68:
+        if conf < 0.62:
             continue
 
         opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
@@ -790,10 +790,10 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Thresholds — a pick must clear BOTH to be included.
         # Set low enough that we almost always find at least 1 pick,
         # but the second leg still needs a bit more confidence than the first.
-        CONF_FLOOR    = 0.68   # minimum calibrated confidence for pick 1
-        EV_FLOOR      = 0.01   # minimum EV edge (1%)
-        CONF_SECOND   = 0.72   # second pick needs a slightly higher bar
-        EV_SECOND     = 0.015  # second pick needs a bit more edge
+        CONF_FLOOR    = 0.65   # ≈ AI 77%+ conviction — posts almost every day
+        EV_FLOOR      = 0.01   # minimum 1% positive EV
+        CONF_SECOND   = 0.68   # ≈ AI 81%+ conviction for second leg
+        EV_SECOND     = 0.015  # second leg needs a bit more edge
 
         entry: list[dict]            = []
         blocked_event_keys: set[str] = set()
