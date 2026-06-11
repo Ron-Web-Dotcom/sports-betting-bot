@@ -55,6 +55,9 @@ _SOCCER_LEAGUES = {
     # Women's soccer
     "soccer_usa_nwsl", "soccer_fifa_womens_world_cup",
     "soccer_uefa_womens_champs_league",
+    "soccer_england_wsl", "soccer_germany_frauen_bundesliga",
+    "soccer_spain_liga_f", "soccer_france_d1_feminine",
+    "soccer_italy_serie_a_feminine",
 }
 
 # Golf tournaments
@@ -78,7 +81,11 @@ PLAYER_PROP_SPORTS = {
     "baseball_mlb",
     "icehockey_nhl",
     "mma_mixed_martial_arts", "boxing_boxing",
-    "aussierules_afl",
+    "aussierules_afl",  "aussierules_aflw",
+    "icehockey_pwhl",
+    "cricket_icc_world_cup", "cricket_ipl", "cricket_icc_womens_t20_wc",
+    "rugbyunion_world_cup", "rugbyunion_women_world_cup",
+    "rugbyleague_nrl",
 } | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS
 
 

@@ -106,6 +106,8 @@ SPORTS = {
     "wnba":         "basketball_wnba",
     "ncaaw":        "basketball_wncaab",
     "wncaab":       "basketball_wncaab",
+    "pwhl":         "icehockey_pwhl",            # Pro Women's Hockey League (2024)
+    "wicehockey":   "icehockey_pwhl",
     # ── Soccer — Top Leagues ──────────────────────────────────────────────────
     "epl":          "soccer_epl",               # England Premier League
     "soccer":       "soccer_epl",
@@ -133,10 +135,20 @@ SPORTS = {
     "copalibertadores": "soccer_conmebol_copa_libertadores",
     "afcon":        "soccer_africa_cup_of_nations",
     # ── Women's Soccer ────────────────────────────────────────────────────────
-    "nwsl":         "soccer_usa_nwsl",           # US National Women's Soccer League
+    "nwsl":         "soccer_usa_nwsl",                      # USA Women's
     "wwc":          "soccer_fifa_womens_world_cup",
     "womenswc":     "soccer_fifa_womens_world_cup",
-    "wuefacl":      "soccer_uefa_womens_champs_league",
+    "wuefacl":      "soccer_uefa_womens_champs_league",     # Women's UCL
+    "wsl":          "soccer_england_wsl",                   # England Women's Super League
+    "wenglish":     "soccer_england_wsl",
+    "frauenbundesliga": "soccer_germany_frauen_bundesliga", # Germany Women's
+    "wbundesliga":  "soccer_germany_frauen_bundesliga",
+    "ligaf":        "soccer_spain_liga_f",                  # Spain Women's
+    "wspain":       "soccer_spain_liga_f",
+    "d1feminine":   "soccer_france_d1_feminine",            # France Women's
+    "wfrance":      "soccer_france_d1_feminine",
+    "wseriea":      "soccer_italy_serie_a_feminine",        # Italy Women's
+    "witaly":       "soccer_italy_serie_a_feminine",
     # ── Golf ─────────────────────────────────────────────────────────────────
     "golf":         "golf_pga_tour",
     "pga":          "golf_pga_tour",
@@ -160,10 +172,17 @@ SPORTS = {
     "wusopen":      "tennis_wta_us_open",
     "ausopen":      "tennis_atp_australian_open",
     "wausopen":     "tennis_wta_australian_open",
-    # ── Aussie Rules + Rugby ──────────────────────────────────────────────────
+    # ── Aussie Rules + Rugby (Men's + Women's) ───────────────────────────────
     "afl":          "aussierules_afl",
+    "aflw":         "aussierules_aflw",          # Women's AFL
     "rugbywc":      "rugbyunion_world_cup",
+    "wrugbywc":     "rugbyunion_women_world_cup",# Women's Rugby World Cup
     "nrl":          "rugbyleague_nrl",
+    # ── Cricket (Men's + Women's) ─────────────────────────────────────────────
+    "cricket":      "cricket_icc_world_cup",
+    "ipl":          "cricket_ipl",
+    "wcricket":     "cricket_icc_womens_t20_wc", # Women's T20 World Cup
+    "wt20":         "cricket_icc_womens_t20_wc",
 }
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]

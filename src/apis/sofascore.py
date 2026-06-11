@@ -66,6 +66,11 @@ SPORT_MAP = {
     "soccer_usa_nwsl":                       "football",
     "soccer_fifa_womens_world_cup":          "football",
     "soccer_uefa_womens_champs_league":      "football",
+    "soccer_england_wsl":                    "football",
+    "soccer_germany_frauen_bundesliga":      "football",
+    "soccer_spain_liga_f":                   "football",
+    "soccer_france_d1_feminine":             "football",
+    "soccer_italy_serie_a_feminine":         "football",
     # ── Golf ─────────────────────────────────────────────────────────────────
     "golf_pga_tour":                         "golf",
     "golf_masters_tournament":               "golf",
@@ -85,10 +90,19 @@ SPORT_MAP = {
     "tennis_wta_us_open":                    "tennis",
     "tennis_atp_australian_open":            "tennis",
     "tennis_wta_australian_open":            "tennis",
-    # ── Aussie Rules + Rugby ──────────────────────────────────────────────────
+    # ── Women's Hockey ────────────────────────────────────────────────────────
+    "icehockey_pwhl":                        "ice-hockey",
+    # ── Aussie Rules (Men's + Women's) ───────────────────────────────────────
     "aussierules_afl":                       "australian-football",
+    "aussierules_aflw":                      "australian-football",
+    # ── Rugby (Men's + Women's) ───────────────────────────────────────────────
     "rugbyunion_world_cup":                  "rugby",
+    "rugbyunion_women_world_cup":            "rugby",
     "rugbyleague_nrl":                       "rugby-league",
+    # ── Cricket (Men's + Women's) ─────────────────────────────────────────────
+    "cricket_icc_world_cup":                 "cricket",
+    "cricket_ipl":                           "cricket",
+    "cricket_icc_womens_t20_wc":             "cricket",
 }
 
 _HEADERS = {

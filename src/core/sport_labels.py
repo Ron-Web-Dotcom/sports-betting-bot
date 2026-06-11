@@ -36,6 +36,13 @@ SPORT_EMOJI: dict[str, str] = {
     "soccer_usa_nwsl":                       "⚽",
     "soccer_fifa_womens_world_cup":          "⚽",
     "soccer_uefa_womens_champs_league":      "⚽",
+    "soccer_england_wsl":                    "⚽",
+    "soccer_germany_frauen_bundesliga":      "⚽",
+    "soccer_spain_liga_f":                   "⚽",
+    "soccer_france_d1_feminine":             "⚽",
+    "soccer_italy_serie_a_feminine":         "⚽",
+    # Women's Hockey
+    "icehockey_pwhl":                        "🏒",
     # Golf
     "golf_pga_tour":                         "⛳",
     "golf_masters_tournament":               "⛳",
@@ -56,10 +63,17 @@ SPORT_EMOJI: dict[str, str] = {
     "tennis_wta_wimbledon":                  "🎾",
     "tennis_wta_us_open":                    "🎾",
     "tennis_wta_australian_open":            "🎾",
-    # Aussie Rules + Rugby
+    # Aussie Rules (men's + women's)
     "aussierules_afl":                       "🏉",
+    "aussierules_aflw":                      "🏉",
+    # Rugby (men's + women's)
     "rugbyunion_world_cup":                  "🏉",
+    "rugbyunion_women_world_cup":            "🏉",
     "rugbyleague_nrl":                       "🏉",
+    # Cricket (men's + women's)
+    "cricket_icc_world_cup":                 "🏏",
+    "cricket_ipl":                           "🏏",
+    "cricket_icc_womens_t20_wc":             "🏏",
 }
 
 SPORT_NAME: dict[str, str] = {
@@ -98,6 +112,13 @@ SPORT_NAME: dict[str, str] = {
     "soccer_usa_nwsl":                       "NWSL",
     "soccer_fifa_womens_world_cup":          "Women's World Cup",
     "soccer_uefa_womens_champs_league":      "Women's UCL",
+    "soccer_england_wsl":                    "WSL (Women's)",
+    "soccer_germany_frauen_bundesliga":      "Frauen-Bundesliga",
+    "soccer_spain_liga_f":                   "Liga F (Women's)",
+    "soccer_france_d1_feminine":             "D1 Féminine",
+    "soccer_italy_serie_a_feminine":         "Serie A Femminile",
+    # Women's Hockey
+    "icehockey_pwhl":                        "PWHL",
     # Golf
     "golf_pga_tour":                         "PGA Tour",
     "golf_masters_tournament":               "The Masters",
@@ -118,10 +139,17 @@ SPORT_NAME: dict[str, str] = {
     "tennis_wta_wimbledon":                  "Wimbledon (W)",
     "tennis_wta_us_open":                    "US Open (W)",
     "tennis_wta_australian_open":            "Australian Open (W)",
-    # Aussie Rules + Rugby
+    # Aussie Rules (men's + women's)
     "aussierules_afl":                       "AFL",
+    "aussierules_aflw":                      "AFLW (Women's)",
+    # Rugby (men's + women's)
     "rugbyunion_world_cup":                  "Rugby World Cup",
+    "rugbyunion_women_world_cup":            "Women's Rugby World Cup",
     "rugbyleague_nrl":                       "NRL",
+    # Cricket (men's + women's)
+    "cricket_icc_world_cup":                 "ICC World Cup",
+    "cricket_ipl":                           "IPL",
+    "cricket_icc_womens_t20_wc":             "Women's T20 World Cup",
 }
 
 
