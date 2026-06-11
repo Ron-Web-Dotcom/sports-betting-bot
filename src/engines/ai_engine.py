@@ -76,9 +76,21 @@ Signals aligned → win_probability and confidence:
   5 signals → 0.84-0.90
   6+ signals → 0.90-0.97
 
-STEP 3 — DECIDE:
-  BET  if confidence ≥ 0.75 AND ev_pct > 0
-  PASS if fewer than 3 signals or confidence < 0.75
+STEP 3 — DIG DEEPER IF BORDERLINE:
+  If your initial research puts you at 0.72-0.79, do NOT stop there.
+  Go back and look harder:
+    - Check if there are more recent games you haven't considered
+    - Look for any motivational edges (revenge game, playoff elimination, home crowd)
+    - Check referee/umpire tendencies if relevant
+    - Look at the last 3 games specifically — not just last 10
+    - Check if the line has moved again since opening (late sharp action)
+    - Look at the specific players/matchups more carefully
+  If after digging deeper you can reach 0.80+, do it.
+  If you genuinely cannot get past 0.79 after all that research, it is a PASS.
+
+STEP 4 — DECIDE:
+  BET  if confidence ≥ 0.80 AND ev_pct > 0 AND at least 3 signals fired
+  PASS if you cannot reach 0.80 — do not force it
 
 Return ONLY valid JSON — no markdown, no extra text:
 {
