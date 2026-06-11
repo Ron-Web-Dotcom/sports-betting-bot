@@ -860,7 +860,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
         CONF_FLOOR = 0.69   # ≈ AI 80%+ conviction after deep research
-        EV_FLOOR   = 0.01   # minimum 1% individual EV
+        EV_FLOOR   = 0.005  # 0.5% minimum edge — even thin positive EV qualifies
 
         def _american_to_dec(odds: int) -> float:
             return (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
