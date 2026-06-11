@@ -401,21 +401,25 @@ def run_full_odds_scan() -> list[dict]:
 
 
 def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
-    """Return {game_id: [snapshot_dicts]} for all open games.
-
-    Each dict includes game-level fields (sport_key, home_team, away_team,
-    commence_time) so callers don't need a separate Game lookup.
-    """
+    """Return {game_id: [snapshot_dicts]} for games commencing TODAY only (within 24 h)."""
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
-    from datetime import timedelta
+    from datetime import timedelta, timezone
+
+    now_utc    = datetime.now(timezone.utc)
+    cutoff_lo  = now_utc - timedelta(hours=2)          # snapshots captured recently
+    cutoff_hi  = now_utc + timedelta(hours=24)         # games starting within 24 h
 
     result: dict[int, list[dict]] = {}
     with get_db() as db:
         rows = (
             db.query(OddsSnapshot, Game)
             .join(Game, Game.id == OddsSnapshot.game_id)
-            .filter(OddsSnapshot.captured_at >= et_naive() - timedelta(hours=2))
+            .filter(
+                OddsSnapshot.captured_at >= cutoff_lo,
+                Game.commence_time != None,
+                Game.commence_time <= cutoff_hi,        # ← only today's games
+            )
             .all()
         )
         for snap, game in rows:

@@ -89,8 +89,12 @@ def generate_picks():
 
             # Use Sofascore's exact kick-off time if available, else fall back to Odds API
             commence  = _sf_enrich(home_team, away_team, str(best_snap.get("commence_time", "")))
-            event     = {"sport_key": sport_key, "home_team": home_team,
-                         "away_team": away_team, "commence_time": commence}
+            from datetime import datetime as _dt
+            import zoneinfo as _zi
+            _today = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%A %B %-d, %Y")
+            event  = {"sport_key": sport_key, "home_team": home_team,
+                      "away_team": away_team, "commence_time": commence,
+                      "game_date": _today}
             game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
             odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
             try:

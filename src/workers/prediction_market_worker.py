@@ -168,7 +168,7 @@ Return ONLY valid JSON:
 {
   "index": <int>,
   "team": "<team name to back>",
-  "question": "<Kalshi-style YES/NO question e.g. 'Will the New York Knicks win Game 3 tonight?'>",
+  "question": "<Kalshi-style YES/NO question based on the actual game, e.g. 'Will [Team] win tonight?' or 'Will [Team] win Game [N]?' — use the real game number if it's a playoff series>",
   "true_prob": <float 0.0-1.0>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
@@ -193,12 +193,17 @@ Only pick if confidence >= 0.65 and ev_pct >= 0.04. Return {"index": null} if no
         for i, g in enumerate(candidates[:40])
     ]
 
+    from datetime import datetime
+    import zoneinfo
+    today_str = datetime.now(zoneinfo.ZoneInfo("America/New_York")).strftime("%A %B %-d, %Y")
+
     prompt = (
-        f"Today's live games ({len(game_list)} games):\n\n"
+        f"Today is {today_str}. These are the games being played TODAY:\n\n"
         f"```json\n{_json.dumps(game_list, indent=2)}\n```\n\n"
         f"Research each game deeply using your training knowledge (injuries, form, H2H, "
-        f"matchup edges, playoff context if applicable). Then pick the single game where "
-        f"you have the most confident edge for a Kalshi YES/NO contract."
+        f"matchup edges, playoff context if applicable). Write the question based on the "
+        f"ACTUAL game — use the real series game number if it's playoffs, do not guess. "
+        f"Pick the single game where you have the most confident edge for a Kalshi YES/NO contract."
     )
 
     try:
