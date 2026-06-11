@@ -787,13 +787,23 @@ def _generate_hardrock_entry(period: str) -> dict:
         raw_props = _build_prop_candidates(sofascore_events)
         pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
 
-        # Thresholds — a pick must clear BOTH to be included.
-        # Set low enough that we almost always find at least 1 pick,
-        # but the second leg still needs a bit more confidence than the first.
-        CONF_FLOOR    = 0.65   # ≈ AI 77%+ conviction — posts almost every day
-        EV_FLOOR      = 0.01   # minimum 1% positive EV
-        CONF_SECOND   = 0.68   # ≈ AI 81%+ conviction for second leg
-        EV_SECOND     = 0.015  # second leg needs a bit more edge
+        # Every pick must independently justify its inclusion.
+        # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
+        # If adding a second leg makes the parlay EV negative, post the single instead.
+        CONF_FLOOR = 0.65   # ≈ AI 77%+ conviction after deep research
+        EV_FLOOR   = 0.01   # minimum 1% individual EV
+
+        def _american_to_dec(odds: int) -> float:
+            return (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
+
+        def _parlay_is_profitable(picks: list[dict]) -> bool:
+            """Return True only if combined_win_prob × parlay_decimal_payout > 1."""
+            combined_win_prob = 1.0
+            combined_dec      = 1.0
+            for p in picks:
+                combined_win_prob *= p["confidence"]
+                combined_dec      *= _american_to_dec(int(p["best_odds"]))
+            return combined_win_prob * combined_dec > 1.0
 
         entry: list[dict]            = []
         blocked_event_keys: set[str] = set()
@@ -806,13 +816,13 @@ def _generate_hardrock_entry(period: str) -> dict:
             conf = pick["confidence"]
             ev   = pick.get("ev_pct", 0)
 
-            # Apply the right threshold depending on whether this is the 1st or 2nd pick
-            if len(entry) == 0:
-                if conf < CONF_FLOOR or ev < EV_FLOOR:
-                    continue
-            else:
-                if conf < CONF_SECOND or ev < EV_SECOND:
-                    continue
+            if conf < CONF_FLOOR or ev < EV_FLOOR:
+                continue
+
+            # Before adding a second leg, verify the PARLAY as a whole is still profitable.
+            # If it isn't, skip this pick — better to post the single.
+            if entry and not _parlay_is_profitable(entry + [pick]):
+                continue
 
             if pick["type"] == "prop":
                 player_key = pick["player"].lower()

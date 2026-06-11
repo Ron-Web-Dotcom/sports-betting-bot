@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 # line_movement and news_impact are centered at 0.5 (neutral) so when no sharp
 # data exists they don't drag the AI's conviction down.
 WEIGHTS = {
-    "ai_prob":        0.75,   # AI deep-research conviction is the anchor
-    "model_consensus":0.15,
+    "ai_prob":        0.85,   # deep research win probability is the primary anchor
+    "model_consensus":0.05,   # minor secondary signal (same AI source, low weight)
     "line_movement":  0.06,   # centered: 0.5=neutral, >0.5=boost, <0.5=penalty
     "news_impact":    0.04,   # centered: 0.5=neutral, >0.5=boost, <0.5=penalty
     "calibration":    0.10,   # kept for backward compat — not used in raw sum
