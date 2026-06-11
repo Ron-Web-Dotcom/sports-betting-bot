@@ -49,7 +49,7 @@ def build_game_context(
         "injuries_espn_home":  (_fetch_injuries_espn,   (sport_key,)),
         "news_espn":           (_fetch_news_espn,        (sport_key,)),
         "scoreboard":          (_fetch_scoreboard_espn,  (sport_key,)),
-        # StatMuse disabled — VPS datacenter IPs return 403; OpenAI has built-in player knowledge
+        # StatMuse disabled — VPS datacenter IPs return 403; Sofascore + Sportradar cover H2H/form
         "sharp_action":        (_fetch_sharp_action,     (sport_key, home_team, away_team)),
         "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
         "trending_players":    (_fetch_trending,          (sport_key,)),
@@ -58,6 +58,8 @@ def build_game_context(
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
         # Exchange / prediction markets
         "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
+        # Sportradar — real H2H, recent form, injuries (requires SPORTRADAR_API_KEY in .env)
+        "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -217,6 +219,11 @@ def _fetch_kalshi_markets(sport_key: str) -> list:
     from src.apis.kalshi import get_markets
     return get_markets(sport_key, limit=50)
 
+def _fetch_sportradar_game(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.sportradar import enrich_game_context
+    result = enrich_game_context(sport_key, home_team, away_team)
+    return result if result.get("available") else {}
+
 def _fetch_prizepicks_props(sport_key: str, home_team: str, away_team: str) -> list:
     from src.apis.prizepicks import get_projections
     props = get_projections(sport_key)
@@ -267,6 +274,7 @@ def _score_completeness(context: dict) -> float:
     ]
     # Bonus sources (each adds depth without penalising missing keys)
     bonus = 0.0
+    if context.get("sportradar"):       bonus += 0.20  # real H2H, form, injuries — major boost
     if context.get("sportsdataio"):     bonus += 0.10  # standings + injuries + team stats
     if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
     core_score = sum(core) / len(core)

@@ -30,6 +30,9 @@ def _optional(name: str, default: str = "") -> str:
 OPENAI_API_KEY      = _require("OPENAI_API_KEY")
 ODDS_API_KEY        = _require("ODDS_API_KEY")
 
+# Optional premium data source — degrades gracefully if not set
+SPORTRADAR_API_KEY  = _optional("SPORTRADAR_API_KEY")
+
 # Discord — webhook URL only; no bot token or guild ID needed
 DISCORD_WEBHOOK_URL = _optional("DISCORD_WEBHOOK_URL")
 
@@ -187,6 +190,7 @@ PROXY_BYPASS_HOSTS = {
     "api.sleeper.app",
     "site.api.espn.com",
     "api.underdogfantasy.com",   # works direct — blocks proxy IPs
+    "api.sportradar.com",        # key-authenticated — bypass proxy
 }
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────

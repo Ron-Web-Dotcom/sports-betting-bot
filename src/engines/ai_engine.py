@@ -163,17 +163,31 @@ def analyse_pick(
     }
 
     if game_context:
-        # StatMuse is blocked on VPS — fall back to Sofascore H2H + form (same data, different source)
-        sf = game_context.get("sofascore") or {}
-        payload["head_to_head"]   = (game_context.get("h2h_statmuse")
-                                     or sf.get("h2h") or [])
-        payload["recent_form"]    = (game_context.get("home_form_statmuse")
-                                     or sf.get("form") or {})
-        payload["sharp_action"]   = game_context.get("sharp_action", {})
-        payload["weather"]        = game_context.get("weather", {})
-        payload["data_quality"]   = game_context.get("data_completeness", 1.0)
-        payload["sources"]        = game_context.get("sources_used", [])
-        # Pass additional context sources for deeper research
+        # Build H2H from best available source: Sportradar > Sofascore > StatMuse (disabled)
+        sr  = game_context.get("sportradar") or {}
+        sf  = game_context.get("sofascore")  or {}
+        payload["head_to_head"] = (
+            sr.get("h2h") or
+            game_context.get("h2h_statmuse") or
+            sf.get("h2h") or []
+        )
+        payload["home_form"] = (
+            sr.get("home_form") or
+            game_context.get("home_form_statmuse") or
+            sf.get("form") or {}
+        )
+        payload["away_form"] = (
+            sr.get("away_form") or
+            game_context.get("away_form_statmuse") or {}
+        )
+        payload["sharp_action"]  = game_context.get("sharp_action", {})
+        payload["weather"]       = game_context.get("weather", {})
+        payload["data_quality"]  = game_context.get("data_completeness", 1.0)
+        payload["sources"]       = game_context.get("sources_used", [])
+        # Sportradar injuries (most accurate, real-time)
+        if sr.get("injuries"):
+            payload["sportradar_injuries"] = sr["injuries"]
+        # Additional sources
         if game_context.get("nba_stats"):
             payload["nba_team_stats"] = game_context["nba_stats"]
         if game_context.get("sportsdataio"):
