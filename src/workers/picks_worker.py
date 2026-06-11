@@ -541,31 +541,6 @@ def _build_hardrock_candidates(
         if not ai:
             continue
 
-        # ── Dig deeper if borderline (0.72–0.79) ─────────────────────────────
-        # If AI is close but not there yet, run a Perplexity web search for
-        # breaking news/injuries/lineup on this specific game, then re-ask.
-        win_prob = ai.get("win_probability", 0)
-        if 0.69 <= win_prob <= 0.76:
-            try:
-                from src.apis.websearch import search_game_news
-                from datetime import datetime as _dt
-                import zoneinfo as _zi
-                _today = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%B %d, %Y")
-                web_news = search_game_news(home_team, away_team, sport_key, _today)
-                if web_news:
-                    logger.info(
-                        "Dig deeper [%s vs %s]: web search triggered (win_prob=%.2f)",
-                        away_team, home_team, win_prob,
-                    )
-                    # Inject web search findings into context and re-analyse
-                    enriched_context = {**game_context, "web_search_news": web_news}
-                    enriched_news    = hub_news + [{"headline": web_news, "source": "perplexity"}]
-                    ai2 = analyse_pick(event, all_injuries, enriched_news, odds_by_book, enriched_context)
-                    if ai2:
-                        ai = ai2   # use deeper analysis result
-            except Exception as _ws_err:
-                logger.warning("Web search dig-deeper failed: %s", _ws_err)
-
         best_odds_val = best_snap.get("best_odds", -110)
         opp_prob      = ai.get("opponent_probability")
         opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
@@ -720,25 +695,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         }
         ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, player_ctx)
 
-        if not ai:
-            continue
-
-        # Dig deeper on borderline prop picks via Perplexity web search
-        if ai and 0.69 <= ai.get("win_probability", 0) <= 0.76:
-            try:
-                from src.apis.websearch import search_player_news
-                web_news = search_player_news(player, stat, sport_key)
-                if web_news:
-                    logger.info("Dig deeper prop [%s %s]: web search triggered", player, stat)
-                    enriched_ctx = {**player_ctx, "web_search_news": web_news}
-                    ai2 = analyse_pick(event, [], [{"headline": web_news, "source": "perplexity"}],
-                                       {direction: prop["best_odds"]}, enriched_ctx)
-                    if ai2:
-                        ai = ai2
-            except Exception as _ws_err:
-                logger.warning("Web search prop dig-deeper failed: %s", _ws_err)
-
-        if ai.get("recommendation") == "PASS" or not ai.get("should_bet", True):
+        if not ai or ai.get("recommendation") == "PASS" or not ai.get("should_bet", True):
             continue
 
         conf      = ai.get("win_probability", prop["raw_prob"])
@@ -954,27 +911,132 @@ def _generate_hardrock_entry(period: str) -> dict:
             entry.append(pick)
 
         if len(entry) < 1:
+            # ── LAST RESORT: Perplexity web search ───────────────────────────
+            # Only fires when everything else (Sofascore + Sportradar + ESPN +
+            # Action Network) was not enough. Takes the top 2 closest candidates
+            # and gives them one final chance with fresh web research.
             best_conf = round(max((p["confidence"] for p in pool), default=0) * 100)
-            logger.info("HardRock %s entry: no qualifying picks (best conf found: %d%%)", period, best_conf)
-            # Notify Discord so the user knows the bot ran — silence is worse than "nothing today"
-            try:
-                from src.workers.alert_worker import _run_async
-                from src.discord_bot.bot import _post
-                period_emoji = "☀️" if period == "day" else "🌙"
-                period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
-                _run_async(_post({"embeds": [{
-                    "title": f"🎟️  HARDROCK SLIP  ·  {period_emoji} {period_label}",
-                    "description": (
-                        f"No qualifying picks for this session.\n"
-                        f"Best confidence found: **{best_conf}%** — below the 65% floor or no positive EV.\n"
-                        f"_Skipping to protect bankroll — no edge, no bet._"
-                    ),
-                    "color": 0x546E7A,
-                    "footer": {"text": "HardRock Bet  ·  Bet responsibly"},
-                }]}))
-            except Exception as _e:
-                logger.warning("Could not post no-picks alert: %s", _e)
-            return {"picks": 0, "period": period, "posted": False}
+            logger.info(
+                "HardRock %s entry: no qualifying picks after all sources "
+                "(best conf: %d%%) — trying Perplexity last resort",
+                period, best_conf,
+            )
+            close_candidates = [
+                p for p in pool
+                if 0.60 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) > 0
+            ][:2]
+
+            if close_candidates:
+                try:
+                    from src.apis.websearch import search_game_news, search_player_news
+                    from src.engines.ai_engine import analyse_pick as _analyse
+                    from src.engines.confidence_engine import compute_confidence as _conf
+                    from src.engines.ev_engine import evaluate as _ev, decimal_to_american as _d2a
+                    from datetime import datetime as _dt
+                    import zoneinfo as _zi
+                    _today = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%B %d, %Y")
+
+                    for candidate in close_candidates:
+                        is_prop = candidate["type"] == "prop"
+
+                        if is_prop:
+                            web_news = search_player_news(
+                                candidate["player"], candidate["stat"],
+                                candidate["sport_key"],
+                            )
+                        else:
+                            web_news = search_game_news(
+                                candidate["home_team"], candidate["away_team"],
+                                candidate["sport_key"], _today,
+                            )
+
+                        if not web_news:
+                            continue
+
+                        logger.info(
+                            "Perplexity last resort [%s]: web search complete",
+                            candidate.get("player") or
+                            f"{candidate.get('away_team')} vs {candidate.get('home_team')}",
+                        )
+
+                        # Re-run AI with web findings injected
+                        enriched_ctx = {"web_search_news": web_news}
+                        if is_prop:
+                            event = {
+                                "sport_key":      candidate["sport_key"],
+                                "prop_player":    candidate["player"],
+                                "prop_stat":      candidate["stat"],
+                                "prop_line":      candidate["line"],
+                                "prop_direction": candidate["direction"],
+                                "description":    f"{candidate['player']} {candidate['stat']} {candidate['direction']} {candidate['line']}",
+                            }
+                            ai2 = _analyse(event, [], [{"headline": web_news, "source": "perplexity"}],
+                                           {candidate["direction"]: candidate["best_odds"]}, enriched_ctx)
+                            if not ai2 or not ai2.get("should_bet") or ai2.get("recommendation") == "PASS":
+                                continue
+                            new_conf = ai2.get("win_probability", 0)
+                            new_ev   = ai2.get("ev_pct", candidate["ev_pct"])
+                        else:
+                            event = {
+                                "sport_key":    candidate["sport_key"],
+                                "home_team":    candidate["home_team"],
+                                "away_team":    candidate["away_team"],
+                                "commence_time":candidate["commence_time"],
+                            }
+                            ai2 = _analyse(event, [], [{"headline": web_news, "source": "perplexity"}],
+                                           candidate["books_odds"], enriched_ctx)
+                            if not ai2 or not ai2.get("should_bet") or ai2.get("recommendation") == "PASS":
+                                continue
+                            conf_result = _conf(
+                                ai_win_prob          = ai2.get("win_probability", 0.5),
+                                model_consensus      = ai2.get("confidence", 0.5),
+                                line_movement_score  = 0.5,
+                                news_impact_score    = 0.5,
+                                sport                = candidate["sport_key"],
+                                market               = candidate.get("market", "h2h"),
+                            )
+                            new_conf = conf_result.calibrated_score
+                            new_ev   = candidate["ev_pct"]
+
+                        if new_conf >= CONF_FLOOR and new_ev >= EV_FLOOR:
+                            updated = {
+                                **candidate,
+                                "confidence": new_conf,
+                                "ev_pct":     new_ev,
+                                "score":      new_conf * (1 + new_ev),
+                                "reasoning":  ai2.get("reasoning", candidate.get("reasoning", "")),
+                            }
+                            entry.append(updated)
+                            logger.info(
+                                "Perplexity last resort: %s qualified at conf=%.2f",
+                                candidate.get("player") or
+                                f"{candidate.get('away_team')} vs {candidate.get('home_team')}",
+                                new_conf,
+                            )
+                            break  # one good pick is enough from last resort
+
+                except Exception as _lr_err:
+                    logger.warning("Perplexity last resort failed: %s", _lr_err)
+
+            if len(entry) < 1:
+                try:
+                    from src.workers.alert_worker import _run_async
+                    from src.discord_bot.bot import _post
+                    period_emoji = "☀️" if period == "day" else "🌙"
+                    period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
+                    _run_async(_post({"embeds": [{
+                        "title": f"🎟️  HARDROCK SLIP  ·  {period_emoji} {period_label}",
+                        "description": (
+                            f"No qualifying picks after all research including web search.\n"
+                            f"Best confidence found: **{best_conf}%** — not enough edge today.\n"
+                            f"_Protecting bankroll — no edge, no bet._"
+                        ),
+                        "color": 0x546E7A,
+                        "footer": {"text": "HardRock Bet  ·  Bet responsibly"},
+                    }]}))
+                except Exception as _e:
+                    logger.warning("Could not post no-picks alert: %s", _e)
+                return {"picks": 0, "period": period, "posted": False}
 
         _post_hardrock_embed(period, entry)
 
