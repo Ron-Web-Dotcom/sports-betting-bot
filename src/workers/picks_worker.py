@@ -541,6 +541,31 @@ def _build_hardrock_candidates(
         if not ai:
             continue
 
+        # ── Dig deeper if borderline (0.72–0.79) ─────────────────────────────
+        # If AI is close but not there yet, run a Perplexity web search for
+        # breaking news/injuries/lineup on this specific game, then re-ask.
+        win_prob = ai.get("win_probability", 0)
+        if 0.72 <= win_prob <= 0.79:
+            try:
+                from src.apis.websearch import search_game_news
+                from datetime import datetime as _dt
+                import zoneinfo as _zi
+                _today = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%B %d, %Y")
+                web_news = search_game_news(home_team, away_team, sport_key, _today)
+                if web_news:
+                    logger.info(
+                        "Dig deeper [%s vs %s]: web search triggered (win_prob=%.2f)",
+                        away_team, home_team, win_prob,
+                    )
+                    # Inject web search findings into context and re-analyse
+                    enriched_context = {**game_context, "web_search_news": web_news}
+                    enriched_news    = hub_news + [{"headline": web_news, "source": "perplexity"}]
+                    ai2 = analyse_pick(event, all_injuries, enriched_news, odds_by_book, enriched_context)
+                    if ai2:
+                        ai = ai2   # use deeper analysis result
+            except Exception as _ws_err:
+                logger.warning("Web search dig-deeper failed: %s", _ws_err)
+
         best_odds_val = best_snap.get("best_odds", -110)
         opp_prob      = ai.get("opponent_probability")
         opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
@@ -695,7 +720,25 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         }
         ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, player_ctx)
 
-        if not ai or ai.get("recommendation") == "PASS" or not ai.get("should_bet", True):
+        if not ai:
+            continue
+
+        # Dig deeper on borderline prop picks via Perplexity web search
+        if ai and 0.72 <= ai.get("win_probability", 0) <= 0.79:
+            try:
+                from src.apis.websearch import search_player_news
+                web_news = search_player_news(player, stat, sport_key)
+                if web_news:
+                    logger.info("Dig deeper prop [%s %s]: web search triggered", player, stat)
+                    enriched_ctx = {**player_ctx, "web_search_news": web_news}
+                    ai2 = analyse_pick(event, [], [{"headline": web_news, "source": "perplexity"}],
+                                       {direction: prop["best_odds"]}, enriched_ctx)
+                    if ai2:
+                        ai = ai2
+            except Exception as _ws_err:
+                logger.warning("Web search prop dig-deeper failed: %s", _ws_err)
+
+        if ai.get("recommendation") == "PASS" or not ai.get("should_bet", True):
             continue
 
         conf      = ai.get("win_probability", prop["raw_prob"])

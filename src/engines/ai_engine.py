@@ -196,6 +196,9 @@ def analyse_pick(
             payload["rotowire_injuries"] = game_context["rotowire_injuries"]
         if game_context.get("sleeper_injuries"):
             payload["sleeper_trending_drops"] = game_context["sleeper_injuries"]
+        # Perplexity web search results — breaking news injected when borderline
+        if game_context.get("web_search_news"):
+            payload["breaking_news_web_search"] = game_context["web_search_news"]
 
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)
