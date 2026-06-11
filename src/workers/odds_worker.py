@@ -14,7 +14,19 @@ def _is_sleep_time() -> bool:
     return 3 <= et.hour < 5
 
 
+def _odds_window() -> bool:
+    """Odds scan runs 6 AM–2:30 AM ET only. Saves credits during true dead hours."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    # Allow 6 AM through 2:30 AM next day (2 = hour, 30 = minute cutoff)
+    return not (2 < et.hour < 6)
+
+
 def scan_and_save_odds():
+    if not _odds_window():
+        logger.debug("scan_and_save_odds: dead hours (2:30–6 AM ET), skipping")
+        return {"skipped": "dead_hours"}
     if _is_sleep_time():
         logger.debug("scan_and_save_odds: sleep window active, skipping")
         return {"skipped": "sleep_mode"}
@@ -190,6 +202,15 @@ def refresh_active_sports():
         return {"error": str(e)}
 
 
+def _props_window() -> bool:
+    """Props are only posted by bookmakers between 8 AM and 11 PM ET.
+    No point scanning outside that window — saves API credits."""
+    from datetime import datetime
+    import zoneinfo
+    et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    return 8 <= et.hour < 23
+
+
 def scan_player_props():
     """
     Scan all prop and market sources.
@@ -203,6 +224,9 @@ def scan_player_props():
 
     Results cached in Redis for picks_worker.
     """
+    if not _props_window():
+        logger.debug("scan_player_props: outside props window (8 AM–11 PM ET), skipping")
+        return {"skipped": "outside_props_window"}
     if _is_sleep_time():
         logger.debug("scan_player_props: sleep window active, skipping")
         return {"skipped": "sleep_mode"}
