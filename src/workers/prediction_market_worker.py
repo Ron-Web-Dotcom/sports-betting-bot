@@ -89,9 +89,28 @@ def _better_platform(km: dict, pm: dict) -> tuple[str, dict]:
 # ── Build the entry ────────────────────────────────────────────────────────────
 
 def _fetch_todays_games() -> list[dict]:
-    """Pull today's games from Odds API snapshots in the DB."""
+    """
+    Pull today's games: Sofascore confirms which games are TODAY,
+    Odds API snapshots provide the moneyline odds for those games only.
+    """
     try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
+        from src.core.config import REDIS_URL
+        import redis as _redis, json as _json2
+
+        # Load Sofascore's confirmed today list (populated by scan_todays_games at 8 AM + 2 PM)
+        sofascore_teams: set[str] = set()
+        try:
+            r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+            for key in ("sofascore:day_games", "sofascore:night_games"):
+                raw = r.get(key)
+                if raw:
+                    for ev in _json2.loads(raw):
+                        sofascore_teams.add(ev.get("home_team", "").lower())
+                        sofascore_teams.add(ev.get("away_team", "").lower())
+        except Exception:
+            pass  # if Redis is down fall through to odds-only
+
         snapshots = get_latest_snapshots_by_game()
         games = {}
         for game_id, snaps in snapshots.items():
@@ -103,6 +122,13 @@ def _fetch_todays_games() -> list[dict]:
             sport = s.get("sport_key", "")
             if not home or not away:
                 continue
+
+            # Only include if Sofascore confirms these teams play today
+            if sofascore_teams and \
+               home.lower() not in sofascore_teams and \
+               away.lower() not in sofascore_teams:
+                continue
+
             home_odds = next((x["best_odds"] for x in snaps
                               if x.get("market") == "h2h" and x.get("selection") == home), None)
             away_odds = next((x["best_odds"] for x in snaps

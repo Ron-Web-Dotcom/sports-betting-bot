@@ -401,14 +401,21 @@ def run_full_odds_scan() -> list[dict]:
 
 
 def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
-    """Return {game_id: [snapshot_dicts]} for games commencing TODAY only (within 24 h)."""
+    """Return {game_id: [snapshot_dicts]} for games commencing TODAY (ET date only)."""
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
-    from datetime import timedelta, timezone
+    from datetime import timedelta, timezone, date
+    import zoneinfo
 
-    now_utc    = datetime.now(timezone.utc)
-    cutoff_lo  = now_utc - timedelta(hours=2)          # snapshots captured recently
-    cutoff_hi  = now_utc + timedelta(hours=24)         # games starting within 24 h
+    ET      = zoneinfo.ZoneInfo("America/New_York")
+    now_et  = datetime.now(ET)
+    # Today's window: midnight ET → 11:59 PM ET
+    today_start = datetime.combine(now_et.date(), datetime.min.time()).replace(tzinfo=ET)
+    today_end   = today_start + timedelta(hours=24)
+    # Convert to UTC for DB comparison (commence_time stored in UTC)
+    start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc   = today_end.astimezone(timezone.utc).replace(tzinfo=None)
+    cutoff_lo = et_naive() - timedelta(hours=2)   # snapshot must be recent
 
     result: dict[int, list[dict]] = {}
     with get_db() as db:
@@ -418,7 +425,8 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
             .filter(
                 OddsSnapshot.captured_at >= cutoff_lo,
                 Game.commence_time != None,
-                Game.commence_time <= cutoff_hi,        # ← only today's games
+                Game.commence_time >= start_utc,    # not before today ET
+                Game.commence_time <  end_utc,      # not tomorrow ET
             )
             .all()
         )
