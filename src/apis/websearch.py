@@ -16,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.perplexity.ai"
-_MODEL = "llama-3.1-sonar-large-128k-online"
+_MODEL = "sonar"
 
 
 def _ask(prompt: str) -> str:
