@@ -64,52 +64,91 @@ def _find_abbr(team_name: str, league: str) -> str | None:
     return None
 
 
+def _extract_entries(data: dict) -> list:
+    """Extract standings entries from ESPN API response (handles multiple structures)."""
+    entries = []
+
+    # Structure 1: data.children[].standings.entries[]
+    for group in data.get("children", []):
+        for sub in group.get("children", []) or [group]:
+            for e in sub.get("standings", {}).get("entries", []):
+                entries.append(e)
+        # Also try direct standings on group
+        for e in group.get("standings", {}).get("entries", []):
+            entries.append(e)
+
+    # Structure 2: data.standings.entries[]
+    if not entries:
+        entries = data.get("standings", {}).get("entries", [])
+
+    # Structure 3: data.entries[]
+    if not entries:
+        entries = data.get("entries", [])
+
+    return entries
+
+
 def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> dict:
     """
-    Pull team record and recent form from ESPN standings + scoreboard.
+    Pull team record and recent form from ESPN standings.
     Returns: last_10_record, wins, losses, streak, win_pct
     """
-    slug  = _SPORT_SLUG.get(league, "basketball/nba")
-    abbr  = _find_abbr(team_name, league)
+    slug = _SPORT_SLUG.get(league, "basketball/nba")
+    abbr = _find_abbr(team_name, league)
 
-    # Get standings — has W, L, streak for every team
     data = _get(f"{_ESPN_BASE}/{slug}/standings")
     if not data:
         return {}
 
-    entries = []
-    for group in data.get("children", []) or [data]:
-        for entry in group.get("standings", {}).get("entries", []):
-            entries.append(entry)
+    entries = _extract_entries(data)
     if not entries:
-        # Some responses have entries at top level
-        entries = data.get("standings", {}).get("entries", [])
+        logger.debug("NBA stats: no entries found in ESPN standings response for %s", league)
+        return {}
 
+    name_l = team_name.lower()
     for entry in entries:
         team_info = entry.get("team", {})
-        t_abbr    = team_info.get("abbreviation", "")
-        t_name    = team_info.get("displayName", "").lower()
+        t_abbr = team_info.get("abbreviation", "")
+        t_name = team_info.get("displayName", "").lower()
+        t_short = team_info.get("shortDisplayName", "").lower()
+        t_nick  = team_info.get("name", "").lower()
 
-        match = (abbr and t_abbr == abbr) or (team_name.lower() in t_name or t_name in team_name.lower())
+        match = (
+            (abbr and t_abbr.upper() == abbr.upper()) or
+            (name_l in t_name) or (t_name in name_l) or
+            (name_l in t_short) or (t_short in name_l) or
+            (t_nick and t_nick in name_l)
+        )
         if not match:
             continue
 
-        stats  = {s["name"]: s.get("displayValue", s.get("value")) for s in entry.get("stats", [])}
-        wins   = int(float(stats.get("wins",   stats.get("win", 0)) or 0))
-        losses = int(float(stats.get("losses", stats.get("loss", 0)) or 0))
-        streak = stats.get("streak", "")
+        # ESPN stats array — field names vary by season/endpoint
+        stats: dict = {}
+        for s in entry.get("stats", []):
+            sname = s.get("name", "")
+            sval  = s.get("displayValue") or s.get("value")
+            stats[sname] = sval
+
+        # Win/loss — ESPN uses several names
+        wins   = int(float(stats.get("wins")   or stats.get("win")    or stats.get("overall_wins")  or 0))
+        losses = int(float(stats.get("losses") or stats.get("loss")   or stats.get("overall_losses") or 0))
+
+        # Streak — may be "streak" or "streakDescription"
+        streak = stats.get("streak") or stats.get("streakDescription") or ""
+
         win_pct = round(wins / (wins + losses), 3) if (wins + losses) > 0 else 0.0
 
         return {
-            "team":            team_info.get("displayName", team_name),
-            "wins":            wins,
-            "losses":          losses,
+            "team":             team_info.get("displayName", team_name),
+            "wins":             wins,
+            "losses":           losses,
             f"last_{n}_record": f"{wins}-{losses}",
-            "win_pct":         win_pct,
-            "streak":          streak,
-            "source":          "espn_standings",
+            "win_pct":          win_pct,
+            "streak":           streak,
+            "source":           "espn_standings",
         }
 
+    logger.debug("NBA stats: team '%s' not found in ESPN standings (%d entries)", team_name, len(entries))
     return {}
 
 
