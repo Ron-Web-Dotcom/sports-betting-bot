@@ -113,9 +113,6 @@ def generate_picks():
             opp_prob      = ai.get("opponent_probability")
             opponent_odds = (decimal_to_american(1.0 / opp_prob)
                              if opp_prob and 0 < opp_prob < 1 else None)
-            ev_result  = evaluate(american_odds=best_odds_val,
-                                   projected_prob=ai.get("win_probability", 0.5),
-                                   opponent_odds=opponent_odds)
             confidence = compute_confidence(
                 ai_win_prob         = ai.get("win_probability", 0.5),
                 model_consensus     = ai.get("confidence", 0.5),
@@ -126,6 +123,10 @@ def generate_picks():
             )
             if confidence.calibrated_score < 0.65:
                 continue
+            # Use calibrated score for EV so edge reflects realistic win probability
+            ev_result  = evaluate(american_odds=best_odds_val,
+                                   projected_prob=confidence.calibrated_score,
+                                   opponent_odds=opponent_odds)
             # Require positive EV — our win probability must beat the market
             if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
                 continue
@@ -545,7 +546,6 @@ def _build_hardrock_candidates(
         opp_prob      = ai.get("opponent_probability")
         opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
 
-        ev_result  = evaluate(american_odds=best_odds_val, projected_prob=ai.get("win_probability", 0.5), opponent_odds=opponent_odds)
         confidence = compute_confidence(
             ai_win_prob         = ai.get("win_probability", 0.5),
             model_consensus     = ai.get("confidence", 0.5),
@@ -557,6 +557,10 @@ def _build_hardrock_candidates(
 
         if confidence.calibrated_score < 0.62:
             continue
+
+        # Use calibrated score (not raw AI prob) so EV reflects realistic edge
+        ev_result = evaluate(american_odds=best_odds_val, projected_prob=confidence.calibrated_score, opponent_odds=opponent_odds)
+
         # Require genuine edge — win probability must beat the vig-free market probability
         if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
             continue
