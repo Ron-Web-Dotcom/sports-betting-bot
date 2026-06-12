@@ -97,8 +97,40 @@ _team_id_cache: dict[str, str] = {}
 
 
 def _get(path: str) -> dict | None:
-    from src.apis.base import get_json
-    return get_json(f"{_BASE}{path}")
+    """
+    Fetch from TheSportsDB.
+    Strategy: direct first (fast, confirmed VPS-friendly).
+    If blocked (403/None), automatically retry through Decodo proxy,
+    rotating across ports 10001-10010 for each retry.
+    """
+    import httpx
+    from src.apis.base import _HEADERS, _get_direct_client, _get_proxy_client
+
+    url = f"{_BASE}{path}"
+
+    # ── 1. Try direct ─────────────────────────────────────────────────────────
+    try:
+        r = _get_direct_client().get(url)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code not in (403, 429, 503):
+            return None   # definitive error — don't waste proxy credits
+    except Exception:
+        pass  # network error → try proxy
+
+    # ── 2. Proxy fallback — rotate across ports 10001-10010 ──────────────────
+    try:
+        from src.core.config import DECODO_PROXY_URL
+        if not DECODO_PROXY_URL:
+            return None
+        logger.debug("TheSportsDB: direct blocked, retrying via proxy [%s]", path)
+        r = _get_proxy_client(DECODO_PROXY_URL).get(url)
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        logger.debug("TheSportsDB proxy fallback failed: %s", e)
+
+    return None
 
 
 def find_team_id(team_name: str, sport_key: str = "") -> str | None:
