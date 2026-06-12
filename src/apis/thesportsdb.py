@@ -204,6 +204,62 @@ def get_team_form(team_name: str, sport_key: str = "", n: int = 10) -> dict:
     }
 
 
+def find_player_id(player_name: str) -> str | None:
+    """Search TheSportsDB for a player by name, return their idPlayer."""
+    data = _get(f"/searchplayers.php?p={quote(player_name)}")
+    players = (data or {}).get("player") or []
+    if not players:
+        return None
+    return str(players[0].get("idPlayer", ""))
+
+
+def get_player_stats(player_name: str, sport_key: str = "", opponent: str = "") -> dict:
+    """
+    Pull player bio and stats from TheSportsDB.
+    Returns position, nationality, description and any available stat fields.
+    Note: TheSportsDB is not a box-score database — this returns profile/bio data.
+    For game logs use Ball Don't Lie (NBA) or sport-specific APIs.
+    """
+    pid = find_player_id(player_name)
+    if not pid:
+        return {}
+    data = _get(f"/lookupplayer.php?id={pid}")
+    players = (data or {}).get("players") or []
+    if not players:
+        return {}
+    p = players[0]
+    return {
+        "player":       player_name,
+        "position":     p.get("strPosition", ""),
+        "nationality":  p.get("strNationality", ""),
+        "team":         p.get("strTeam", ""),
+        "description":  (p.get("strDescriptionEN") or "")[:300],
+        "source":       "thesportsdb",
+    }
+
+
+def get_player_recent_events(player_name: str, sport_key: str = "", n: int = 5) -> dict:
+    """
+    Pull recent team events for the player's team — used as a proxy for player form.
+    TheSportsDB does not have per-player box scores, but team form reflects context.
+    """
+    # Look up which team the player is on, then pull that team's recent form
+    profile = get_player_stats(player_name, sport_key)
+    team = profile.get("team", "")
+    if not team:
+        return {}
+    form = get_team_form(team, sport_key, n)
+    if not form:
+        return {}
+    return {
+        "player":    player_name,
+        "team":      team,
+        "team_form": form,
+        "note":      "team recent results (player-level game log not available via TheSportsDB)",
+        "source":    "thesportsdb",
+    }
+
+
 def enrich_game_context(sport_key: str, home_team: str, away_team: str) -> dict:
     """
     Pull recent form for both teams in a matchup.

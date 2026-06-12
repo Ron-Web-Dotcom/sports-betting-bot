@@ -261,12 +261,59 @@ def _fetch_underdog_props(sport_key: str, home_team: str, away_team: str) -> lis
 
 def _fetch_bdl_game_log(name: str) -> list:
     from src.apis.balldontlie import search_player, player_game_log
-    from datetime import datetime
     players = search_player(name)
     if not players:
         return []
     pid = players[0].get("id")
     return player_game_log(pid, last_n=10)
+
+
+def _fetch_player_season(player_name: str, sport_key: str) -> dict:
+    """Season stats for a player. Sources: Sportradar (NBA/NFL/NHL), MLB Stats API, TheSportsDB fallback."""
+    try:
+        if sport_key == "baseball_mlb":
+            from src.apis.mlb_stats import get_player_season_stats
+            result = get_player_season_stats(player_name)
+            if result:
+                return result
+        if sport_key in ("basketball_nba", "americanfootball_nfl", "icehockey_nhl"):
+            from src.apis.sportradar import get_player_season_stats
+            result = get_player_season_stats(player_name, sport_key)
+            if result:
+                return result
+    except Exception:
+        pass
+    # Universal fallback — TheSportsDB player search
+    try:
+        from src.apis.thesportsdb import get_player_stats
+        return get_player_stats(player_name, sport_key)
+    except Exception:
+        return {}
+
+
+def _fetch_player_recent(player_name: str, sport_key: str, n_games: int = 5) -> dict:
+    """Recent game log for a player. NBA → Ball Don't Lie. Others → TheSportsDB."""
+    try:
+        if sport_key == "basketball_nba":
+            log = _fetch_bdl_game_log(player_name)
+            if log:
+                return {"games": log[:n_games], "source": "balldontlie"}
+    except Exception:
+        pass
+    try:
+        from src.apis.thesportsdb import get_player_recent_events
+        return get_player_recent_events(player_name, sport_key, n_games)
+    except Exception:
+        return {}
+
+
+def _fetch_player_vs_team(player_name: str, opponent: str, sport_key: str) -> dict:
+    """Historical splits for a player vs a specific opponent — TheSportsDB where possible."""
+    try:
+        from src.apis.thesportsdb import get_player_stats
+        return get_player_stats(player_name, sport_key, opponent=opponent)
+    except Exception:
+        return {}
 
 
 def _score_completeness(context: dict) -> float:
