@@ -44,14 +44,24 @@ def _find_wnba_team_id(team_name: str) -> str | None:
     # Exact match
     if name_l in teams:
         return teams[name_l]
-    # Substring match
+    # Substring / last-word match
     for tname, tid in teams.items():
         if name_l in tname or tname in name_l:
             return tid
-        # Match on last word (e.g. "Fever" matches "Indiana Fever")
         last = name_l.split()[-1] if name_l.split() else ""
-        if last and last in tname:
+        if last and len(last) > 3 and last in tname:
             return tid
+    # Fallback: search endpoint (catches teams missing from search_all_teams)
+    from urllib.parse import quote
+    data = _get_json(f"{_TSDB_BASE}/searchteams.php?t={quote(team_name)}")
+    for t in (data or {}).get("teams") or []:
+        league = (t.get("strLeague") or "").upper()
+        if "WNBA" in league:
+            tid = str(t.get("idTeam", ""))
+            tname = (t.get("strTeam") or "").lower()
+            if tid:
+                _wnba_team_cache[tname] = tid  # cache for next call
+                return tid
     return None
 
 
