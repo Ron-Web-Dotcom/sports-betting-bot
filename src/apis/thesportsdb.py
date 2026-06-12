@@ -46,12 +46,50 @@ _LEAGUE_HINT: dict[str, str] = {
     "soccer_england_wsl":                   "Women's Super League",
     "soccer_mexico_ligamx":                 "Liga MX",
     "soccer_turkey_super_league":           "Turkish Super League",
-    # ── Other ─────────────────────────────────────────────────────────────────
-    "icehockey_pwhl":                       "PWHL",
+    # ── Soccer — Women's Leagues ──────────────────────────────────────────────
+    "soccer_germany_frauen_bundesliga":     "Frauen-Bundesliga",
+    "soccer_spain_liga_f":                  "Liga F",
+    "soccer_france_d1_feminine":            "D1 Féminine",
+    "soccer_italy_serie_a_feminine":        "Serie A Femminile",
+    "soccer_uefa_womens_champs_league":     "UEFA Women's Champions League",
+    # ── Soccer — More Leagues ─────────────────────────────────────────────────
+    "soccer_argentina_primera_division":    "Argentine Primera División",
+    "soccer_brazil_campeonato":             "Brazilian Série A",
+    "soccer_spl":                           "Scottish Premiership",
+    "soccer_africa_cup_of_nations":         "African Cup of Nations",
+    "soccer_conmebol_copa_libertadores":    "Copa Libertadores",
+    # ── Rugby ─────────────────────────────────────────────────────────────────
     "rugbyleague_nrl":                      "NRL",
+    "rugbyunion_world_cup":                 "Rugby World Cup",
+    "rugbyunion_women_world_cup":           "Women's Rugby World Cup",
+    # ── Aussie Rules ──────────────────────────────────────────────────────────
     "aussierules_afl":                      "AFL",
     "aussierules_aflw":                     "AFLW",
+    # ── Hockey ────────────────────────────────────────────────────────────────
+    "icehockey_pwhl":                       "PWHL",
+    # ── Combat Sports ─────────────────────────────────────────────────────────
     "mma_mixed_martial_arts":               "UFC",
+    "boxing_boxing":                        "Boxing",
+    # ── Golf ──────────────────────────────────────────────────────────────────
+    "golf_pga_tour":                        "PGA Tour",
+    "golf_masters_tournament":              "The Masters",
+    "golf_pga_championship":                "PGA Championship",
+    "golf_us_open":                         "US Open Golf",
+    "golf_the_open_championship":           "The Open Championship",
+    "golf_lpga":                            "LPGA Tour",
+    # ── Tennis ────────────────────────────────────────────────────────────────
+    "tennis_atp_french_open":               "French Open",
+    "tennis_wta_french_open":               "French Open",
+    "tennis_atp_wimbledon":                 "Wimbledon",
+    "tennis_wta_wimbledon":                 "Wimbledon",
+    "tennis_atp_us_open":                   "US Open Tennis",
+    "tennis_wta_us_open":                   "US Open Tennis",
+    "tennis_atp_australian_open":           "Australian Open",
+    "tennis_wta_australian_open":           "Australian Open",
+    # ── Cricket ───────────────────────────────────────────────────────────────
+    "cricket_icc_world_cup":                "ICC Cricket World Cup",
+    "cricket_ipl":                          "Indian Premier League",
+    "cricket_icc_womens_t20_wc":            "ICC Women's T20 World Cup",
 }
 
 # In-memory cache: "sport_key:team_name" → team_id
