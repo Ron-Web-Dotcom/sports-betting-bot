@@ -149,10 +149,39 @@ def _cron_matches(hour: int, minute: int, day_of_week, day_of_month, now: dateti
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
 
+# Tasks that must not be missed if the runner restarts mid-day.
+# If runner starts within the catch-up window after the scheduled time, run immediately.
+# Redis dedup prevents double-posting for hardrock entries.
+CATCHUP_TASKS = [
+    # (hour, minute, catch_up_window_minutes, task_name)
+    (8,  0,  120, "scan_todays_games"),
+    (10, 30, 180, "generate_hardrock_day_entry"),
+    (10, 35, 180, "generate_prediction_market_day_entry"),
+    (14, 0,  120, "scan_todays_games"),
+    (16, 30, 180, "generate_hardrock_night_entry"),
+    (16, 35, 180, "generate_prediction_market_night_entry"),
+]
+
+
+def _run_catchup(tasks: dict, now: datetime):
+    """On startup: run any critical task whose window was missed in the last N minutes."""
+    for hour, minute, window, name in CATCHUP_TASKS:
+        scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        elapsed   = (now - scheduled).total_seconds() / 60  # minutes since scheduled time
+        if 0 < elapsed <= window:
+            logger.info("CATCH-UP: %s was scheduled at %02d:%02d, missed by %.0f min — running now", name, hour, minute, elapsed)
+            fn = tasks.get(name)
+            if fn:
+                _run(fn, f"{name} [catch-up]")
+
+
 def main():
     logger.info("Sports Bot runner starting — loading tasks…")
     tasks = _import_tasks()
     logger.info("Tasks loaded: %s", sorted(tasks.keys()))
+
+    # ── Catch-up: run any critical tasks missed due to restart ────────────────
+    _run_catchup(tasks, datetime.now(ET))
 
     # Track last-run time for interval tasks
     last_run: dict[str, float] = {name: 0.0 for _, name in INTERVAL_TASKS}
