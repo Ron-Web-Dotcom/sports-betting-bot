@@ -272,21 +272,22 @@ def _fetch_bdl_game_log(name: str) -> list:
 def _score_completeness(context: dict) -> float:
     """Score how complete the data context is (0.0–1.0).
 
-    Core sources (always expected) count double; premium sources (key-gated)
-    count as bonus so missing keys don't tank the score.
+    Core sources that are realistically available on VPS.
+    sharp_action removed — Action Network is dead (always returns {}).
+    sofascore removed from core — blocked on VPS datacenter IPs.
     """
     core = [
-        bool(context.get("injuries_espn_home")),
-        bool(context.get("sharp_action")),
-        bool(context.get("news_espn")),
-        bool(context.get("sofascore")),
+        bool(context.get("injuries_espn_home")),   # ESPN injuries
+        bool(context.get("news_espn")),             # ESPN news
+        bool(context.get("thesportsdb")),           # team form — all sports
+        bool(context.get("kalshi_markets")),        # prediction markets
     ]
-    # Bonus sources (each adds depth without penalising missing keys)
+    # Premium/variable bonus sources
     bonus = 0.0
-    if context.get("sportradar"):       bonus += 0.20  # real H2H, form, injuries — major boost
-    if context.get("sportsdataio"):     bonus += 0.10  # standings + injuries + team stats
-    if context.get("thesportsdb"):      bonus += 0.15  # universal form/record — all sports
-    if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
+    if context.get("sportradar"):    bonus += 0.25  # H2H, form, injuries (NBA/NFL/NHL)
+    if context.get("sportsdataio"): bonus += 0.10  # standings + injuries
+    if context.get("sofascore"):    bonus += 0.15  # when available (not blocked)
+    if context.get("mlb_stats"):    bonus += 0.15  # MLB pitchers + IL
     core_score = sum(core) / len(core)
     return min(1.0, round(core_score + bonus, 4))
 
