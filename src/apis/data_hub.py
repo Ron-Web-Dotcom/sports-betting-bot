@@ -75,6 +75,10 @@ def build_game_context(
     if sport_key == "baseball_mlb":
         tasks["mlb_stats"] = (_fetch_mlb_stats, (home_team, away_team))
 
+    # WNBA: TheSportsDB for team form (free, VPS-friendly, confirmed working)
+    if sport_key == "basketball_wnba":
+        tasks["nba_stats_api"] = (_fetch_nba_stats_api, (home_team, away_team, "wnba"))
+
     # Run all fetches in parallel — max 4 workers to stay within 1GB VPS RAM
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}

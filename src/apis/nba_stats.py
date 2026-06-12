@@ -1,34 +1,144 @@
 """
-NBA / WNBA stats adapter — delegates to Sportradar.
+NBA / WNBA stats adapter.
 
-All public NBA/WNBA CDN and stats APIs block VPS datacenter IPs.
-Sportradar trial key covers NBA and WNBA and is confirmed working.
-Falls back to {} gracefully if key is missing or team not found.
+NBA  — Sportradar (trial key covers NBA)
+WNBA — TheSportsDB (free, no key, VPS-friendly, confirmed working)
+
+TheSportsDB WNBA: league ID 4516, 10 teams with IDs, last events per team.
 """
 import logging
 
 logger = logging.getLogger(__name__)
 
+_TSDB_BASE = "https://www.thesportsdb.com/api/v1/json/3"
+
+# TheSportsDB WNBA team name → team ID (populated on first use)
+_wnba_team_cache: dict[str, str] = {}
+
+
+def _get_json(url: str) -> dict | None:
+    from src.apis.base import get_json
+    return get_json(url)
+
+
+def _load_wnba_teams() -> dict[str, str]:
+    """Return {team_name_lower: team_id} for all WNBA teams."""
+    global _wnba_team_cache
+    if _wnba_team_cache:
+        return _wnba_team_cache
+    data = _get_json(f"{_TSDB_BASE}/search_all_teams.php?l=WNBA")
+    if not data:
+        return {}
+    for t in (data.get("teams") or []):
+        name = (t.get("strTeam") or "").lower()
+        tid  = t.get("idTeam", "")
+        if name and tid:
+            _wnba_team_cache[name] = str(tid)
+    logger.debug("TheSportsDB WNBA teams loaded: %d", len(_wnba_team_cache))
+    return _wnba_team_cache
+
+
+def _find_wnba_team_id(team_name: str) -> str | None:
+    teams = _load_wnba_teams()
+    name_l = team_name.lower()
+    # Exact match
+    if name_l in teams:
+        return teams[name_l]
+    # Substring match
+    for tname, tid in teams.items():
+        if name_l in tname or tname in name_l:
+            return tid
+        # Match on last word (e.g. "Fever" matches "Indiana Fever")
+        last = name_l.split()[-1] if name_l.split() else ""
+        if last and last in tname:
+            return tid
+    return None
+
+
+def _wnba_form(team_name: str, n: int = 10) -> dict:
+    """Pull WNBA team recent form from TheSportsDB."""
+    team_id = _find_wnba_team_id(team_name)
+    if not team_id:
+        logger.debug("TheSportsDB: WNBA team '%s' not found", team_name)
+        return {}
+
+    data = _get_json(f"{_TSDB_BASE}/eventslast.php?id={team_id}")
+    if not data:
+        return {}
+
+    events = data.get("results") or []
+    results = []
+    wins = losses = 0
+
+    for ev in events[:n]:
+        home = (ev.get("strHomeTeam") or "").lower()
+        away = (ev.get("strAwayTeam") or "").lower()
+        hs   = ev.get("intHomeScore")
+        as_  = ev.get("intAwayScore")
+        if hs is None or as_ is None:
+            continue
+        try:
+            hs, as_ = int(hs), int(as_)
+        except (ValueError, TypeError):
+            continue
+        name_l = team_name.lower()
+        is_home = name_l in home or any(w in home for w in name_l.split())
+        won = (hs > as_) if is_home else (as_ > hs)
+        results.append("W" if won else "L")
+        if won:
+            wins += 1
+        else:
+            losses += 1
+
+    if not results:
+        return {}
+
+    form_str = "".join(results)
+    streak_char = results[0]
+    streak_cnt = 0
+    for r in results:
+        if r == streak_char:
+            streak_cnt += 1
+        else:
+            break
+
+    win_pct = round(wins / (wins + losses), 3) if (wins + losses) > 0 else 0.0
+    return {
+        "team":           team_name,
+        "wins":           wins,
+        "losses":         losses,
+        "last_10_record": f"{wins}-{losses}",
+        "win_pct":        win_pct,
+        "streak":         f"{streak_char}{streak_cnt}",
+        "form":           form_str,
+        "source":         "thesportsdb",
+    }
+
 
 def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> dict:
     """
-    Pull team record and recent form via Sportradar.
-    Returns: wins, losses, last_10_record, win_pct, streak, recent_games
+    Pull team record and recent form.
+    WNBA → TheSportsDB (free, VPS-friendly)
+    NBA  → Sportradar (trial key covers NBA)
     """
-    sport_key = "basketball_wnba" if league == "wnba" else "basketball_nba"
+    if league == "wnba":
+        result = _wnba_form(team_name, n)
+        if result:
+            return result
+        logger.debug("WNBA form not found for '%s'", team_name)
+        return {}
+
+    # NBA via Sportradar
+    sport_key = "basketball_nba"
     try:
         from src.apis.sportradar import get_recent_form
         recent = get_recent_form(sport_key, team_name, n=n)
-
         if not recent:
             return {}
-
-        # get_recent_form returns season_stats dict for NBA/WNBA (single item list)
-        season = recent[0] if recent else {}
-        wins   = int(season.get("wins",   0) or 0)
-        losses = int(season.get("losses", 0) or 0)
+        season  = recent[0] if recent else {}
+        wins    = int(season.get("wins",   0) or 0)
+        losses  = int(season.get("losses", 0) or 0)
         win_pct = round(wins / (wins + losses), 3) if (wins + losses) > 0 else 0.0
-
         return {
             "team":           team_name,
             "wins":           wins,
@@ -44,7 +154,7 @@ def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> di
 
 
 def enrich_game_context(home_team: str, away_team: str, league: str = "nba") -> dict:
-    """Pull NBA/WNBA context for a matchup via Sportradar."""
+    """Pull NBA/WNBA context for a matchup."""
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     tasks = {
