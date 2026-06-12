@@ -209,7 +209,7 @@ PROXY_BYPASS_HOSTS = {
     "gamma-api.polymarket.com",
     "clob.polymarket.com",
     "api.sleeper.app",
-    "site.api.espn.com",
+    # site.api.espn.com removed — ESPN blocks VPS datacenter IPs; route through Decodo residential proxy
     "api.underdogfantasy.com",   # works direct — blocks proxy IPs
     "api.sportradar.com",        # key-authenticated — bypass proxy
     "api.perplexity.ai",         # key-authenticated — bypass proxy
