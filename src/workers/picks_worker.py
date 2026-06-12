@@ -507,6 +507,7 @@ def _build_hardrock_candidates(
     snapshots = get_latest_snapshots_by_game()
     injuries  = get_recent_injuries()
     candidates: list[dict] = []
+    _top_seen_conf: float = 0.0  # track best calibrated score even for rejected picks
 
     # Cap at 25 games per HardRock entry build to stay within 1GB RAM
     for game_id, snap_list in list(snapshots.items())[:25]:
@@ -570,7 +571,14 @@ def _build_hardrock_candidates(
             market              = "h2h",
         )
 
+        _top_seen_conf = max(_top_seen_conf, confidence.calibrated_score)
         if confidence.calibrated_score < 0.765:
+            logger.info(
+                "PASS [%s vs %s] conf=%.1f%% ai_prob=%.1f%% — below threshold",
+                home_team, away_team,
+                confidence.calibrated_score * 100,
+                ai.get("win_probability", 0) * 100,
+            )
             continue
 
         # Use calibrated score (not raw AI prob) so EV reflects realistic edge
@@ -606,6 +614,11 @@ def _build_hardrock_candidates(
             "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
         })
 
+    # Attach best-seen confidence so caller can report it even when no picks qualify
+    if not candidates:
+        candidates.append({"_meta": True, "_top_conf": _top_seen_conf})
+    else:
+        candidates[0]["_top_conf"] = _top_seen_conf
     return candidates
 
 
