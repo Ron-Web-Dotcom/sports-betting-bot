@@ -53,13 +53,17 @@ def _get(path: str, access: str = "trial") -> dict | list | None:
             logger.warning("Sportradar rate limited — backing off 2s")
             time.sleep(2)
             return None
+        if r.status_code == 403:
+            # Trial key doesn't cover this sport/endpoint — skip silently
+            logger.debug("Sportradar 403 (trial key not covering): %s", path)
+            return None
         if r.status_code in (404, 422):
             logger.debug("Sportradar 404/422 for %s (off-season or unknown ID)", path)
             return None
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as e:
-        logger.warning("Sportradar HTTP %s: %s", e.response.status_code, path)
+        logger.debug("Sportradar HTTP %s: %s", e.response.status_code, path)
         return None
     except Exception as e:
         logger.warning("Sportradar fetch failed [%s]: %s", path, e)

@@ -168,12 +168,7 @@ def _fetch_scoreboard_espn(sport_key: str) -> list:
 
 
 def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
-    from src.apis.action_network import get_consensus, detect_sharp_action
-    games = get_consensus(sport_key)
-    for g in games:
-        if home.lower() in g.get("home", "").lower() or away.lower() in g.get("away", "").lower():
-            signals = detect_sharp_action(g)
-            return {"consensus": g, "sharp_signals": signals}
+    # Action Network API is defunct — returns 404 on all endpoints
     return {}
 
 def _fetch_weather(venue: str, game_time: str, sport_key: str) -> dict:
