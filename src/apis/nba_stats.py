@@ -1,159 +1,167 @@
 """
-NBA / WNBA stats adapter — uses ESPN's free public API.
+NBA / WNBA stats adapter — pulls team form from SofaScore.
 
-stats.nba.com blocks VPS IPs (403 WAF).
-Ball Don't Lie now requires a paid key.
-ESPN's public API works from VPS and needs no key.
-
-Provides: team record, streak, last 10 games, standings.
+SofaScore has full NBA/WNBA standings, form, and H2H. No key required.
+Falls back gracefully if the team can't be found.
 """
 import logging
-from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-_ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
+_BASE = "https://api.sofascore.com/api/v1"
 
-# ESPN sport slugs
-_SPORT_SLUG = {
-    "nba":  "basketball/nba",
-    "wnba": "basketball/wnba",
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.sofascore.com/",
 }
 
-# ESPN team abbreviation map for fuzzy lookup
-_NBA_ABBR = {
-    "atlanta hawks": "ATL", "boston celtics": "BOS", "brooklyn nets": "BKN",
-    "charlotte hornets": "CHA", "chicago bulls": "CHI", "cleveland cavaliers": "CLE",
-    "dallas mavericks": "DAL", "denver nuggets": "DEN", "detroit pistons": "DET",
-    "golden state warriors": "GSW", "houston rockets": "HOU", "indiana pacers": "IND",
-    "la clippers": "LAC", "los angeles clippers": "LAC", "los angeles lakers": "LAL",
-    "la lakers": "LAL", "memphis grizzlies": "MEM", "miami heat": "MIA",
-    "milwaukee bucks": "MIL", "minnesota timberwolves": "MIN",
-    "new orleans pelicans": "NOP", "new york knicks": "NYK",
-    "oklahoma city thunder": "OKC", "orlando magic": "ORL",
-    "philadelphia 76ers": "PHI", "phoenix suns": "PHX",
-    "portland trail blazers": "POR", "sacramento kings": "SAC",
-    "san antonio spurs": "SAS", "toronto raptors": "TOR",
-    "utah jazz": "UTA", "washington wizards": "WAS",
+# SofaScore tournament IDs
+_TOURNAMENT_ID = {
+    "nba":  132,   # NBA
+    "wnba": 536,   # WNBA
 }
 
-_WNBA_ABBR = {
-    "atlanta dream": "ATL", "chicago sky": "CHI", "connecticut sun": "CONN",
-    "dallas wings": "DAL", "indiana fever": "IND", "las vegas aces": "LV",
-    "los angeles sparks": "LA", "minnesota lynx": "MIN",
-    "new york liberty": "NY", "phoenix mercury": "PHX",
-    "seattle storm": "SEA", "washington mystics": "WSH",
-    "golden state valkyries": "GSV", "portland fire": "POR",
-    "toronto tempo": "TOR", "cleveland charge": "CLE",
+# Current season IDs (update each season)
+_SEASON_ID = {
+    "nba":  63882,   # 2024-25 NBA
+    "wnba": 63947,   # 2025 WNBA
 }
 
 
-def _get(url: str, params: dict | None = None) -> dict | None:
+def _get(path: str) -> dict | list | None:
     from src.apis.base import get_json
-    return get_json(url, params=params)
+    return get_json(f"{_BASE}{path}", headers=_HEADERS)
 
 
-def _find_abbr(team_name: str, league: str) -> str | None:
-    lookup = _WNBA_ABBR if league == "wnba" else _NBA_ABBR
+def _search_team(team_name: str) -> dict | None:
+    """Search SofaScore for a team by name, return the best match."""
+    from urllib.parse import quote
+    data = _get(f"/search/all/?q={quote(team_name)}")
+    if not data:
+        return None
+    teams = data.get("teams", {}).get("hits", []) if isinstance(data, dict) else []
     name_l = team_name.lower()
-    if name_l in lookup:
-        return lookup[name_l]
-    for key, abbr in lookup.items():
-        if name_l in key or key in name_l:
-            return abbr
+    for hit in teams:
+        entity = hit.get("entity", {})
+        ename  = entity.get("name", "").lower()
+        eshort = entity.get("shortName", "").lower()
+        if name_l in ename or ename in name_l or name_l in eshort or eshort in name_l:
+            return entity
+    # fallback: return first result
+    if teams:
+        return teams[0].get("entity", {})
     return None
-
-
-def _extract_entries(data: dict) -> list:
-    """Extract standings entries from ESPN API response (handles multiple structures)."""
-    entries = []
-
-    # Structure 1: data.children[].standings.entries[]
-    for group in data.get("children", []):
-        for sub in group.get("children", []) or [group]:
-            for e in sub.get("standings", {}).get("entries", []):
-                entries.append(e)
-        # Also try direct standings on group
-        for e in group.get("standings", {}).get("entries", []):
-            entries.append(e)
-
-    # Structure 2: data.standings.entries[]
-    if not entries:
-        entries = data.get("standings", {}).get("entries", [])
-
-    # Structure 3: data.entries[]
-    if not entries:
-        entries = data.get("entries", [])
-
-    return entries
 
 
 def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> dict:
     """
-    Pull team record and recent form from ESPN standings.
-    Returns: last_10_record, wins, losses, streak, win_pct
+    Pull NBA/WNBA team record and recent form from SofaScore.
+    Returns: wins, losses, last_N_record, win_pct, streak, form_string
     """
-    slug = _SPORT_SLUG.get(league, "basketball/nba")
-    abbr = _find_abbr(team_name, league)
+    # Try SofaScore standings first
+    t_id   = _TOURNAMENT_ID.get(league)
+    s_id   = _SEASON_ID.get(league)
 
-    data = _get(f"{_ESPN_BASE}/{slug}/standings")
-    if not data:
-        return {}
+    if t_id and s_id:
+        data = _get(f"/tournament/{t_id}/season/{s_id}/standings/total")
+        rows = []
+        if isinstance(data, dict):
+            for block in (data.get("standings") or []):
+                rows.extend(block.get("rows", []))
+        name_l = team_name.lower()
+        for row in rows:
+            team_info = row.get("team", {})
+            tname = team_info.get("name", "").lower()
+            tshort = team_info.get("shortName", "").lower()
+            if name_l in tname or tname in name_l or name_l in tshort or tshort in name_l:
+                wins   = row.get("wins", 0) or 0
+                losses = row.get("losses", 0) or 0
+                win_pct = round(wins / (wins + losses), 3) if (wins + losses) > 0 else 0.0
 
-    entries = _extract_entries(data)
-    if not entries:
-        logger.debug("NBA stats: no entries found in ESPN standings response for %s", league)
-        return {}
+                # Pull recent form via team events
+                team_id = str(team_info.get("id", ""))
+                form_str = ""
+                streak = ""
+                if team_id:
+                    form_str, streak = _get_form_from_events(team_id, n)
 
-    name_l = team_name.lower()
-    for entry in entries:
-        team_info = entry.get("team", {})
-        t_abbr = team_info.get("abbreviation", "")
-        t_name = team_info.get("displayName", "").lower()
-        t_short = team_info.get("shortDisplayName", "").lower()
-        t_nick  = team_info.get("name", "").lower()
+                return {
+                    "team":             team_info.get("name", team_name),
+                    "wins":             wins,
+                    "losses":           losses,
+                    f"last_{n}_record": f"{wins}-{losses}",
+                    "win_pct":          win_pct,
+                    "streak":           streak,
+                    "form":             form_str,
+                    "source":           "sofascore_standings",
+                }
 
-        match = (
-            (abbr and t_abbr.upper() == abbr.upper()) or
-            (name_l in t_name) or (t_name in name_l) or
-            (name_l in t_short) or (t_short in name_l) or
-            (t_nick and t_nick in name_l)
-        )
-        if not match:
-            continue
+    # Fallback: search for team directly
+    entity = _search_team(team_name)
+    if entity:
+        team_id = str(entity.get("id", ""))
+        if team_id:
+            form_str, streak = _get_form_from_events(team_id, n)
+            return {
+                "team":             entity.get("name", team_name),
+                "form":             form_str,
+                "streak":           streak,
+                "source":           "sofascore_events",
+            }
 
-        # ESPN stats array — field names vary by season/endpoint
-        stats: dict = {}
-        for s in entry.get("stats", []):
-            sname = s.get("name", "")
-            sval  = s.get("displayValue") or s.get("value")
-            stats[sname] = sval
-
-        # Win/loss — ESPN uses several names
-        wins   = int(float(stats.get("wins")   or stats.get("win")    or stats.get("overall_wins")  or 0))
-        losses = int(float(stats.get("losses") or stats.get("loss")   or stats.get("overall_losses") or 0))
-
-        # Streak — may be "streak" or "streakDescription"
-        streak = stats.get("streak") or stats.get("streakDescription") or ""
-
-        win_pct = round(wins / (wins + losses), 3) if (wins + losses) > 0 else 0.0
-
-        return {
-            "team":             team_info.get("displayName", team_name),
-            "wins":             wins,
-            "losses":           losses,
-            f"last_{n}_record": f"{wins}-{losses}",
-            "win_pct":          win_pct,
-            "streak":           streak,
-            "source":           "espn_standings",
-        }
-
-    logger.debug("NBA stats: team '%s' not found in ESPN standings (%d entries)", team_name, len(entries))
+    logger.debug("NBA stats: team '%s' not found in SofaScore", team_name)
     return {}
 
 
+def _get_form_from_events(team_id: str, n: int = 10) -> tuple[str, str]:
+    """
+    Fetch last N completed events for a team and compute form string + streak.
+    Returns (form_string, streak) e.g. ("WWLWW", "W2")
+    """
+    results = []
+    for page in range(0, 3):  # pages 0,1,2 → up to ~15 events
+        data = _get(f"/team/{team_id}/events/last/{page}")
+        events = (data or {}).get("events", []) if isinstance(data, dict) else []
+        if not events:
+            break
+        for ev in events:
+            hs = (ev.get("homeScore") or {}).get("current")
+            as_ = (ev.get("awayScore") or {}).get("current")
+            if hs is None or as_ is None:
+                continue
+            home_id = str((ev.get("homeTeam") or {}).get("id", ""))
+            is_home = home_id == team_id
+            won = (hs > as_) if is_home else (as_ > hs)
+            results.append("W" if won else "L")
+            if len(results) >= n:
+                break
+        if len(results) >= n:
+            break
+
+    if not results:
+        return "", ""
+
+    form_str = "".join(results)
+
+    # Compute streak from most recent
+    streak_char = results[0]
+    count = 0
+    for r in results:
+        if r == streak_char:
+            count += 1
+        else:
+            break
+    streak = f"{streak_char}{count}"
+
+    return form_str, streak
+
+
 def enrich_game_context(home_team: str, away_team: str, league: str = "nba") -> dict:
-    """Pull NBA/WNBA context for a matchup."""
+    """Pull NBA/WNBA context for a matchup from SofaScore."""
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     tasks = {
