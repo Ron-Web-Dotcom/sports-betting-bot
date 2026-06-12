@@ -320,6 +320,9 @@ def _call_json(prompt: str, system: str) -> dict | None:
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.rsplit("```", 1)[0].strip()
+        # Strip control characters that break JSON parsing (tabs/newlines inside strings)
+        import re
+        raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', ' ', raw)
         return json.loads(raw)
     except json.JSONDecodeError as e:
         logger.error("OpenAI JSON parse error: %s | raw=%r", e, raw[:200])
