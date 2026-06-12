@@ -275,19 +275,19 @@ def _score_completeness(context: dict) -> float:
     Core: TheSportsDB (universal form), Kalshi (market odds), ESPN injuries/news (now via proxy).
     Bonus: Sportradar (deep H2H), SofaScore (live stats via proxy), SportsData.io, MLB API.
     """
-    core = [
-        bool(context.get("thesportsdb")),           # team form — all sports (free, VPS-confirmed)
-        bool(context.get("kalshi_markets")),        # prediction markets
-        bool(context.get("injuries_espn_home")),    # ESPN injuries (via Decodo proxy)
-        bool(context.get("news_espn")),             # ESPN news (via Decodo proxy)
-    ]
-    # Premium/variable bonus sources
+    # TheSportsDB is the only truly universal source (800+ leagues, VPS-confirmed).
+    # Everything else is a bonus — varies by sport. This way no sport is penalised
+    # just because Kalshi/ESPN don't cover it.
+    core_score = 0.50 if context.get("thesportsdb") else 0.20
+
     bonus = 0.0
-    if context.get("sportradar"):    bonus += 0.25  # H2H, form, injuries (NBA/NFL/NHL)
-    if context.get("sofascore"):     bonus += 0.20  # live stats, H2H, form (via proxy)
-    if context.get("sportsdataio"): bonus += 0.10  # standings + injuries
-    if context.get("mlb_stats"):    bonus += 0.15  # MLB pitchers + IL
-    core_score = sum(core) / len(core)
+    if context.get("sportradar"):         bonus += 0.25  # H2H, form, injuries (NBA/NFL/NHL)
+    if context.get("sofascore"):          bonus += 0.20  # live stats, H2H (via proxy)
+    if context.get("injuries_espn_home"): bonus += 0.10  # ESPN injuries (US sports via proxy)
+    if context.get("news_espn"):          bonus += 0.05  # ESPN news (US sports via proxy)
+    if context.get("kalshi_markets"):     bonus += 0.10  # prediction markets (US sports only)
+    if context.get("sportsdataio"):       bonus += 0.10  # standings + injuries
+    if context.get("mlb_stats"):          bonus += 0.10  # MLB pitchers + IL
     return min(1.0, round(core_score + bonus, 4))
 
 
