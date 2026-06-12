@@ -62,14 +62,20 @@ def save_slip(period: str, platform: str, picks: list[dict]) -> str:
     """
     Called right after an entry is posted to Discord.
     Saves the slip to Redis so we can track it through game day.
+    Only ONE slip per period per platform per day is saved — prevents
+    duplicate tracking alerts from multiple restarts.
 
     period:   "day" | "night"
     platform: "hardrock" | "kalshi" | "polymarket"
     picks:    list of pick dicts from the entry generator
     """
     import time
+    from src.core.timezone import et_naive
     r = _redis()
-    slip_id = f"{period}:{platform}:{int(time.time())}"
+
+    # One slip per period per platform per day — overwrite if exists
+    today   = et_naive().strftime("%Y-%m-%d")
+    slip_id = f"{period}:{platform}:{today}"
 
     slip = {
         "id":       slip_id,
@@ -376,14 +382,16 @@ def track_slips() -> dict:
                 mins_to_game = (ct - now).total_seconds() / 60
 
                 # ── Starting soon (25-35 min window) ──────────────────────
-                soon_key = f"{slip_id}:soon:{pick.get('event_id') or pick.get('game_key','')}"
+                # Dedup by GAME not slip — multiple slips covering same game = 1 alert
+                _game_id = pick.get('event_id') or pick.get('game_key') or f"{pick.get('home_team','')}:{pick.get('away_team','')}"
+                soon_key = f"game:soon:{_game_id}"
                 if 25 <= mins_to_game <= 35 and not _alerted(r, soon_key):
                     _alert_starting_soon(slip, pick)
                     _mark_alerted(r, soon_key)
                     alerts_fired += 1
 
                 # ── Live now (0-5 min past kick-off) ─────────────────────
-                live_key = f"{slip_id}:live:{pick.get('event_id') or pick.get('game_key','')}"
+                live_key = f"game:live:{_game_id}"
                 if -5 <= mins_to_game <= 2 and not _alerted(r, live_key):
                     _alert_live(slip, pick)
                     _mark_alerted(r, live_key)
