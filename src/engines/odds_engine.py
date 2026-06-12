@@ -454,11 +454,15 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     """
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
-    from datetime import timedelta, timezone
+    from datetime import timedelta
+    from src.core.timezone import et_naive as _et_naive
 
-    now_utc   = datetime.now(timezone.utc)
-    cutoff_lo = now_utc - timedelta(hours=2)    # snapshot must be recent
-    cutoff_hi = now_utc + timedelta(hours=24)   # rolling 24 h window
+    # captured_at is stored as naive ET; commence_time is stored as naive UTC.
+    # Use separate now values to match each column's storage convention.
+    now_et    = _et_naive()
+    now_utc   = datetime.utcnow()
+    cutoff_lo = now_et  - timedelta(hours=2)    # snapshot freshness gate (ET naive)
+    cutoff_hi = now_utc + timedelta(hours=24)   # game window gate (UTC naive)
 
     result: dict[int, list[dict]] = {}
     with get_db() as db:
