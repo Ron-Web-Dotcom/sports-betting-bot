@@ -217,6 +217,12 @@ def analyse_pick(
             sf.get("h2h") or []
         )
         tsdb = game_context.get("thesportsdb") or {}
+        payload["head_to_head"] = (
+            sr.get("h2h") or
+            game_context.get("h2h_statmuse") or
+            sf.get("h2h") or
+            tsdb.get("h2h") or []          # TheSportsDB H2H — always available, free
+        )
         payload["home_form"] = (
             sr.get("home_form") or
             game_context.get("home_form_statmuse") or

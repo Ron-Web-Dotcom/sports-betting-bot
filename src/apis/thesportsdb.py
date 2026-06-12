@@ -260,9 +260,55 @@ def get_player_recent_events(player_name: str, sport_key: str = "", n: int = 5) 
     }
 
 
+def get_h2h(home_team: str, away_team: str, sport_key: str = "", n: int = 10) -> list:
+    """
+    Pull head-to-head history between two teams from TheSportsDB.
+    Uses /searchevents.php to find past meetings, then resolves scores.
+    Returns list of {date, home, away, home_score, away_score, winner}.
+    """
+    home_id = find_team_id(home_team, sport_key)
+    away_id = find_team_id(away_team, sport_key)
+    if not home_id or not away_id:
+        return []
+
+    # TheSportsDB v1 free tier: search events between two teams
+    data = _get(f"/searchevents.php?idHomeTeam={home_id}&idAwayTeam={away_id}")
+    events = (data or {}).get("event") or []
+
+    # Also check the reverse fixture (away team hosted home team)
+    data2 = _get(f"/searchevents.php?idHomeTeam={away_id}&idAwayTeam={home_id}")
+    events += (data2 or {}).get("event") or []
+
+    h2h = []
+    for ev in events:
+        hs = ev.get("intHomeScore")
+        as_ = ev.get("intAwayScore")
+        if hs is None or as_ is None:
+            continue
+        try:
+            hs, as_ = int(hs), int(as_)
+        except (ValueError, TypeError):
+            continue
+        home_name = ev.get("strHomeTeam", "")
+        away_name = ev.get("strAwayTeam", "")
+        winner = home_name if hs > as_ else (away_name if as_ > hs else "Draw")
+        h2h.append({
+            "date":       ev.get("dateEvent", ""),
+            "home":       home_name,
+            "away":       away_name,
+            "home_score": hs,
+            "away_score": as_,
+            "winner":     winner,
+        })
+
+    # Sort newest first, cap at n
+    h2h.sort(key=lambda x: x["date"], reverse=True)
+    return h2h[:n]
+
+
 def enrich_game_context(sport_key: str, home_team: str, away_team: str) -> dict:
     """
-    Pull recent form for both teams in a matchup.
+    Pull recent form for both teams + H2H history from TheSportsDB.
     Returns dict ready for injection into data_hub context.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
@@ -270,11 +316,12 @@ def enrich_game_context(sport_key: str, home_team: str, away_team: str) -> dict:
     tasks = {
         "home": (get_team_form, (home_team, sport_key, 10)),
         "away": (get_team_form, (away_team, sport_key, 10)),
+        "h2h":  (get_h2h,      (home_team, away_team, sport_key, 10)),
     }
     results = {}
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
-        for future in _as_completed(futures, timeout=15):
+        for future in _as_completed(futures, timeout=20):
             key = futures[future]
             try:
                 results[key] = future.result()
@@ -283,13 +330,15 @@ def enrich_game_context(sport_key: str, home_team: str, away_team: str) -> dict:
 
     home_form = results.get("home", {})
     away_form = results.get("away", {})
+    h2h       = results.get("h2h", [])
 
     if not home_form and not away_form:
         return {}
 
     return {
-        "available":       True,
-        "home_form":       home_form,
-        "away_form":       away_form,
-        "source":          "thesportsdb",
+        "available":  True,
+        "home_form":  home_form,
+        "away_form":  away_form,
+        "h2h":        h2h,
+        "source":     "thesportsdb",
     }
