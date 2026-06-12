@@ -518,12 +518,27 @@ def _build_hardrock_candidates(
         away_team = best_snap.get("away_team", "")
         commence  = str(best_snap.get("commence_time", ""))
 
-        # Only include games that match this period's Sofascore schedule
-        if sofascore_events and not (
-            _team_matches(home_team, sofascore_events) or
-            _team_matches(away_team, sofascore_events)
-        ):
-            continue
+        # Day/night filter — Sofascore cache first, fall back to commence_time
+        if sofascore_events:
+            if not (_team_matches(home_team, sofascore_events) or _team_matches(away_team, sofascore_events)):
+                continue
+        else:
+            # Sofascore unavailable — use commence_time directly for period split
+            # Day = before 18:00 ET, Night = 18:00 ET and later
+            try:
+                from dateutil.parser import parse as _parse
+                import zoneinfo as _zi
+                _ct = _parse(commence)
+                if _ct.tzinfo is None:
+                    _ct = _ct.replace(tzinfo=__import__('datetime').timezone.utc)
+                _ct_et = _ct.astimezone(_zi.ZoneInfo("America/New_York"))
+                _is_night_game = _ct_et.hour >= 18
+                if period == "day" and _is_night_game:
+                    continue
+                if period == "night" and not _is_night_game:
+                    continue
+            except Exception:
+                pass  # unparseable time — include in both periods
 
         event        = {"sport_key": sport_key, "home_team": home_team, "away_team": away_team, "commence_time": commence}
         game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
@@ -863,7 +878,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
-        CONF_FLOOR = 0.66   # ≈ AI 77%+ conviction — 80%+ via dig-deeper/web search
+        CONF_FLOOR = 0.77   # 77% minimum confidence — shown directly on Discord slip
         EV_FLOOR   = 0.005  # 0.5% minimum edge — even thin positive EV qualifies
 
         def _american_to_dec(odds: int) -> float:
