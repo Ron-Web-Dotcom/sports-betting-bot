@@ -607,6 +607,7 @@ def _build_hardrock_candidates(
             "best_book":    best_snap.get("book", "hardrock"),
             "books_odds":   books_odds,
             "ev_pct":       ev_result.ev_pct,
+            "no_vig_prob":  ev_result.no_vig_prob,
             "confidence":   confidence.calibrated_score,
             "units":        ev_result.units,
             "reasoning":    ai.get("reasoning", ""),
@@ -788,7 +789,11 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
     pick_fields = []
     for i, p in enumerate(entry, 1):
         conf     = round(p["confidence"] * 100)
-        ev       = round(p.get("ev_pct", 0) * 100, 1)
+        # Edge = how much our projected prob beats the vig-free market price
+        # e.g. we say 78%, market vig-free says 42% → edge = +36pp
+        _proj   = p["confidence"]
+        _no_vig = p.get("no_vig_prob") or p.get("ev_pct", 0) + _proj
+        ev      = round((_proj - _no_vig) * 100, 1) if _no_vig else round(min(p.get("ev_pct", 0), 0.25) * 100, 1)
         emoji    = get_emoji(p["sport_key"])
         odds_fmt = _fmt(p["best_odds"])
         reasoning = p.get("reasoning", "")
