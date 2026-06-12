@@ -28,7 +28,14 @@ _HEADERS = {
     "x-nba-stats-token":  "true",
 }
 
-_SEASON = "2024-25"
+_SEASON      = "2025-26"   # NBA 2025-26 (includes 2026 Finals)
+_WNBA_SEASON = "2026"      # WNBA 2026 season
+
+
+def _is_playoffs() -> bool:
+    """True during NBA playoff window (Apr–Jun)."""
+    m = datetime.now(timezone.utc).month
+    return 4 <= m <= 6
 
 
 def _get(endpoint: str, params: dict) -> dict | None:
@@ -60,6 +67,17 @@ def _rows_to_dicts(data: dict) -> list[dict]:
 
 # ── Team lookup ────────────────────────────────────────────────────────────────
 
+_WNBA_TEAM_IDS = {
+    "atlanta dream": 1611661313, "chicago sky": 1611661317,
+    "connecticut sun": 1611661319, "dallas wings": 1611661325,
+    "indiana fever": 1611661323, "las vegas aces": 1611661329,
+    "los angeles sparks": 1611661320, "minnesota lynx": 1611661324,
+    "new york liberty": 1611661313, "phoenix mercury": 1611661321,
+    "seattle storm": 1611661330, "washington mystics": 1611661328,
+    "golden state valkyries": 1611661332, "portland fire": 1611661333,
+    "toronto tempo": 1611661334, "cleveland charge": 1611661335,
+}
+
 _TEAM_IDS = {
     "atlanta hawks": 1610612737, "boston celtics": 1610612738,
     "brooklyn nets": 1610612751, "charlotte hornets": 1610612766,
@@ -79,11 +97,16 @@ _TEAM_IDS = {
     "utah jazz": 1610612762, "washington wizards": 1610612764,
 }
 
-def _get_team_id(name: str) -> int | None:
+def _get_team_id(name: str, league: str = "nba") -> int | None:
+    lookup = _WNBA_TEAM_IDS if league == "wnba" else _TEAM_IDS
     name_l = name.lower()
-    if name_l in _TEAM_IDS:
-        return _TEAM_IDS[name_l]
-    for key, tid in _TEAM_IDS.items():
+    if name_l in lookup:
+        return lookup[name_l]
+    for key, tid in lookup.items():
+        if name_l in key or key in name_l:
+            return tid
+    # fallback: search both
+    for key, tid in {**_TEAM_IDS, **_WNBA_TEAM_IDS}.items():
         if name_l in key or key in name_l:
             return tid
     return None
@@ -91,17 +114,21 @@ def _get_team_id(name: str) -> int | None:
 
 # ── Recent form ────────────────────────────────────────────────────────────────
 
-def get_team_recent_form(team_name: str, n: int = 10) -> dict:
+def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> dict:
     """Last N games W-L, streak, home/away splits, offensive/defensive rating."""
     team_id = _get_team_id(team_name)
     if not team_id:
         return {}
 
+    season     = _WNBA_SEASON if league == "wnba" else _SEASON
+    season_type = "Regular Season"
+
     data = _get("teamgamelogs", {
         "TeamID":       team_id,
-        "Season":       _SEASON,
-        "SeasonType":   "Regular Season",
+        "Season":       season,
+        "SeasonType":   season_type,
         "LastNGames":   n,
+        "LeagueID":     "10" if league == "wnba" else "00",
     })
     if not data:
         return {}
@@ -149,7 +176,7 @@ def get_team_ratings(team_name: str) -> dict:
     data = _get("teamdashboardbygeneralsplits", {
         "TeamID":     team_id,
         "Season":     _SEASON,
-        "SeasonType": "Regular Season",
+        "SeasonType": "Playoffs",
         "MeasureType":"Advanced",
         "PerMode":    "PerGame",
     })
@@ -171,13 +198,13 @@ def get_team_ratings(team_name: str) -> dict:
 
 # ── Main entry point ───────────────────────────────────────────────────────────
 
-def enrich_game_context(home_team: str, away_team: str) -> dict:
-    """Pull NBA context for a matchup — form, ratings for both teams."""
+def enrich_game_context(home_team: str, away_team: str, league: str = "nba") -> dict:
+    """Pull NBA/WNBA context for a matchup — form, ratings for both teams."""
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     tasks = {
-        "home_form":    (get_team_recent_form, (home_team,)),
-        "away_form":    (get_team_recent_form, (away_team,)),
+        "home_form":    (get_team_recent_form, (home_team, 10, league)),
+        "away_form":    (get_team_recent_form, (away_team, 10, league)),
         "home_ratings": (get_team_ratings,     (home_team,)),
         "away_ratings": (get_team_ratings,     (away_team,)),
     }
