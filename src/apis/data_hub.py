@@ -60,6 +60,8 @@ def build_game_context(
         "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
         # Sportradar — real H2H, recent form, injuries (requires SPORTRADAR_API_KEY in .env)
         "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
+        # TheSportsDB — universal form/record for all sports (free, VPS-friendly)
+        "thesportsdb":         (_fetch_thesportsdb,       (sport_key, home_team, away_team)),
     }
 
     # NBA-only: Ball Don't Lie for deeper player stats
@@ -227,6 +229,10 @@ def _fetch_sportradar_game(sport_key: str, home_team: str, away_team: str) -> di
     result = enrich_game_context(sport_key, home_team, away_team)
     return result if result.get("available") else {}
 
+def _fetch_thesportsdb(sport_key: str, home_team: str, away_team: str) -> dict:
+    from src.apis.thesportsdb import enrich_game_context
+    return enrich_game_context(sport_key, home_team, away_team)
+
 def _fetch_prizepicks_props(sport_key: str, home_team: str, away_team: str) -> list:
     from src.apis.prizepicks import get_projections
     props = get_projections(sport_key)
@@ -279,6 +285,7 @@ def _score_completeness(context: dict) -> float:
     bonus = 0.0
     if context.get("sportradar"):       bonus += 0.20  # real H2H, form, injuries — major boost
     if context.get("sportsdataio"):     bonus += 0.10  # standings + injuries + team stats
+    if context.get("thesportsdb"):      bonus += 0.15  # universal form/record — all sports
     if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
     core_score = sum(core) / len(core)
     return min(1.0, round(core_score + bonus, 4))

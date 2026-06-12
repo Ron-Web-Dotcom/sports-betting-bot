@@ -171,14 +171,17 @@ def analyse_pick(
             game_context.get("h2h_statmuse") or
             sf.get("h2h") or []
         )
+        tsdb = game_context.get("thesportsdb") or {}
         payload["home_form"] = (
             sr.get("home_form") or
             game_context.get("home_form_statmuse") or
-            sf.get("form") or {}
+            sf.get("form") or
+            tsdb.get("home_form") or {}
         )
         payload["away_form"] = (
             sr.get("away_form") or
-            game_context.get("away_form_statmuse") or {}
+            game_context.get("away_form_statmuse") or
+            tsdb.get("away_form") or {}
         )
         payload["sharp_action"]  = game_context.get("sharp_action", {})
         payload["weather"]       = game_context.get("weather", {})
