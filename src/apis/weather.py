@@ -42,14 +42,9 @@ VENUE_COORDS: dict[str, tuple[float, float]] = {
 
 
 def _geocode(city: str) -> tuple[float, float] | None:
-    data = get_json(_GEOCODE, params={"name": city, "count": 1, "language": "en"})
-    if not data or not data.get("results"):
-        return None
-    r = data["results"][0]
-    lat, lon = r.get("latitude"), r.get("longitude")
-    if lat is None or lon is None:
-        return None
-    return lat, lon
+    # geocoding-api.open-meteo.com is unreliable — skip if not in VENUE_COORDS
+    # to avoid stalling the pipeline with timeouts on every game.
+    return None
 
 
 def get_game_weather(venue_or_city: str, game_time_iso: str) -> dict:
