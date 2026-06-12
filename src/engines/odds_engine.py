@@ -461,7 +461,7 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     # Use separate now values to match each column's storage convention.
     now_et    = _et_naive()
     now_utc   = datetime.utcnow()
-    cutoff_lo = now_et  - timedelta(hours=2)    # snapshot freshness gate (ET naive)
+    cutoff_lo = now_et  - timedelta(hours=6)    # snapshot freshness gate (ET naive)
     cutoff_hi = now_utc + timedelta(hours=24)   # game window gate (UTC naive)
 
     result: dict[int, list[dict]] = {}
