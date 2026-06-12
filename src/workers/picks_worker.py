@@ -852,6 +852,21 @@ def _generate_hardrock_entry(period: str) -> dict:
     """
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
+
+    # Dedup: only post once per period per day
+    try:
+        import redis as _redis
+        from src.core.config import REDIS_URL
+        from src.core.timezone import et_naive as _et_naive
+        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _today = _et_naive().strftime("%Y-%m-%d")
+        _dedup_key = f"hardrock:posted:{period}:{_today}"
+        if _r.get(_dedup_key):
+            logger.info("HardRock %s entry already posted today — skipping duplicate", period)
+            return {"skipped": "already_posted", "period": period}
+    except Exception:
+        pass  # Redis unavailable — allow through
+
     try:
         sofascore_events = _load_todays_games(period)
         if not sofascore_events:
@@ -1075,6 +1090,17 @@ def _generate_hardrock_entry(period: str) -> dict:
             save_slip(period, "hardrock", entry)
         except Exception as e:
             logger.warning("slip_tracker.save_slip failed: %s", e)
+
+        # Mark as posted in Redis so re-runs don't duplicate
+        try:
+            import redis as _redis
+            from src.core.config import REDIS_URL
+            from src.core.timezone import et_naive as _et_naive
+            _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+            _today = _et_naive().strftime("%Y-%m-%d")
+            _r.setex(f"hardrock:posted:{period}:{_today}", 86400, "1")
+        except Exception:
+            pass
 
         return {"period": period, "picks": len(entry), "posted": True}
 
