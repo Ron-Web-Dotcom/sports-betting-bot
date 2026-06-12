@@ -103,16 +103,20 @@ class _RetryOn5xx(Exception):
 
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=8),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
     retry=retry_if_exception_type((httpx.TransportError, _RetryOn5xx)),
-    reraise=True,
+    reraise=False,
 )
 def get_json(url: str, params: dict | None = None, headers: dict | None = None) -> dict | list | None:
     try:
         r = get_client(url).get(url, params=params, headers=headers)
-        if r.status_code >= 500:
+        # Only retry on 502/503/504 (recoverable gateway errors) — not 522 (Cloudflare timeout)
+        if r.status_code in (502, 503, 504):
             raise _RetryOn5xx(f"HTTP {r.status_code} from {url}")
+        if r.status_code >= 500:
+            logger.warning("GET %s failed: %s", url, r.status_code)
+            return None
         r.raise_for_status()
         return r.json()
     except _RetryOn5xx:
@@ -123,7 +127,7 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None) 
         logger.log(level, "HTTP %s from %s", code, url)
         return None
     except Exception as e:
-        logger.error("GET %s failed: %s", url, e)
+        logger.warning("GET %s failed: %s", url, e)
         return None
 
 
