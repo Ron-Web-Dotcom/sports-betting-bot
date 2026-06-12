@@ -16,19 +16,45 @@ _CDN    = "https://cdn.espn.com/core"
 
 # Maps our sport keys → ESPN sport/league path segments
 SPORT_MAP = {
-    "basketball_nba":            ("basketball", "nba"),
-    "americanfootball_nfl":      ("football",   "nfl"),
-    "baseball_mlb":              ("baseball",   "mlb"),
-    "icehockey_nhl":             ("hockey",     "nhl"),
-    "soccer_epl":                ("soccer",     "eng.1"),
-    "soccer_uefa_champs_league": ("soccer",     "uefa.champions"),
-    "soccer_usa_mls":            ("soccer",     "usa.1"),
-    "soccer_fifa_world_cup":     ("soccer",     "fifa.world"),
-    "basketball_ncaab":          ("basketball", "mens-college-basketball"),
-    "americanfootball_ncaaf":    ("football",   "college-football"),
-    "mma":                       ("mma",        "ufc"),
-    "tennis":                    ("tennis",     "atp"),
-    "golf_masters_tournament_winner": ("golf",  "pga"),
+    # ── US Sports ────────────────────────────────────────────────────────────
+    "basketball_nba":                       ("basketball", "nba"),
+    "basketball_wnba":                      ("basketball", "wnba"),
+    "americanfootball_nfl":                 ("football",   "nfl"),
+    "baseball_mlb":                         ("baseball",   "mlb"),
+    "icehockey_nhl":                        ("hockey",     "nhl"),
+    "basketball_ncaab":                     ("basketball", "mens-college-basketball"),
+    "americanfootball_ncaaf":               ("football",   "college-football"),
+    # ── Soccer ───────────────────────────────────────────────────────────────
+    "soccer_epl":                           ("soccer",     "eng.1"),
+    "soccer_spain_la_liga":                 ("soccer",     "esp.1"),
+    "soccer_germany_bundesliga":            ("soccer",     "ger.1"),
+    "soccer_italy_serie_a":                 ("soccer",     "ita.1"),
+    "soccer_france_ligue_one":              ("soccer",     "fra.1"),
+    "soccer_usa_mls":                       ("soccer",     "usa.1"),
+    "soccer_uefa_champs_league":            ("soccer",     "uefa.champions"),
+    "soccer_uefa_europa_league":            ("soccer",     "uefa.europa"),
+    "soccer_fifa_world_cup":                ("soccer",     "fifa.world"),
+    "soccer_conmebol_copa_america":         ("soccer",     "conmebol.america"),
+    "soccer_conmebol_copa_libertadores":    ("soccer",     "conmebol.libertadores"),
+    # ── Combat Sports ────────────────────────────────────────────────────────
+    "mma_mixed_martial_arts":               ("mma",        "ufc"),
+    "boxing_boxing":                        ("boxing",     "boxing"),
+    # ── Golf — all majors + PGA/LPGA ─────────────────────────────────────────
+    "golf_pga_tour":                        ("golf",       "pga"),
+    "golf_masters_tournament":              ("golf",       "pga"),
+    "golf_pga_championship":                ("golf",       "pga"),
+    "golf_us_open":                         ("golf",       "pga"),
+    "golf_the_open_championship":           ("golf",       "pga"),
+    "golf_lpga":                            ("golf",       "lpga"),
+    # ── Tennis — all Grand Slams + ATP/WTA ───────────────────────────────────
+    "tennis_atp_french_open":               ("tennis",     "atp"),
+    "tennis_wta_french_open":               ("tennis",     "wta"),
+    "tennis_atp_wimbledon":                 ("tennis",     "atp"),
+    "tennis_wta_wimbledon":                 ("tennis",     "wta"),
+    "tennis_atp_us_open":                   ("tennis",     "atp"),
+    "tennis_wta_us_open":                   ("tennis",     "wta"),
+    "tennis_atp_australian_open":           ("tennis",     "atp"),
+    "tennis_wta_australian_open":           ("tennis",     "wta"),
 }
 
 

@@ -269,7 +269,7 @@ def _fetch_bdl_game_log(name: str) -> list:
 
 
 def _fetch_player_season(player_name: str, sport_key: str) -> dict:
-    """Season stats for a player. Sources: Sportradar (NBA/NFL/NHL), MLB Stats API, TheSportsDB fallback."""
+    """Season stats for a player. Sources: Sportradar (NBA/NFL/NHL), MLB Stats API, UFC Stats (MMA), TheSportsDB fallback."""
     try:
         if sport_key == "baseball_mlb":
             from src.apis.mlb_stats import get_player_season_stats
@@ -279,6 +279,11 @@ def _fetch_player_season(player_name: str, sport_key: str) -> dict:
         if sport_key in ("basketball_nba", "americanfootball_nfl", "icehockey_nhl"):
             from src.apis.sportradar import get_player_season_stats
             result = get_player_season_stats(player_name, sport_key)
+            if result:
+                return result
+        if sport_key == "mma_mixed_martial_arts":
+            from src.apis.ufcstats import search_fighter
+            result = search_fighter(player_name)
             if result:
                 return result
     except Exception:
