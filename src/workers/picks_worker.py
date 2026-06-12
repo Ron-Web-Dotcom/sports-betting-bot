@@ -121,7 +121,7 @@ def generate_picks():
                 sport               = sport_key,
                 market              = "h2h",
             )
-            if confidence.calibrated_score < 0.65:
+            if confidence.calibrated_score < 0.765:
                 continue
             # Use calibrated score for EV so edge reflects realistic win probability
             ev_result  = evaluate(american_odds=best_odds_val,
@@ -570,7 +570,7 @@ def _build_hardrock_candidates(
             market              = "h2h",
         )
 
-        if confidence.calibrated_score < 0.62:
+        if confidence.calibrated_score < 0.765:
             continue
 
         # Use calibrated score (not raw AI prob) so EV reflects realistic edge
@@ -851,7 +851,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
-        CONF_FLOOR = 0.77   # 77% minimum confidence — shown directly on Discord slip
+        CONF_FLOOR = 0.765  # displays as 77%+ on Discord (0.765 rounds to 77)
         EV_FLOOR   = 0.005  # 0.5% minimum edge — even thin positive EV qualifies
 
         def _american_to_dec(odds: int) -> float:
