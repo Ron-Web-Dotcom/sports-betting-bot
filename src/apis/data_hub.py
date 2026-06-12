@@ -334,12 +334,12 @@ def _score_completeness(context: dict) -> float:
 
     bonus = 0.0
     if context.get("sportradar"):         bonus += 0.10  # real-time H2H + injuries (NBA/NFL/NHL)
-    if context.get("sofascore"):          bonus += 0.08  # live stats via proxy
-    if context.get("injuries_espn_home"): bonus += 0.05  # ESPN injuries via proxy
-    if context.get("news_espn"):          bonus += 0.03  # ESPN news via proxy
+    if context.get("injuries_espn_home"): bonus += 0.05  # ESPN injuries (confirmed working via proxy)
+    if context.get("news_espn"):          bonus += 0.03  # ESPN news (confirmed working via proxy)
     if context.get("kalshi_markets"):     bonus += 0.05  # prediction markets (US sports)
     if context.get("sportsdataio"):       bonus += 0.03  # standings + injuries
     if context.get("mlb_stats"):          bonus += 0.05  # MLB pitchers + IL (official API)
+    # SofaScore removed — Cloudflare bot detection blocks even residential proxy
     return min(1.0, round(core_score + bonus, 4))
 
 
