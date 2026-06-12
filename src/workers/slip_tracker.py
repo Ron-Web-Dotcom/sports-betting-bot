@@ -416,7 +416,10 @@ def track_slips() -> dict:
                 else:
                     slip_result = "push"
 
-                result_key = f"{slip_id}:result"
+                # Dedup result alert by game-day period, not slip_id
+                # so duplicate slips don't fire multiple CASHED/DEAD alerts
+                _period_date = f"{slip.get('period','night')}:{slip.get('platform','hardrock')}:{slip.get('created','')[:10]}"
+                result_key = f"game:result:{_period_date}"
                 if not _alerted(r, result_key):
                     ratio = _update_ratio(r, slip_result)
                     _alert_result(slip, slip_result, ratio)
