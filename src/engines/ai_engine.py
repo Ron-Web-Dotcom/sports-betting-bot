@@ -196,6 +196,19 @@ def analyse_pick(
             payload["rotowire_injuries"] = game_context["rotowire_injuries"]
         if game_context.get("sleeper_injuries"):
             payload["sleeper_trending_drops"] = game_context["sleeper_injuries"]
+        # MLB: official free stats API — pitchers, form, IL
+        if game_context.get("mlb_stats"):
+            mlb = game_context["mlb_stats"]
+            if mlb.get("mlb_pitchers"):
+                payload["starting_pitchers"] = mlb["mlb_pitchers"]
+            if mlb.get("mlb_home_form"):
+                payload["home_recent_form"] = mlb["mlb_home_form"]
+            if mlb.get("mlb_away_form"):
+                payload["away_recent_form"] = mlb["mlb_away_form"]
+            if mlb.get("mlb_home_injuries"):
+                payload["home_il_injuries"] = mlb["mlb_home_injuries"]
+            if mlb.get("mlb_away_injuries"):
+                payload["away_il_injuries"] = mlb["mlb_away_injuries"]
         # Perplexity web search results — breaking news injected when borderline
         if game_context.get("web_search_news"):
             payload["breaking_news_web_search"] = game_context["web_search_news"]

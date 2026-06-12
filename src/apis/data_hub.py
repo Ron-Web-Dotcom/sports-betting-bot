@@ -71,6 +71,10 @@ def build_game_context(
         tasks["sleeper_injuries"] = (_fetch_sleeper_injuries, (sport_key,))
         tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
+    # MLB: free official MLB Stats API — pitchers, form, IL injuries
+    if sport_key == "baseball_mlb":
+        tasks["mlb_stats"] = (_fetch_mlb_stats, (home_team, away_team))
+
     # Run all fetches in parallel — max 4 workers to stay within 1GB VPS RAM
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
@@ -274,3 +278,13 @@ def _score_completeness(context: dict) -> float:
     if context.get("kalshi_markets"):   bonus += 0.03  # prediction market consensus
     core_score = sum(core) / len(core)
     return min(1.0, round(core_score + bonus, 4))
+
+
+def _fetch_mlb_stats(home_team: str, away_team: str) -> dict:
+    """Free MLB Stats API — starting pitchers, team form, IL injuries."""
+    try:
+        from src.apis.mlb_stats import enrich_game_context
+        return enrich_game_context(home_team, away_team)
+    except Exception as e:
+        logger.debug("MLB Stats fetch failed: %s", e)
+        return {}
