@@ -1,216 +1,175 @@
 """
-NBA Stats API adapter — free, no key required.
-Base: https://stats.nba.com/stats
+NBA / WNBA stats adapter.
+
+Uses Ball Don't Lie (balldontlie.io) — free, works from VPS, no key needed.
+stats.nba.com blocks datacenter IPs (403 WAF), so we use BDL instead.
 
 Provides:
 - Team recent form (last 10 games W-L, streak)
-- Player injury / availability status
-- Head-to-head record between two teams
-- Team offensive/defensive ratings
+- Today's games / scores
+- Season standings context
 """
 import logging
-import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
-_BASE    = "https://stats.nba.com/stats"
-_TIMEOUT = 12.0
-
-# stats.nba.com blocks requests without browser-like headers
-_HEADERS = {
-    "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer":         "https://www.nba.com/",
-    "Origin":          "https://www.nba.com",
-    "Accept":          "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "x-nba-stats-origin": "stats",
-    "x-nba-stats-token":  "true",
-}
-
-_SEASON      = "2025-26"   # NBA 2025-26 (includes 2026 Finals)
-_WNBA_SEASON = "2026"      # WNBA 2026 season
+_BDL_BASE = "https://api.balldontlie.io/v1"
 
 
-def _is_playoffs() -> bool:
-    """True during NBA playoff window (Apr–Jun)."""
-    m = datetime.now(timezone.utc).month
-    return 4 <= m <= 6
-
-
-def _get(endpoint: str, params: dict) -> dict | None:
-    try:
-        r = httpx.get(
-            f"{_BASE}/{endpoint}",
-            params=params,
-            headers=_HEADERS,
-            timeout=_TIMEOUT,
-            follow_redirects=True,
-        )
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        logger.debug("NBA Stats API error [%s]: %s", endpoint, e)
-        return None
-
-
-def _rows_to_dicts(data: dict) -> list[dict]:
-    """Convert NBA API resultSets format to list of dicts."""
-    try:
-        rs = data.get("resultSets", [{}])[0]
-        headers = rs.get("headers", [])
-        rows    = rs.get("rowSet", [])
-        return [dict(zip(headers, row)) for row in rows]
-    except Exception:
-        return []
+def _get(path: str, params: dict | None = None) -> dict | None:
+    from src.apis.base import get_json
+    return get_json(f"{_BDL_BASE}{path}", params=params)
 
 
 # ── Team lookup ────────────────────────────────────────────────────────────────
 
-_WNBA_TEAM_IDS = {
-    "atlanta dream": 1611661313, "chicago sky": 1611661317,
-    "connecticut sun": 1611661319, "dallas wings": 1611661325,
-    "indiana fever": 1611661323, "las vegas aces": 1611661329,
-    "los angeles sparks": 1611661320, "minnesota lynx": 1611661324,
-    "new york liberty": 1611661313, "phoenix mercury": 1611661321,
-    "seattle storm": 1611661330, "washington mystics": 1611661328,
-    "golden state valkyries": 1611661332, "portland fire": 1611661333,
-    "toronto tempo": 1611661334, "cleveland charge": 1611661335,
-}
+_team_cache: dict[str, dict] = {}
 
-_TEAM_IDS = {
-    "atlanta hawks": 1610612737, "boston celtics": 1610612738,
-    "brooklyn nets": 1610612751, "charlotte hornets": 1610612766,
-    "chicago bulls": 1610612741, "cleveland cavaliers": 1610612739,
-    "dallas mavericks": 1610612742, "denver nuggets": 1610612743,
-    "detroit pistons": 1610612765, "golden state warriors": 1610612744,
-    "houston rockets": 1610612745, "indiana pacers": 1610612754,
-    "la clippers": 1610612746, "los angeles clippers": 1610612746,
-    "los angeles lakers": 1610612747, "la lakers": 1610612747,
-    "memphis grizzlies": 1610612763, "miami heat": 1610612748,
-    "milwaukee bucks": 1610612749, "minnesota timberwolves": 1610612750,
-    "new orleans pelicans": 1610612740, "new york knicks": 1610612752,
-    "oklahoma city thunder": 1610612760, "orlando magic": 1610612753,
-    "philadelphia 76ers": 1610612755, "phoenix suns": 1610612756,
-    "portland trail blazers": 1610612757, "sacramento kings": 1610612758,
-    "san antonio spurs": 1610612759, "toronto raptors": 1610612761,
-    "utah jazz": 1610612762, "washington wizards": 1610612764,
-}
-
-def _get_team_id(name: str, league: str = "nba") -> int | None:
-    lookup = _WNBA_TEAM_IDS if league == "wnba" else _TEAM_IDS
+def _get_team(name: str) -> dict | None:
+    global _team_cache
+    if not _team_cache:
+        data = _get("/teams", {"per_page": 100})
+        if data:
+            for t in data.get("data", []):
+                full = t.get("full_name", "").lower()
+                city = t.get("city", "").lower()
+                nick = t.get("name", "").lower()
+                abbr = t.get("abbreviation", "").lower()
+                for key in (full, city, nick, abbr):
+                    if key:
+                        _team_cache[key] = t
     name_l = name.lower()
-    if name_l in lookup:
-        return lookup[name_l]
-    for key, tid in lookup.items():
+    if name_l in _team_cache:
+        return _team_cache[name_l]
+    for key, team in _team_cache.items():
         if name_l in key or key in name_l:
-            return tid
-    # fallback: search both
-    for key, tid in {**_TEAM_IDS, **_WNBA_TEAM_IDS}.items():
-        if name_l in key or key in name_l:
-            return tid
+            return team
     return None
 
 
 # ── Recent form ────────────────────────────────────────────────────────────────
 
 def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> dict:
-    """Last N games W-L, streak, home/away splits, offensive/defensive rating."""
-    team_id = _get_team_id(team_name)
-    if not team_id:
+    """
+    Last N completed games for a team — W-L record, streak, recent results.
+    Works for NBA. WNBA not covered by Ball Don't Lie — falls back to ESPN.
+    """
+    if league == "wnba":
+        return _wnba_form_espn(team_name, n)
+
+    team = _get_team(team_name)
+    if not team:
         return {}
+    team_id = team.get("id")
 
-    season     = _WNBA_SEASON if league == "wnba" else _SEASON
-    season_type = "Regular Season"
+    # Fetch last N completed games
+    today = datetime.now(timezone.utc)
+    start = (today - timedelta(days=60)).strftime("%Y-%m-%d")
+    end   = today.strftime("%Y-%m-%d")
 
-    data = _get("teamgamelogs", {
-        "TeamID":       team_id,
-        "Season":       season,
-        "SeasonType":   season_type,
-        "LastNGames":   n,
-        "LeagueID":     "10" if league == "wnba" else "00",
+    data = _get("/games", {
+        "team_ids[]": team_id,
+        "start_date": start,
+        "end_date":   end,
+        "per_page":   50,
+        "seasons[]":  2025,   # 2025-26 season
     })
     if not data:
         return {}
 
-    rows = _rows_to_dicts(data)
-    if not rows:
+    games = [g for g in data.get("data", []) if g.get("status") == "Final"]
+    games = sorted(games, key=lambda g: g.get("date", ""), reverse=True)[:n]
+
+    if not games:
         return {}
 
-    wins   = sum(1 for r in rows if r.get("WL") == "W")
-    losses = len(rows) - wins
+    results = []
+    for g in games:
+        is_home  = g.get("home_team", {}).get("id") == team_id
+        our_score  = g.get("home_team_score" if is_home else "visitor_team_score", 0) or 0
+        opp_score  = g.get("visitor_team_score" if is_home else "home_team_score", 0) or 0
+        opp_name   = g.get("visitor_team" if is_home else "home_team", {}).get("full_name", "")
+        result     = "W" if our_score > opp_score else "L"
+        results.append({
+            "date":     g.get("date", "")[:10],
+            "result":   result,
+            "score":    f"{our_score}-{opp_score}",
+            "opponent": opp_name,
+            "home":     is_home,
+        })
 
+    wins   = sum(1 for r in results if r["result"] == "W")
+    losses = len(results) - wins
+
+    # Calculate streak
+    streak_type  = results[0]["result"] if results else ""
     streak_count = 0
-    streak_type  = rows[0].get("WL", "")
-    for r in rows:
-        if r.get("WL") == streak_type:
+    for r in results:
+        if r["result"] == streak_type:
             streak_count += 1
         else:
             break
 
-    avg_pts     = round(sum(r.get("PTS", 0) for r in rows) / len(rows), 1)
-    avg_pts_opp = round(sum(r.get("PTS_OPP", r.get("PLUS_MINUS", 0)) for r in rows) / len(rows), 1)
-
     return {
         f"last_{n}_record": f"{wins}-{losses}",
-        "wins":   wins,
-        "losses": losses,
-        "streak": f"{streak_type}{streak_count}",
-        "avg_points":         avg_pts,
-        "recent_games": [
-            {"date": r.get("GAME_DATE",""), "result": r.get("WL",""),
-             "pts": r.get("PTS",0), "matchup": r.get("MATCHUP","")}
-            for r in rows[:5]
-        ],
+        "wins":         wins,
+        "losses":       losses,
+        "streak":       f"{streak_type}{streak_count}",
+        "recent_games": results[:5],
     }
 
 
-# ── Team season stats (OFF/DEF ratings) ───────────────────────────────────────
+def _wnba_form_espn(team_name: str, n: int = 10) -> dict:
+    """Fallback: pull WNBA team record from ESPN scoreboard."""
+    try:
+        from src.apis.espn import fetch_scoreboard
+        board = fetch_scoreboard("basketball_wnba") or []
+        for game in board:
+            for side in ("home", "away"):
+                if team_name.lower() in game.get(f"{side}_team", "").lower():
+                    return {
+                        "source": "espn",
+                        "note": f"WNBA form via ESPN — {game.get(f'{side}_team')}",
+                    }
+    except Exception:
+        pass
+    return {}
 
-def get_team_ratings(team_name: str) -> dict:
-    """Offensive and defensive rating for the season."""
-    team_id = _get_team_id(team_name)
-    if not team_id:
-        return {}
 
-    data = _get("teamdashboardbygeneralsplits", {
-        "TeamID":     team_id,
-        "Season":     _SEASON,
-        "SeasonType": "Playoffs",
-        "MeasureType":"Advanced",
-        "PerMode":    "PerGame",
-    })
+# ── Today's NBA/WNBA games ────────────────────────────────────────────────────
+
+def get_todays_games(league: str = "nba") -> list[dict]:
+    """Return today's games from Ball Don't Lie (NBA only)."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    data  = _get("/games", {"dates[]": today, "per_page": 50})
     if not data:
-        return {}
-
-    rows = _rows_to_dicts(data)
-    if not rows:
-        return {}
-
-    r = rows[0]
-    return {
-        "off_rating": r.get("OFF_RATING"),
-        "def_rating": r.get("DEF_RATING"),
-        "net_rating": r.get("NET_RATING"),
-        "pace":       r.get("PACE"),
-    }
+        return []
+    return [
+        {
+            "home_team":  g.get("home_team", {}).get("full_name", ""),
+            "away_team":  g.get("visitor_team", {}).get("full_name", ""),
+            "status":     g.get("status", ""),
+            "home_score": g.get("home_team_score"),
+            "away_score": g.get("visitor_team_score"),
+        }
+        for g in data.get("data", [])
+    ]
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 def enrich_game_context(home_team: str, away_team: str, league: str = "nba") -> dict:
-    """Pull NBA/WNBA context for a matchup — form, ratings for both teams."""
+    """Pull NBA/WNBA context for a matchup — form for both teams."""
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     tasks = {
-        "home_form":    (get_team_recent_form, (home_team, 10, league)),
-        "away_form":    (get_team_recent_form, (away_team, 10, league)),
-        "home_ratings": (get_team_ratings,     (home_team,)),
-        "away_ratings": (get_team_ratings,     (away_team,)),
+        "home_form": (get_team_recent_form, (home_team, 10, league)),
+        "away_form": (get_team_recent_form, (away_team, 10, league)),
     }
 
     results = {}
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
         for future in _as_completed(futures, timeout=15):
             key = futures[future]
@@ -222,6 +181,6 @@ def enrich_game_context(home_team: str, away_team: str, league: str = "nba") -> 
     return {
         "nba_home_form":    results.get("home_form", {}),
         "nba_away_form":    results.get("away_form", {}),
-        "nba_home_ratings": results.get("home_ratings", {}),
-        "nba_away_ratings": results.get("away_ratings", {}),
+        "nba_home_ratings": {},
+        "nba_away_ratings": {},
     }
