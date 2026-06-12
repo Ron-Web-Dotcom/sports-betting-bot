@@ -325,7 +325,7 @@ def _score_completeness(context: dict) -> float:
     # TheSportsDB is the only truly universal source (800+ leagues, VPS-confirmed).
     # Everything else is a bonus — varies by sport. This way no sport is penalised
     # just because Kalshi/ESPN don't cover it.
-    core_score = 0.50 if context.get("thesportsdb") else 0.20
+    core_score = 0.65 if context.get("thesportsdb") else 0.25
 
     bonus = 0.0
     if context.get("sportradar"):         bonus += 0.25  # H2H, form, injuries (NBA/NFL/NHL)
