@@ -201,6 +201,10 @@ def analyse_pick(
             mlb = game_context["mlb_stats"]
             if mlb.get("mlb_pitchers"):
                 payload["starting_pitchers"] = mlb["mlb_pitchers"]
+            if mlb.get("mlb_home_pitcher_stats"):
+                payload["home_pitcher_stats"] = mlb["mlb_home_pitcher_stats"]
+            if mlb.get("mlb_away_pitcher_stats"):
+                payload["away_pitcher_stats"] = mlb["mlb_away_pitcher_stats"]
             if mlb.get("mlb_home_form"):
                 payload["home_recent_form"] = mlb["mlb_home_form"]
             if mlb.get("mlb_away_form"):

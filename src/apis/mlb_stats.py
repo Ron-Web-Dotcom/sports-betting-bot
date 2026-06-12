@@ -185,6 +185,70 @@ def get_team_injuries(team_name: str) -> list[dict]:
     return injuries
 
 
+# ── Pitcher stats ─────────────────────────────────────────────────────────────
+
+def get_pitcher_stats(pitcher_name: str) -> dict:
+    """
+    Return season stats + last 3 starts for a pitcher.
+    ERA, WHIP, K/9, BB/9, innings pitched, record.
+    """
+    # Search for player ID
+    search = _get("/people/search", {"names": pitcher_name, "sportId": 1})
+    if not search:
+        return {}
+    people = search.get("people", [])
+    if not people:
+        return {}
+    person_id = people[0].get("id")
+    if not person_id:
+        return {}
+
+    # Season stats
+    stats_data = _get(f"/people/{person_id}/stats", {
+        "stats": "season,gameLog",
+        "group": "pitching",
+        "season": datetime.now(timezone.utc).year,
+        "limit": 3,  # last 3 game log entries
+    })
+    if not stats_data:
+        return {"name": pitcher_name}
+
+    season_stats = {}
+    last_3_starts = []
+    for stat_group in stats_data.get("stats", []):
+        if stat_group.get("type", {}).get("displayName") == "season":
+            splits = stat_group.get("splits", [])
+            if splits:
+                s = splits[0].get("stat", {})
+                season_stats = {
+                    "era":   s.get("era", "N/A"),
+                    "whip":  s.get("whip", "N/A"),
+                    "wins":  s.get("wins", 0),
+                    "losses": s.get("losses", 0),
+                    "innings_pitched": s.get("inningsPitched", "0"),
+                    "strikeouts": s.get("strikeOuts", 0),
+                    "walks": s.get("baseOnBalls", 0),
+                }
+        elif stat_group.get("type", {}).get("displayName") == "gameLog":
+            for split in stat_group.get("splits", [])[:3]:
+                s = split.get("stat", {})
+                last_3_starts.append({
+                    "date":    split.get("date", ""),
+                    "opponent": split.get("opponent", {}).get("name", ""),
+                    "result":  f"{s.get('wins',0)}-{s.get('losses',0)}",
+                    "era_game": s.get("era", ""),
+                    "ip":      s.get("inningsPitched", ""),
+                    "er":      s.get("earnedRuns", 0),
+                    "k":       s.get("strikeOuts", 0),
+                })
+
+    return {
+        "name":          pitcher_name,
+        "season_stats":  season_stats,
+        "last_3_starts": last_3_starts,
+    }
+
+
 # ── Starting pitchers for a matchup ───────────────────────────────────────────
 
 def get_starting_pitchers(home_team: str, away_team: str) -> dict:
@@ -216,16 +280,38 @@ def enrich_game_context(home_team: str, away_team: str) -> dict:
     Called by data_hub for baseball_mlb games.
     Returns a dict ready to be merged into game_context.
     """
-    pitchers     = get_starting_pitchers(home_team, away_team)
-    home_form    = get_team_recent_form(home_team)
-    away_form    = get_team_recent_form(away_team)
-    home_injuries = get_team_injuries(home_team)
-    away_injuries = get_team_injuries(away_team)
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
+    pitchers = get_starting_pitchers(home_team, away_team)
+
+    # Fetch form, injuries, and pitcher stats in parallel
+    tasks = {
+        "home_form":      (get_team_recent_form,  (home_team,)),
+        "away_form":      (get_team_recent_form,  (away_team,)),
+        "home_injuries":  (get_team_injuries,     (home_team,)),
+        "away_injuries":  (get_team_injuries,     (away_team,)),
+    }
+    if pitchers.get("home_pitcher") and pitchers["home_pitcher"] != "TBD":
+        tasks["home_pitcher_stats"] = (get_pitcher_stats, (pitchers["home_pitcher"],))
+    if pitchers.get("away_pitcher") and pitchers["away_pitcher"] != "TBD":
+        tasks["away_pitcher_stats"] = (get_pitcher_stats, (pitchers["away_pitcher"],))
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
+        for future in _as_completed(futures, timeout=15):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception:
+                pass
 
     return {
-        "mlb_pitchers":       pitchers,
-        "mlb_home_form":      home_form,
-        "mlb_away_form":      away_form,
-        "mlb_home_injuries":  home_injuries,
-        "mlb_away_injuries":  away_injuries,
+        "mlb_pitchers":           pitchers,
+        "mlb_home_pitcher_stats": results.get("home_pitcher_stats", {}),
+        "mlb_away_pitcher_stats": results.get("away_pitcher_stats", {}),
+        "mlb_home_form":          results.get("home_form", {}),
+        "mlb_away_form":          results.get("away_form", {}),
+        "mlb_home_injuries":      results.get("home_injuries", []),
+        "mlb_away_injuries":      results.get("away_injuries", []),
     }
