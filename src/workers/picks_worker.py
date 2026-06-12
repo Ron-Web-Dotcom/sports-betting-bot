@@ -225,7 +225,7 @@ def generate_picks():
         blocked_game_keys = set()
         seen_players      = set()
         for pick in pool:
-            if len(entry) == 3:
+            if len(entry) == 2:
                 break
             if pick["type"] == "prop":
                 if pick["game_key"] and pick["game_key"] in blocked_game_keys:
@@ -871,7 +871,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         seen_players: set[str]       = set()
 
         for pick in pool:
-            if len(entry) == 3:
+            if len(entry) == 2:
                 break
 
             conf = pick["confidence"]

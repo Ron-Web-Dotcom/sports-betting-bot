@@ -197,6 +197,16 @@ def analyse_pick(
         if game_context.get("sleeper_injuries"):
             payload["sleeper_trending_drops"] = game_context["sleeper_injuries"]
         # MLB: official free stats API — pitchers, form, IL
+        if game_context.get("nba_stats_api"):
+            nba = game_context["nba_stats_api"]
+            if nba.get("nba_home_form"):
+                payload["home_recent_form"]    = nba["nba_home_form"]
+            if nba.get("nba_away_form"):
+                payload["away_recent_form"]    = nba["nba_away_form"]
+            if nba.get("nba_home_ratings"):
+                payload["home_team_ratings"]   = nba["nba_home_ratings"]
+            if nba.get("nba_away_ratings"):
+                payload["away_team_ratings"]   = nba["nba_away_ratings"]
         if game_context.get("mlb_stats"):
             mlb = game_context["mlb_stats"]
             if mlb.get("mlb_pitchers"):
