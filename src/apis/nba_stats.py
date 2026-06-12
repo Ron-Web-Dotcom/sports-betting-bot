@@ -25,11 +25,26 @@ _TOURNAMENT_ID = {
     "wnba": 536,   # WNBA
 }
 
-# Current season IDs (update each season)
-_SEASON_ID = {
-    "nba":  63882,   # 2024-25 NBA
-    "wnba": 63947,   # 2025 WNBA
-}
+_season_cache: dict = {}
+
+
+def _get_current_season_id(league: str) -> int | None:
+    """Fetch the current/most recent season ID from SofaScore dynamically."""
+    if league in _season_cache:
+        return _season_cache[league]
+    t_id = _TOURNAMENT_ID.get(league)
+    if not t_id:
+        return None
+    data = _get(f"/tournament/{t_id}/seasons")
+    seasons = (data or {}).get("seasons", []) if isinstance(data, dict) else []
+    if not seasons:
+        return None
+    # First season in list is the most recent
+    sid = seasons[0].get("id")
+    if sid:
+        _season_cache[league] = sid
+        logger.debug("SofaScore season id for %s: %s", league, sid)
+    return sid
 
 
 def _get(path: str) -> dict | list | None:
@@ -63,8 +78,8 @@ def get_team_recent_form(team_name: str, n: int = 10, league: str = "nba") -> di
     Returns: wins, losses, last_N_record, win_pct, streak, form_string
     """
     # Try SofaScore standings first
-    t_id   = _TOURNAMENT_ID.get(league)
-    s_id   = _SEASON_ID.get(league)
+    t_id = _TOURNAMENT_ID.get(league)
+    s_id = _get_current_season_id(league)
 
     if t_id and s_id:
         data = _get(f"/tournament/{t_id}/season/{s_id}/standings/total")
