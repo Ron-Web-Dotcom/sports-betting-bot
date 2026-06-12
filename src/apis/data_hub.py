@@ -325,16 +325,16 @@ def _score_completeness(context: dict) -> float:
     # TheSportsDB is the only truly universal source (800+ leagues, VPS-confirmed).
     # Everything else is a bonus — varies by sport. This way no sport is penalised
     # just because Kalshi/ESPN don't cover it.
-    core_score = 0.65 if context.get("thesportsdb") else 0.25
+    core_score = 0.80 if context.get("thesportsdb") else 0.25
 
     bonus = 0.0
-    if context.get("sportradar"):         bonus += 0.25  # H2H, form, injuries (NBA/NFL/NHL)
-    if context.get("sofascore"):          bonus += 0.20  # live stats, H2H (via proxy)
-    if context.get("injuries_espn_home"): bonus += 0.10  # ESPN injuries (US sports via proxy)
-    if context.get("news_espn"):          bonus += 0.05  # ESPN news (US sports via proxy)
-    if context.get("kalshi_markets"):     bonus += 0.10  # prediction markets (US sports only)
-    if context.get("sportsdataio"):       bonus += 0.10  # standings + injuries
-    if context.get("mlb_stats"):          bonus += 0.10  # MLB pitchers + IL
+    if context.get("sportradar"):         bonus += 0.10  # real-time H2H + injuries (NBA/NFL/NHL)
+    if context.get("sofascore"):          bonus += 0.08  # live stats via proxy
+    if context.get("injuries_espn_home"): bonus += 0.05  # ESPN injuries via proxy
+    if context.get("news_espn"):          bonus += 0.03  # ESPN news via proxy
+    if context.get("kalshi_markets"):     bonus += 0.05  # prediction markets (US sports)
+    if context.get("sportsdataio"):       bonus += 0.03  # standings + injuries
+    if context.get("mlb_stats"):          bonus += 0.05  # MLB pitchers + IL (official API)
     return min(1.0, round(core_score + bonus, 4))
 
 
