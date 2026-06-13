@@ -191,7 +191,15 @@ def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
         outcome = _OUTCOME.get((results[i - 1] if results and i <= len(results) else ""), "")
         outcome_line = f"\n┗  {outcome}" if outcome else ""
 
-        if p.get("type") == "prop":
+        if p.get("question"):
+            # Kalshi/prediction market pick
+            side = p.get("side", "yes").upper()
+            lines.append(
+                f"`LEG {i}`  🔵 **{p['question']}**\n"
+                f"┣  Answer **{side}**  ·  Conf **{conf}%**"
+                + outcome_line
+            )
+        elif p.get("type") == "prop":
             tag = "🏟️" if p.get("is_team_prop") else "👤"
             lines.append(
                 f"`LEG {i}`  {tag} **{p['player']}**\n"
@@ -435,8 +443,9 @@ def track_slips() -> dict:
                 mins = (ct - now).total_seconds() / 60
                 gid  = (pick.get("event_id") or pick.get("game_key") or
                         f"{pick.get('home_team','')}:{pick.get('away_team','')}")
-                name = (pick.get("player") or pick.get("title") or pick.get("question") or
-                        f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}").strip(" @")
+                _game_name = f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+                name = (pick.get("question") or pick.get("title") or pick.get("player") or
+                        (_game_name if _game_name.strip(" @") else ""))
                 gt   = _fmt_time(pick.get("commence_time", ""))
                 tag  = f"`[{plat}]`"
 
