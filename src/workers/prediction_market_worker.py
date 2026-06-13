@@ -272,7 +272,7 @@ Only pick if confidence >= 0.65 and ev_pct >= 0.04. Return {"index": null} if no
         "reasoning":  result.get("reasoning", ""),
         "home_odds":  game["home_odds"],
         "away_odds":  game["away_odds"],
-        "commence":   game.get("commence", ""),
+        "commence_time": game.get("commence", ""),
     }]
 
 
@@ -324,7 +324,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         from dateutil.parser import parse as _p
         import zoneinfo as _zi
         _ET = _zi.ZoneInfo("America/New_York")
-        game_time = _p(pick["commence"]).astimezone(_ET).strftime("%-I:%M %p ET") if pick.get("commence") else ""
+        game_time = _p(pick["commence_time"]).astimezone(_ET).strftime("%-I:%M %p ET") if pick.get("commence_time") else ""
     except Exception:
         game_time = ""
 
