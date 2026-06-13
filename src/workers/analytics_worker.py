@@ -13,7 +13,65 @@ def is_sleep_time() -> bool:
     return 3 <= et.hour < 5
 
 
-def send_daily_summary():
+def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
+    """
+    Load settled slip results from Redis for the last N days.
+    Returns (wins, losses, pushes, winner_slips, loser_slips).
+    """
+    import json
+    from datetime import datetime, timedelta
+    import zoneinfo
+    from src.core.config import REDIS_URL
+    import redis as _redis
+
+    ET    = zoneinfo.ZoneInfo("America/New_York")
+    cutoff = (datetime.now(ET) - timedelta(days=days_back)).date()
+
+    try:
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw_slips = r.hgetall("slips:active")
+        ratio_raw = r.hgetall("slips:ratio")
+    except Exception:
+        return 0, 0, 0, [], []
+
+    wins   = int(ratio_raw.get("wins",   0))
+    losses = int(ratio_raw.get("losses", 0))
+    pushes = int(ratio_raw.get("pushes", 0))
+
+    winner_slips: list = []
+    loser_slips:  list = []
+
+    for raw in raw_slips.values():
+        try:
+            slip = json.loads(raw)
+            created_date = slip.get("created", "")[:10]
+            if created_date < str(cutoff):
+                continue
+            status = slip.get("status", "active")
+            if status == "cashed":
+                winner_slips.append(slip)
+            elif status == "dead":
+                loser_slips.append(slip)
+        except Exception:
+            pass
+
+    return wins, losses, pushes, winner_slips, loser_slips
+
+
+def _slip_summary_line(slip: dict) -> str:
+    """One-line description of a slip for recap embeds."""
+    platform = slip.get("platform", "").title()
+    period   = slip.get("period", "").upper()
+    n        = len(slip.get("picks", []))
+    picks    = slip.get("picks", [])
+    legs = ", ".join(
+        p.get("selection") or p.get("player") or "?"
+        for p in picks[:3]
+    )
+    return f"• **{platform} {period}** — {n}-leg: {legs}"
+
+
+
     """
     Posts the daily summary after the last game of the day has completed.
     Checks Sofascore for today's latest game end time and waits until it's done.
@@ -69,45 +127,42 @@ def send_daily_summary():
                     last_game_et.strftime("%I:%M %p"), now_et.strftime("%I:%M %p"))
         return {"skipped": "games_not_done_yet", "retry_after": last_game_et.isoformat()}
 
-    from src.engines.summary_engine import get_daily_summary
-    from src.engines.ai_engine import write_daily_summary
-    from src.engines.clv_engine import aggregate_clv
+    # Pull results from Redis slip tracker
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
+    total = wins + losses + pushes
 
-    daily = get_daily_summary()
-    clv_stats = aggregate_clv("daily")
+    pct_str = f" ({round(wins/total*100)}% hit rate)" if total > 0 else ""
+    record  = f"{wins}W – {losses}L – {pushes}P{pct_str}" if total > 0 else "No settled slips yet"
 
-    # Fetch actual picks and results from DB for the summary
-    from src.db.session import get_db
-    from src.db.models import Pick
-    from datetime import datetime, timedelta
-    with get_db() as db:
-        today_picks = db.query(
-            Pick.selection, Pick.sport, Pick.american_odds_at_gen,
-            Pick.ev_pct, Pick.units, Pick.recommendation,
-        ).filter(
-            Pick.generated_at >= datetime.utcnow() - timedelta(hours=24),
-            Pick.recommendation == "BET",
-        ).limit(20).all()
-        settled = db.query(
-            Pick.selection, Pick.sport, Pick.result, Pick.actual_pnl_units,
-        ).filter(
-            Pick.settled_at >= datetime.utcnow() - timedelta(hours=24),
-            Pick.result.isnot(None),
-        ).limit(20).all()
+    win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips) or "—"
+    loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips)  or "—"
 
-    picks_dicts = [
-        {"bet": sel, "sport": sp, "odds": odds, "ev": ev, "units": u}
-        for sel, sp, odds, ev, u, _ in today_picks
-    ]
-    results_dicts = [
-        {"bet": sel, "sport": sp, "result": res, "pnl": pnl}
-        for sel, sp, res, pnl in settled
-    ]
-    summary = write_daily_summary(picks_dicts, results_dicts, clv_stats, bankroll=daily.get("net_units", 0))
+    import hashlib
+    date_str = now_et.strftime("%b %-d, %Y")
+    slip_id  = hashlib.md5(f"daily{date_str}".encode()).hexdigest()[:8].upper()
+    color    = 0x1B5E20 if wins >= losses and total > 0 else (0xB71C1C if losses > wins else 0x607D8B)
+
+    embed = {
+        "title":       f"📊  DAILY SUMMARY  ·  {now_et.strftime('%A, %b %-d')}",
+        "description": (
+            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "color": color,
+        "fields": [
+            {"name": "TODAY'S RECORD", "value": record,    "inline": False},
+            {"name": "✅  CASHED",     "value": win_lines,  "inline": True},
+            {"name": "❌  DEAD",       "value": loss_lines, "inline": True},
+            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+             "value": "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**",
+             "inline": False},
+        ],
+        "footer": {"text": f"Daily recap  ·  {now_et.strftime('%-I:%M %p ET')}  ·  {date_str}"},
+    }
 
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import post_daily_summary
-    _run_async(post_daily_summary(summary))
+    from src.discord_bot.bot import _post
+    _run_async(_post({"embeds": [embed]}))
 
     # Mark as sent so retries at 11 PM / 12:30 AM are no-ops
     try:
@@ -217,29 +272,14 @@ def enter_sleep_mode():
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post, _embed
     from src.engines.self_improvement_engine import run_full_self_improvement
-    from src.db.session import get_db
-    from src.db.models import PropResult
-    from datetime import datetime, timedelta
+    from datetime import datetime
     import zoneinfo
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    today = et.date()
 
-    # Pull today's settled results (games that finished today before 3 AM)
-    try:
-        with get_db() as db:
-            rows = db.query(PropResult).filter(
-                PropResult.settled_at >= datetime.combine(today, datetime.min.time()),
-                PropResult.settled_at <  datetime.combine(today + timedelta(days=1), datetime.min.time()),
-            ).all()
-    except Exception as e:
-        logger.warning("enter_sleep_mode: DB query failed: %s", e)
-        rows = []
-
-    total  = len(rows)
-    wins   = sum(1 for r in rows if r.result == "won")
-    losses = sum(1 for r in rows if r.result == "lost")
-    pushes = sum(1 for r in rows if r.result == "push")
+    # Pull today's settled results from Redis slip tracker
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
+    total = wins + losses + pushes
 
     if total == 0:
         record_str = "No settled picks today — results appear as games finish."
@@ -249,13 +289,7 @@ def enter_sleep_mode():
         record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
         color = 0x1A237E
 
-    # Top winners to list
-    winners = [r for r in rows if r.result == "won"][:5]
-
-    def _row(r):
-        return f"• **{r.subject}** {r.stat} {r.line} ({r.direction.upper()})"
-
-    win_text = "\n".join(_row(r) for r in winners) or "—"
+    win_text = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
 
     # Run self-improvement silently while sleeping
     try:
@@ -273,7 +307,7 @@ def enter_sleep_mode():
         {"name": "TOTAL PICKS",    "value": str(total),  "inline": True},
         {"name": "​",         "value": "​",     "inline": True},
     ]
-    if winners:
+    if winner_slips:
         fields.append({"name": "✅  TOP WINNERS", "value": win_text, "inline": False})
     fields.append({
         "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -491,31 +525,17 @@ def health_check():
 
 
 def yesterday_recap():
-    """6 AM ET — yesterday's pick results + today's game count from DB."""
+    """6 AM ET — yesterday's slip results from Redis + today's game count."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
-    from src.db.session import get_db
-    from src.db.models import PropResult
     from datetime import datetime, timedelta
     import zoneinfo, json
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    yesterday = (et - timedelta(days=1)).date()
 
-    try:
-        with get_db() as db:
-            rows = db.query(PropResult).filter(
-                PropResult.settled_at >= datetime.combine(yesterday, datetime.min.time()),
-                PropResult.settled_at <  datetime.combine(et.date(),  datetime.min.time()),
-            ).all()
-    except Exception as e:
-        logger.warning("yesterday_recap: DB query failed: %s", e)
-        rows = []
-
-    total  = len(rows)
-    wins   = sum(1 for r in rows if r.result == "won")
-    losses = sum(1 for r in rows if r.result == "lost")
-    pushes = sum(1 for r in rows if r.result == "push")
+    # Pull results from Redis slip tracker (not DB — DB is unused)
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
+    total = wins + losses + pushes
 
     if total == 0:
         record_str = "No settled picks yesterday — results appear as games finish."
@@ -525,30 +545,21 @@ def yesterday_recap():
         record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
         color = 0x00C851 if wins >= losses else 0xE53935
 
-    # Best picks yesterday
-    winners = [r for r in rows if r.result == "won"][:3]
-    losers  = [r for r in rows if r.result == "lost"][:3]
+    win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:3]) or "—"
+    loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:3])  or "—"
 
-    def _row(r):
-        return f"• **{r.subject}** {r.stat} {r.line} ({r.direction.upper()})"
-
-    win_text  = "\n".join(_row(r) for r in winners) or "—"
-    loss_text = "\n".join(_row(r) for r in losers)  or "—"
-
-    # Sport breakdown
+    # Sport breakdown from winner/loser slips
     sport_stats: dict = {}
-    for r in rows:
-        sk = r.sport_key or "other"
-        if sk not in sport_stats:
-            sport_stats[sk] = {"w": 0, "l": 0}
-        if r.result == "won":
-            sport_stats[sk]["w"] += 1
-        elif r.result == "lost":
-            sport_stats[sk]["l"] += 1
-    sport_lines = [
-        f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L"
-        for sk, v in sport_stats.items()
-    ]
+    for slip in winner_slips + loser_slips:
+        for pick in slip.get("picks", []):
+            sk = pick.get("sport_key", "other")
+            if sk not in sport_stats:
+                sport_stats[sk] = {"w": 0, "l": 0}
+            if slip.get("status") == "cashed":
+                sport_stats[sk]["w"] += 1
+            else:
+                sport_stats[sk]["l"] += 1
+    sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in sport_stats.items()]
     sport_breakdown = "  ".join(sport_lines) or "—"
 
     # Today's games — read from Sofascore Redis cache (written by scan_todays_games at 8 AM)
