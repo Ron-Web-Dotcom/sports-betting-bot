@@ -435,7 +435,8 @@ def track_slips() -> dict:
                 mins = (ct - now).total_seconds() / 60
                 gid  = (pick.get("event_id") or pick.get("game_key") or
                         f"{pick.get('home_team','')}:{pick.get('away_team','')}")
-                name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+                name = (pick.get("player") or pick.get("title") or pick.get("question") or
+                        f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}").strip(" @")
                 gt   = _fmt_time(pick.get("commence_time", ""))
                 tag  = f"`[{plat}]`"
 

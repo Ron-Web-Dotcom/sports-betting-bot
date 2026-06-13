@@ -445,6 +445,15 @@ def generate_prediction_market_night_entry() -> dict:
 
 def _generate_entry(period: str) -> dict:
     try:
+        # Dedup: only post once per period per day
+        from src.core.timezone import et_naive as _et_naive
+        _today = _et_naive().strftime("%Y-%m-%d")
+        _dedup_key = f"kalshi:posted:{period}:{_today}"
+        _r = _redis()
+        if _r.get(_dedup_key):
+            logger.info("Kalshi %s entry already posted today — skipping", period)
+            return {"skipped": "already_posted", "period": period}
+
         picks = _build_entry([], [], max_picks=1)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks", period)
@@ -467,6 +476,7 @@ def _generate_entry(period: str) -> dict:
             return {"picks": 0, "posted": False}
 
         _post_prediction_entry(period, picks)
+        _r.setex(_dedup_key, 86400, "1")
 
         try:
             from src.workers.slip_tracker import save_slip
