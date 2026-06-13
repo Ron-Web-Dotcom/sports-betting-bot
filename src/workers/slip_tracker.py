@@ -398,17 +398,20 @@ def track_slips() -> dict:
                     alerts_fired += 1
 
                 # ── Result check (game should be done) ───────────────────
-                if mins_to_game < -90:   # game started 90+ min ago
+                if mins_to_game < -150:   # game started 2.5h ago — enough for any sport
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
 
-            # ── Settle slip if all picks have results ─────────────────────
-            if results and len(results) == len([
+            # ── Settle slip only when EVERY leg has a result ──────────────
+            # Count legs that are old enough to have finished
+            settled_picks = [
                 p for p in picks
-                if _parse_time(p.get("commence_time","")) and
-                   (_now_utc() - _parse_time(p.get("commence_time",""))).total_seconds() > 90 * 60
-            ]):
+                if _parse_time(p.get("commence_time", "")) and
+                (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() > 150 * 60
+            ]
+            # Only settle if ALL legs — not just some — have returned a result
+            if results and len(results) == len(picks) and len(settled_picks) == len(picks):
                 if "lost" in results:
                     slip_result = "dead"
                 elif all(r == "won" for r in results):
