@@ -417,13 +417,17 @@ def track_slips() -> dict:
         now = _now_utc()
         alerts_fired = 0
 
-        # ── Pass 1: collect soon/live across ALL slips — fire ONE combined alert ──
-        soon_lines: list[str] = []
-        live_lines: list[str] = []
+        # ── Pass 1: collect soon/live — separated by DAY vs NIGHT ──────────────
+        # soon window: 0–10 min before tip-off
+        day_soon:   list[str] = []
+        night_soon: list[str] = []
+        day_live:   list[str] = []
+        night_live: list[str] = []
 
         for slip in slips:
-            plat = _platform_label(slip["platform"])
-            period = slip.get("period", "").upper()
+            plat   = _platform_label(slip["platform"])
+            period = slip.get("period", "day")
+
             for pick in slip.get("picks", []):
                 ct = _parse_time(pick.get("commence_time", ""))
                 if not ct:
@@ -433,29 +437,48 @@ def track_slips() -> dict:
                         f"{pick.get('home_team','')}:{pick.get('away_team','')}")
                 name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
                 gt   = _fmt_time(pick.get("commence_time", ""))
+                tag  = f"`[{plat}]`"
 
                 soon_key = f"game:soon:{gid}"
-                if 25 <= mins <= 35 and not _alerted(r, soon_key):
-                    soon_lines.append(f"**{name}**  ·  🕐 {gt}  `[{plat} {period}]`")
+                if 0 <= mins <= 10 and not _alerted(r, soon_key):
+                    line = f"**{name}**  ·  🕐 {gt}  {tag}"
+                    (day_soon if period == "day" else night_soon).append(line)
                     _mark_alerted(r, soon_key)
 
                 live_key = f"game:live:{gid}"
                 if -5 <= mins <= 2 and not _alerted(r, live_key):
-                    live_lines.append(f"🔴 **{name}** is LIVE  `[{plat} {period}]`")
+                    line = f"🔴 **{name}**  {tag}"
+                    (day_live if period == "day" else night_live).append(line)
                     _mark_alerted(r, live_key)
 
-        if soon_lines:
+        if day_soon:
             _post_embed({
-                "title":       "🔔  GAME STARTING SOON",
-                "description": "\n".join(soon_lines),
+                "title":       "🔔  DAY GAMES STARTING NOW",
+                "description": "\n".join(day_soon),
                 "color":       0xF9A825,
-                "footer":      {"text": "⏱️ Get your slips in before tip-off"},
+                "footer":      {"text": "⏱️ Last chance — tip-off in under 10 min"},
             })
             alerts_fired += 1
-        if live_lines:
+        if night_soon:
             _post_embed({
-                "title":       "🔴  GAME NOW LIVE",
-                "description": "\n".join(live_lines),
+                "title":       "🔔  NIGHT GAMES STARTING NOW",
+                "description": "\n".join(night_soon),
+                "color":       0xF9A825,
+                "footer":      {"text": "⏱️ Last chance — tip-off in under 10 min"},
+            })
+            alerts_fired += 1
+        if day_live:
+            _post_embed({
+                "title":       "🔴  DAY GAMES NOW LIVE",
+                "description": "\n".join(day_live),
+                "color":       0xE53935,
+                "footer":      {"text": "Tracking results — updates when games end"},
+            })
+            alerts_fired += 1
+        if night_live:
+            _post_embed({
+                "title":       "🔴  NIGHT GAMES NOW LIVE",
+                "description": "\n".join(night_live),
                 "color":       0xE53935,
                 "footer":      {"text": "Tracking results — updates when games end"},
             })
