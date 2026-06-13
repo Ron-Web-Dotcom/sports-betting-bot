@@ -191,34 +191,6 @@ def _ticket_header(slip: dict) -> str:
     )
 
 
-def _alert_starting_soon(slip: dict, pick: dict) -> None:
-    gt   = _fmt_time(pick.get("commence_time", ""))
-    name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
-    _post_embed({
-        "title":       f"🔔  GAME STARTING SOON",
-        "description": (
-            f"{_ticket_header(slip)}\n"
-            f"**{name}**  tips off in ~30 min  ·  🕐 **{gt}**\n\n"
-            f"{_slip_legs(slip['picks'])}"
-        ),
-        "color": 0xF9A825,
-        "footer": {"text": "⏱️ Get your slip in before tip-off"},
-    })
-
-
-def _alert_live(slip: dict, pick: dict) -> None:
-    name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
-    _post_embed({
-        "title":       f"🔴  LIVE — {name}",
-        "description": (
-            f"{_ticket_header(slip)}\n"
-            f"Game is **LIVE** — slip is active  🎯\n\n"
-            f"{_slip_legs(slip['picks'])}"
-        ),
-        "color": 0xE53935,
-        "footer": {"text": "Tracking result — updates when game ends"},
-    })
-
 
 def _alert_result(slip: dict, result: str, ratio: dict) -> None:
     platform = _platform_label(slip["platform"])
@@ -352,11 +324,46 @@ def _check_pick_result(pick: dict) -> str | None:
 
 # ── Main scan ──────────────────────────────────────────────────────────────────
 
+def _alert_games_starting_soon(entries: list[tuple[dict, dict]]) -> None:
+    """ONE combined embed for all games starting within ~30 min."""
+    if not entries:
+        return
+    lines = []
+    for slip, pick in entries:
+        gt   = _fmt_time(pick.get("commence_time", ""))
+        name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+        plat = _platform_label(slip["platform"])
+        lines.append(f"**{name}**  ·  🕐 **{gt}**  `[{plat}]`")
+    _post_embed({
+        "title":       "🔔  GAMES STARTING SOON",
+        "description": "\n".join(lines),
+        "color":       0xF9A825,
+        "footer":      {"text": "⏱️ Get your slips in before tip-off"},
+    })
+
+
+def _alert_games_live(entries: list[tuple[dict, dict]]) -> None:
+    """ONE combined embed for all games now live."""
+    if not entries:
+        return
+    lines = []
+    for slip, pick in entries:
+        name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+        plat = _platform_label(slip["platform"])
+        lines.append(f"🔴 **{name}**  `[{plat}]`")
+    _post_embed({
+        "title":       "🔴  GAMES NOW LIVE",
+        "description": "\n".join(lines),
+        "color":       0xE53935,
+        "footer":      {"text": "Tracking results — updates when games end"},
+    })
+
+
 def track_slips() -> dict:
     """
     Runs every 3 minutes. For each active slip:
-    - Fire "starting soon" alert 30 min before kick-off
-    - Fire "live now" alert at kick-off
+    - Fire ONE grouped "starting soon" alert for all games starting within 30 min
+    - Fire ONE grouped "live now" alert for all games going live
     - Check results after games complete
     - Mark slip cashed or dead, update W/L ratio
     """
@@ -369,58 +376,66 @@ def track_slips() -> dict:
         now = _now_utc()
         alerts_fired = 0
 
+        # ── Pass 1: collect soon/live across ALL slips ────────────────────────
+        soon_picks: list[tuple[dict, dict]] = []   # (slip, pick)
+        live_picks: list[tuple[dict, dict]] = []
+
         for slip in slips:
-            slip_id   = slip["id"]
-            picks     = slip.get("picks", [])
-            results   = []
+            for pick in slip.get("picks", []):
+                ct = _parse_time(pick.get("commence_time", ""))
+                if not ct:
+                    continue
+                mins = (ct - now).total_seconds() / 60
+                gid  = (pick.get("event_id") or pick.get("game_key") or
+                        f"{pick.get('home_team','')}:{pick.get('away_team','')}")
+
+                soon_key = f"game:soon:{gid}"
+                if 25 <= mins <= 35 and not _alerted(r, soon_key):
+                    soon_picks.append((slip, pick))
+                    _mark_alerted(r, soon_key)
+
+                live_key = f"game:live:{gid}"
+                if -5 <= mins <= 2 and not _alerted(r, live_key):
+                    live_picks.append((slip, pick))
+                    _mark_alerted(r, live_key)
+
+        # ── Fire ONE grouped embed per event type ─────────────────────────────
+        if soon_picks:
+            _alert_games_starting_soon(soon_picks)
+            alerts_fired += 1
+        if live_picks:
+            _alert_games_live(live_picks)
+            alerts_fired += 1
+
+        # ── Pass 2: settle slips ──────────────────────────────────────────────
+        for slip in slips:
+            picks = slip.get("picks", [])
+            results = []
 
             for pick in picks:
                 ct = _parse_time(pick.get("commence_time", ""))
                 if not ct:
                     continue
-
-                mins_to_game = (ct - now).total_seconds() / 60
-
-                # ── Starting soon (25-35 min window) ──────────────────────
-                # Dedup by GAME not slip — multiple slips covering same game = 1 alert
-                _game_id = pick.get('event_id') or pick.get('game_key') or f"{pick.get('home_team','')}:{pick.get('away_team','')}"
-                soon_key = f"game:soon:{_game_id}"
-                if 25 <= mins_to_game <= 35 and not _alerted(r, soon_key):
-                    _alert_starting_soon(slip, pick)
-                    _mark_alerted(r, soon_key)
-                    alerts_fired += 1
-
-                # ── Live now (0-5 min past kick-off) ─────────────────────
-                live_key = f"game:live:{_game_id}"
-                if -5 <= mins_to_game <= 2 and not _alerted(r, live_key):
-                    _alert_live(slip, pick)
-                    _mark_alerted(r, live_key)
-                    alerts_fired += 1
-
-                # ── Result check (game should be done) ───────────────────
-                if mins_to_game < -150:   # game started 2.5h ago — enough for any sport
+                mins = (ct - now).total_seconds() / 60
+                if mins < -150:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
 
-            # ── Settle slip only when EVERY leg has a result ──────────────
-            # Count legs that are old enough to have finished
+            # Only settle when ALL legs have a result and are old enough
             settled_picks = [
                 p for p in picks
                 if _parse_time(p.get("commence_time", "")) and
                 (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() > 150 * 60
             ]
-            # Only settle if ALL legs — not just some — have returned a result
             if results and len(results) == len(picks) and len(settled_picks) == len(picks):
                 if "lost" in results:
                     slip_result = "dead"
-                elif all(r == "won" for r in results):
+                elif all(rv == "won" for rv in results):
                     slip_result = "cashed"
                 else:
                     slip_result = "push"
 
-                # Dedup result alert by game-day period, not slip_id
-                # so duplicate slips don't fire multiple CASHED/DEAD alerts
                 _period_date = f"{slip.get('period','night')}:{slip.get('platform','hardrock')}:{slip.get('created','')[:10]}"
                 result_key = f"game:result:{_period_date}"
                 if not _alerted(r, result_key):
