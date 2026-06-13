@@ -71,7 +71,7 @@ def _slip_summary_line(slip: dict) -> str:
     return f"• **{platform} {period}** — {n}-leg: {legs}"
 
 
-
+def send_daily_summary():
     """
     Posts the daily summary after the last game of the day has completed.
     Checks Sofascore for today's latest game end time and waits until it's done.
