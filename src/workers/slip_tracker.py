@@ -417,11 +417,13 @@ def track_slips() -> dict:
         now = _now_utc()
         alerts_fired = 0
 
-        # ── Pass 1: per-slip soon/live alerts — one embed per slip that has new games ──
-        for slip in slips:
-            slip_soon: list[dict] = []
-            slip_live: list[dict] = []
+        # ── Pass 1: collect soon/live across ALL slips — fire ONE combined alert ──
+        soon_lines: list[str] = []
+        live_lines: list[str] = []
 
+        for slip in slips:
+            plat = _platform_label(slip["platform"])
+            period = slip.get("period", "").upper()
             for pick in slip.get("picks", []):
                 ct = _parse_time(pick.get("commence_time", ""))
                 if not ct:
@@ -429,23 +431,35 @@ def track_slips() -> dict:
                 mins = (ct - now).total_seconds() / 60
                 gid  = (pick.get("event_id") or pick.get("game_key") or
                         f"{pick.get('home_team','')}:{pick.get('away_team','')}")
+                name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
+                gt   = _fmt_time(pick.get("commence_time", ""))
 
-                soon_key = f"game:soon:{slip['id']}:{gid}"
+                soon_key = f"game:soon:{gid}"
                 if 25 <= mins <= 35 and not _alerted(r, soon_key):
-                    slip_soon.append(pick)
+                    soon_lines.append(f"**{name}**  ·  🕐 {gt}  `[{plat} {period}]`")
                     _mark_alerted(r, soon_key)
 
-                live_key = f"game:live:{slip['id']}:{gid}"
+                live_key = f"game:live:{gid}"
                 if -5 <= mins <= 2 and not _alerted(r, live_key):
-                    slip_live.append(pick)
+                    live_lines.append(f"🔴 **{name}** is LIVE  `[{plat} {period}]`")
                     _mark_alerted(r, live_key)
 
-            if slip_soon:
-                _alert_slip_starting_soon(slip, slip_soon)
-                alerts_fired += 1
-            if slip_live:
-                _alert_slip_live(slip, slip_live)
-                alerts_fired += 1
+        if soon_lines:
+            _post_embed({
+                "title":       "🔔  GAME STARTING SOON",
+                "description": "\n".join(soon_lines),
+                "color":       0xF9A825,
+                "footer":      {"text": "⏱️ Get your slips in before tip-off"},
+            })
+            alerts_fired += 1
+        if live_lines:
+            _post_embed({
+                "title":       "🔴  GAME NOW LIVE",
+                "description": "\n".join(live_lines),
+                "color":       0xE53935,
+                "footer":      {"text": "Tracking results — updates when games end"},
+            })
+            alerts_fired += 1
 
         # ── Pass 2: settle slips ──────────────────────────────────────────────
         for slip in slips:
