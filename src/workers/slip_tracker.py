@@ -324,38 +324,40 @@ def _check_pick_result(pick: dict) -> str | None:
 
 # ── Main scan ──────────────────────────────────────────────────────────────────
 
-def _alert_games_starting_soon(entries: list[tuple[dict, dict]]) -> None:
-    """ONE combined embed for all games starting within ~30 min."""
-    if not entries:
-        return
+def _alert_slip_starting_soon(slip: dict, picks: list[dict]) -> None:
+    """One embed per slip — shows ticket design with only the legs starting soon."""
     lines = []
-    for slip, pick in entries:
+    for pick in picks:
         gt   = _fmt_time(pick.get("commence_time", ""))
         name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
-        plat = _platform_label(slip["platform"])
-        lines.append(f"**{name}**  ·  🕐 **{gt}**  `[{plat}]`")
+        lines.append(f"**{name}**  ·  🕐 **{gt}**")
     _post_embed({
-        "title":       "🔔  GAMES STARTING SOON",
-        "description": "\n".join(lines),
-        "color":       0xF9A825,
-        "footer":      {"text": "⏱️ Get your slips in before tip-off"},
+        "title":       "🔔  GAME STARTING SOON",
+        "description": (
+            f"{_ticket_header(slip)}\n"
+            + "\n".join(lines) +
+            f"\n\n{_slip_legs(slip['picks'])}"
+        ),
+        "color":  0xF9A825,
+        "footer": {"text": "⏱️ Get your slip in before tip-off"},
     })
 
 
-def _alert_games_live(entries: list[tuple[dict, dict]]) -> None:
-    """ONE combined embed for all games now live."""
-    if not entries:
-        return
+def _alert_slip_live(slip: dict, picks: list[dict]) -> None:
+    """One embed per slip — shows ticket design for live games."""
     lines = []
-    for slip, pick in entries:
+    for pick in picks:
         name = pick.get("player") or f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
-        plat = _platform_label(slip["platform"])
-        lines.append(f"🔴 **{name}**  `[{plat}]`")
+        lines.append(f"🔴 **{name}** is LIVE")
     _post_embed({
-        "title":       "🔴  GAMES NOW LIVE",
-        "description": "\n".join(lines),
-        "color":       0xE53935,
-        "footer":      {"text": "Tracking results — updates when games end"},
+        "title":       "🔴  GAME NOW LIVE",
+        "description": (
+            f"{_ticket_header(slip)}\n"
+            + "\n".join(lines) +
+            f"\n\n{_slip_legs(slip['picks'])}"
+        ),
+        "color":  0xE53935,
+        "footer": {"text": "Tracking result — updates when game ends"},
     })
 
 
@@ -376,11 +378,11 @@ def track_slips() -> dict:
         now = _now_utc()
         alerts_fired = 0
 
-        # ── Pass 1: collect soon/live across ALL slips ────────────────────────
-        soon_picks: list[tuple[dict, dict]] = []   # (slip, pick)
-        live_picks: list[tuple[dict, dict]] = []
-
+        # ── Pass 1: per-slip soon/live alerts — one embed per slip that has new games ──
         for slip in slips:
+            slip_soon: list[dict] = []
+            slip_live: list[dict] = []
+
             for pick in slip.get("picks", []):
                 ct = _parse_time(pick.get("commence_time", ""))
                 if not ct:
@@ -389,23 +391,22 @@ def track_slips() -> dict:
                 gid  = (pick.get("event_id") or pick.get("game_key") or
                         f"{pick.get('home_team','')}:{pick.get('away_team','')}")
 
-                soon_key = f"game:soon:{gid}"
+                soon_key = f"game:soon:{slip['id']}:{gid}"
                 if 25 <= mins <= 35 and not _alerted(r, soon_key):
-                    soon_picks.append((slip, pick))
+                    slip_soon.append(pick)
                     _mark_alerted(r, soon_key)
 
-                live_key = f"game:live:{gid}"
+                live_key = f"game:live:{slip['id']}:{gid}"
                 if -5 <= mins <= 2 and not _alerted(r, live_key):
-                    live_picks.append((slip, pick))
+                    slip_live.append(pick)
                     _mark_alerted(r, live_key)
 
-        # ── Fire ONE grouped embed per event type ─────────────────────────────
-        if soon_picks:
-            _alert_games_starting_soon(soon_picks)
-            alerts_fired += 1
-        if live_picks:
-            _alert_games_live(live_picks)
-            alerts_fired += 1
+            if slip_soon:
+                _alert_slip_starting_soon(slip, slip_soon)
+                alerts_fired += 1
+            if slip_live:
+                _alert_slip_live(slip, slip_live)
+                alerts_fired += 1
 
         # ── Pass 2: settle slips ──────────────────────────────────────────────
         for slip in slips:
