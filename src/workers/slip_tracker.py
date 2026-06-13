@@ -154,18 +154,23 @@ def _platform_label(platform: str) -> str:
     return {"hardrock": "HardRock", "kalshi": "Kalshi", "polymarket": "Polymarket"}.get(platform, platform.title())
 
 
-def _slip_legs(picks: list[dict]) -> str:
-    """Render each leg in slip format."""
+def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
+    """Render each leg in slip format. Pass results=['won','lost',...] to show outcome per leg."""
     _MARKET = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
+    _OUTCOME = {"won": "✅  WON", "lost": "❌  LOST", "push": "➖  PUSH"}
     lines = []
     for i, p in enumerate(picks, 1):
-        conf = round(p.get("confidence", 0) * 100)
+        conf    = round(p.get("confidence", 0) * 100)
+        outcome = _OUTCOME.get((results[i - 1] if results and i <= len(results) else ""), "")
+        outcome_line = f"\n┗  {outcome}" if outcome else ""
+
         if p.get("type") == "prop":
             tag = "🏟️" if p.get("is_team_prop") else "👤"
             lines.append(
                 f"`LEG {i}`  {tag} **{p['player']}**\n"
                 f"┣  {p['stat']} **{p['direction']} {p['line']}**\n"
-                f"┗  Conf **{conf}%**"
+                f"┣  Conf **{conf}%**"
+                + outcome_line
             )
         else:
             mkt = _MARKET.get(p.get("market", ""), p.get("market", "").upper())
@@ -173,7 +178,8 @@ def _slip_legs(picks: list[dict]) -> str:
             lines.append(
                 f"`LEG {i}`  **{p.get('away_team', '')} @ {p.get('home_team', '')}**\n"
                 f"┣  {mkt}  **{p.get('selection', '')}**  `{fmt_odds}`\n"
-                f"┗  Conf **{conf}%**"
+                f"┣  Conf **{conf}%**"
+                + outcome_line
             )
     return "\n".join(lines) or "—"
 
@@ -192,7 +198,7 @@ def _ticket_header(slip: dict) -> str:
 
 
 
-def _alert_result(slip: dict, result: str, ratio: dict) -> None:
+def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | None = None) -> None:
     platform = _platform_label(slip["platform"])
     w, l, p  = ratio["wins"], ratio["losses"], ratio.get("pushes", 0)
     total    = w + l
@@ -222,7 +228,7 @@ def _alert_result(slip: dict, result: str, ratio: dict) -> None:
             f"```\n"
             f"  *** {stamp} ***\n"
             f"```\n"
-            f"{_slip_legs(slip['picks'])}\n\n"
+            f"{_slip_legs(slip['picks'], results)}\n\n"
             f"📊  **Record:**  {record}"
         ),
         "color": color,
@@ -441,7 +447,7 @@ def track_slips() -> dict:
                 result_key = f"game:result:{_period_date}"
                 if not _alerted(r, result_key):
                     ratio = _update_ratio(r, slip_result)
-                    _alert_result(slip, slip_result, ratio)
+                    _alert_result(slip, slip_result, ratio, results)
                     _mark_alerted(r, result_key)
                     alerts_fired += 1
 
