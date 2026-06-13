@@ -58,6 +58,33 @@ def _fmt_time(ct: str) -> str:
 
 # ── Save slip ──────────────────────────────────────────────────────────────────
 
+def purge_ghost_slips() -> int:
+    """
+    Remove stale slips from Redis whose IDs don't match the stable
+    {period}:{platform}:{date} format (old hash-based IDs from prior runs).
+    Also removes any slip older than 2 days.
+    Returns number of slips removed.
+    """
+    import re
+    from src.core.timezone import et_naive
+    r = _redis()
+    all_slips = r.hgetall(_SLIP_KEY)
+    today     = et_naive().strftime("%Y-%m-%d")
+    yesterday = (et_naive() - __import__('datetime').timedelta(days=1)).strftime("%Y-%m-%d")
+    removed   = 0
+    for sid, raw in all_slips.items():
+        # Valid IDs look like "day:hardrock:2026-06-13"
+        if not re.match(r"^(day|night):[a-z]+:\d{4}-\d{2}-\d{2}$", sid):
+            r.hdel(_SLIP_KEY, sid)
+            removed += 1
+            logger.info("Purged ghost slip: %s", sid)
+        elif sid.split(":")[-1] not in (today, yesterday):
+            r.hdel(_SLIP_KEY, sid)
+            removed += 1
+            logger.info("Purged stale slip: %s", sid)
+    return removed
+
+
 def save_slip(period: str, platform: str, picks: list[dict]) -> str:
     """
     Called right after an entry is posted to Discord.
@@ -299,6 +326,11 @@ def _check_pick_result(pick: dict) -> str | None:
                     if winner in selection or selection in winner:
                         return "won"
                     elif sorted_s[0]["score"] == sorted_s[1]["score"]:
+                        # Draw: in soccer a draw on a team ML pick = lost
+                        # Only true push is if the book explicitly offers draw markets
+                        sport = pick.get("sport_key", "")
+                        if "soccer" in sport or "football" in sport:
+                            return "lost"
                         return "push"
                     else:
                         return "lost"
@@ -377,6 +409,7 @@ def track_slips() -> dict:
     """
     try:
         r = _redis()
+        purge_ghost_slips()
         slips = _load_active_slips(r)
         if not slips:
             return {"slips": 0}
