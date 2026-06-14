@@ -141,9 +141,12 @@ def generate_picks():
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
             insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
+            # Favorite bonus: -odds picks get a small score boost to bubble up in slip builder.
+            # Keeps confidence×EV as the core but prefers stackable favorites for parlay value.
+            _fav_bonus = 0.04 if best_odds_val < -120 else (0.02 if best_odds_val < 0 else 0.0)
             game_pool.append({
                 "type":         "game",
-                "score":        confidence.calibrated_score * (1 + ev_result.ev_pct),
+                "score":        confidence.calibrated_score * (1 + ev_result.ev_pct) * (1 + _fav_bonus),
                 "game_key":     f"{home_team}:{away_team}".lower(),
                 "sport_key":    sport_key,
                 "home_team":    home_team,
