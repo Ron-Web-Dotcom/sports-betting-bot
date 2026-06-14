@@ -143,7 +143,9 @@ def generate_picks():
             insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
             # Favorite bonus: -odds picks get a small score boost to bubble up in slip builder.
             # Keeps confidence×EV as the core but prefers stackable favorites for parlay value.
-            _fav_bonus = 0.04 if best_odds_val < -120 else (0.02 if best_odds_val < 0 else 0.0)
+            # Close-match penalty: both sides + odds = coin flip / draw risk, rank lower.
+            _both_plus = best_odds_val > 0 and (opponent_odds is not None and opponent_odds > 0)
+            _fav_bonus = 0.04 if best_odds_val < -120 else (0.02 if best_odds_val < 0 else (-0.06 if _both_plus else 0.0))
             game_pool.append({
                 "type":         "game",
                 "score":        confidence.calibrated_score * (1 + ev_result.ev_pct) * (1 + _fav_bonus),
