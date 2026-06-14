@@ -115,6 +115,7 @@ def generate_picks():
                           if s.get("market") == market and s.get("selection") == selection
                           and s.get("book")}
             if not books_odds:
+                logger.warning("picks: no odds matched selection=%r market=%r for %s @ %s — falling back to game odds", selection, market, away_team, home_team)
                 books_odds = odds_by_book
             # Derive best_odds from AI's actual selection — not snapshot[0] which may be the other side
             best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else best_snap.get("best_odds", -110)
