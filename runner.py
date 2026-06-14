@@ -56,7 +56,7 @@ def _import_tasks():
         enter_sleep_mode, wake_up_brief, send_daily_summary,
         send_weekly_summary, send_weekly_fresh_start, run_self_improvement,
         snapshot_portfolio, send_monthly_summary, yesterday_recap,
-        cleanup_old_snapshots, flush_memory,
+        cleanup_old_snapshots, flush_memory, cleanup_old_slips,
     )
     return {
         "scan_and_save_odds":                       scan_and_save_odds,
@@ -82,6 +82,7 @@ def _import_tasks():
         "yesterday_recap":                          yesterday_recap,
         "cleanup_old_snapshots":                    cleanup_old_snapshots,
         "flush_memory":                             flush_memory,
+        "cleanup_old_slips":                        cleanup_old_slips,
     }
 
 
@@ -104,6 +105,7 @@ CRON_TASKS = [
     (0,  5,  "snapshot_portfolio",      None, None),
     (0,  1,  "send_monthly_summary",    None, 1),     # 1st of month
     (2,  0,  "run_self_improvement",    None, None),
+    (2,  52, "cleanup_old_slips",        None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),
     (2,  58, "flush_memory",            None, None),
     (3,  0,  "enter_sleep_mode",        None, None),

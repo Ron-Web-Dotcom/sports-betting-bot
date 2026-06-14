@@ -441,6 +441,42 @@ def snapshot_portfolio():
     return stats
 
 
+def cleanup_old_slips():
+    """
+    Runs nightly at 2:52 AM ET — removes slips older than 2 days from Redis.
+    Slips are already ignored by summaries after their date window, so this
+    is purely a housekeeping step with no effect on reporting.
+    """
+    import json
+    from datetime import datetime, timedelta
+    import zoneinfo
+    from src.core.config import REDIS_URL
+    import redis as _redis
+
+    ET     = zoneinfo.ZoneInfo("America/New_York")
+    cutoff = (datetime.now(ET) - timedelta(days=2)).strftime("%Y-%m-%d")
+
+    try:
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        all_slips = r.hgetall("slips:active")
+    except Exception as e:
+        logger.warning("cleanup_old_slips: Redis error: %s", e)
+        return {"removed": 0}
+
+    removed = 0
+    for sid, raw in all_slips.items():
+        try:
+            date_part = sid.split(":")[-1]   # e.g. "2026-06-12" from "day:hardrock:2026-06-12"
+            if date_part < cutoff:
+                r.hdel("slips:active", sid)
+                removed += 1
+        except Exception:
+            pass
+
+    logger.info("cleanup_old_slips: removed %d stale slips (cutoff %s)", removed, cutoff)
+    return {"removed": removed, "cutoff": cutoff}
+
+
 def flush_memory():
     """
     Run just before sleep mode (2:55 AM ET) to free RAM:
