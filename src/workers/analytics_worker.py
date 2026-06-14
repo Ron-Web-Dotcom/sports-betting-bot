@@ -454,7 +454,7 @@ def cleanup_old_slips():
     import redis as _redis
 
     ET     = zoneinfo.ZoneInfo("America/New_York")
-    cutoff = (datetime.now(ET) - timedelta(days=1)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(ET) - timedelta(days=2)).strftime("%Y-%m-%d")
 
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
