@@ -109,7 +109,15 @@ def generate_picks():
             ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
             if not ai:
                 continue
-            best_odds_val = best_snap.get("best_odds", -110)
+            market    = ai.get("market", best_snap.get("market", "h2h"))
+            selection = ai.get("selection", "")
+            books_odds = {s["book"]: s["best_odds"] for s in snap_list
+                          if s.get("market") == market and s.get("selection") == selection
+                          and s.get("book")}
+            if not books_odds:
+                books_odds = odds_by_book
+            # Derive best_odds from AI's actual selection — not snapshot[0] which may be the other side
+            best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else best_snap.get("best_odds", -110)
             opp_prob      = ai.get("opponent_probability")
             opponent_odds = (decimal_to_american(1.0 / opp_prob)
                              if opp_prob and 0 < opp_prob < 1 else None)
@@ -130,13 +138,6 @@ def generate_picks():
             # Require positive EV — our win probability must beat the market
             if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
                 continue
-            market    = ai.get("market", best_snap.get("market", "h2h"))
-            selection = ai.get("selection", "")
-            books_odds = {s["book"]: s["best_odds"] for s in snap_list
-                          if s.get("market") == market and s.get("selection") == selection
-                          and s.get("book")}
-            if not books_odds:
-                books_odds = odds_by_book
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
             insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
