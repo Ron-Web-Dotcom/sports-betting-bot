@@ -175,37 +175,85 @@ def send_daily_summary():
 
 
 def send_weekly_summary():
-    """Fires Sunday midnight Eastern — full week recap including prop W/L ratio."""
-    from src.engines.summary_engine import get_weekly_summary
-    from src.engines.ai_engine import write_weekly_summary
-
-    weekly = get_weekly_summary()
-    props  = weekly.get("props", {})
-
-    # Build prop section to append to the AI summary
-    prop_section = ""
-    if props.get("total", 0) > 0:
-        hit  = props["hit_rate"] * 100
-        record = f"{props['wins']}W - {props['losses']}L"
-        if props.get("pushes"):
-            record += f" - {props['pushes']}P"
-        prop_section = (
-            f"\n\n**Props Record:** {record} ({hit:.1f}% hit rate)"
-        )
-        if props.get("best_sport"):
-            sport = props["best_sport"].split("_")[-1].upper()
-            prop_section += f" | Best sport: {sport}"
-        if props.get("best_stat"):
-            prop_section += f" | Best stat: {props['best_stat']}"
-
-    summary = write_weekly_summary(weekly) + prop_section
-
+    """Fires Sunday midnight Eastern — full week recap from Redis slip data."""
+    import hashlib, zoneinfo
+    from datetime import datetime
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import post_weekly_summary
-    _run_async(post_weekly_summary(summary))
+    from src.discord_bot.bot import _post
 
-    logger.info("Weekly summary sent")
-    return {"summary_length": len(summary), "stats": weekly}
+    ET = zoneinfo.ZoneInfo("America/New_York")
+    now_et = datetime.now(ET)
+
+    # Guard: only post once per week
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _week_key = f"weekly_summary_sent:{now_et.strftime('%Y-W%W')}"
+        if _r.get(_week_key):
+            logger.info("send_weekly_summary: already sent this week")
+            return {"skipped": "already_sent_this_week"}
+    except Exception:
+        pass
+
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=7)
+    total = wins + losses + pushes
+
+    pct_str = f" ({round(wins/total*100)}% hit rate)" if total > 0 else ""
+    record  = f"{wins}W – {losses}L – {pushes}P{pct_str}" if total > 0 else "No settled slips this week"
+
+    win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
+    loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
+
+    # Sport breakdown
+    sport_stats: dict = {}
+    for slip in winner_slips + loser_slips:
+        for pick in slip.get("picks", []):
+            sk = pick.get("sport_key", "other")
+            if sk not in sport_stats:
+                sport_stats[sk] = {"w": 0, "l": 0}
+            if slip.get("status") == "cashed":
+                sport_stats[sk]["w"] += 1
+            else:
+                sport_stats[sk]["l"] += 1
+    sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in sport_stats.items()]
+    sport_breakdown = "  ".join(sport_lines) or "—"
+
+    week_num = now_et.isocalendar()[1]
+    date_str = now_et.strftime("%b %-d, %Y")
+    slip_id  = hashlib.md5(f"weekly{date_str}".encode()).hexdigest()[:8].upper()
+    color    = 0x1B5E20 if wins >= losses and total > 0 else (0xB71C1C if losses > wins else 0x607D8B)
+
+    embed = {
+        "title": f"📊  WEEKLY SUMMARY  ·  Week {week_num}",
+        "description": (
+            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "color": color,
+        "fields": [
+            {"name": "WEEKLY RECORD",  "value": record,          "inline": False},
+            {"name": "TOTAL SLIPS",    "value": str(total),      "inline": True},
+            {"name": "BY SPORT",       "value": sport_breakdown,  "inline": True},
+            {"name": "​",        "value": "​",          "inline": True},
+            {"name": "✅  WINNERS",    "value": win_lines,        "inline": True},
+            {"name": "❌  LOSERS",     "value": loss_lines,       "inline": True},
+            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+             "value": "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**",
+             "inline": False},
+        ],
+        "footer": {"text": f"Weekly recap  ·  {now_et.strftime('%-I:%M %p ET')}  ·  {date_str}"},
+    }
+
+    _run_async(_post({"embeds": [embed]}))
+
+    try:
+        _r.setex(_week_key, 7 * 86400, "1")
+    except Exception:
+        pass
+
+    logger.info("Weekly summary sent: %dW-%dL-%dP", wins, losses, pushes)
+    return {"wins": wins, "losses": losses, "pushes": pushes, "total": total}
 
 
 def send_weekly_fresh_start():
@@ -625,6 +673,7 @@ def yesterday_recap():
     date_str = et.strftime("%b %-d, %Y")
     slip_id  = hashlib.md5(f"recap{date_str}".encode()).hexdigest()[:8].upper()
 
+    yesterday = et - timedelta(days=1)
     embed = {
         "title": f"📊  MORNING RECAP  ·  {yesterday.strftime('%A, %b %-d')}",
         "description": (
