@@ -139,6 +139,27 @@ def _run(fn, name: str):
         logger.error("✗ %s failed:\n%s", name, traceback.format_exc())
 
 
+# Heavy tasks run in background threads so they never block the cron scheduler.
+_BACKGROUND_TASKS = {
+    "scan_and_save_odds",
+    "scan_player_props",
+    "fetch_and_save_news",
+    "settle_completed_picks",
+    "record_closing_lines",
+    "run_self_improvement",
+    "cleanup_old_snapshots",
+    "flush_memory",
+    "cleanup_old_slips",
+}
+
+
+def _run_bg(fn, name: str):
+    """Run a heavy task in a daemon thread — never blocks the scheduler."""
+    import threading
+    t = threading.Thread(target=_run, args=(fn, name), daemon=True, name=name)
+    t.start()
+
+
 def _cron_matches(hour: int, minute: int, day_of_week, day_of_month, now: datetime) -> bool:
     if now.hour != hour or now.minute != minute:
         return False
@@ -174,7 +195,10 @@ def _run_catchup(tasks: dict, now: datetime):
             logger.info("CATCH-UP: %s was scheduled at %02d:%02d, missed by %.0f min — running now", name, hour, minute, elapsed)
             fn = tasks.get(name)
             if fn:
-                _run(fn, f"{name} [catch-up]")
+                if name in _BACKGROUND_TASKS:
+                    _run_bg(fn, f"{name} [catch-up]")
+                else:
+                    _run(fn, f"{name} [catch-up]")
 
 
 def main():
@@ -210,7 +234,10 @@ def main():
             if ts - last_run[name] >= interval:
                 fn = tasks.get(name)
                 if fn:
-                    _run(fn, name)
+                    if name in _BACKGROUND_TASKS:
+                        _run_bg(fn, name)
+                    else:
+                        _run(fn, name)
                 last_run[name] = ts
 
         # ── Cron tasks ──────────────────────────────────────────────────────
@@ -219,7 +246,10 @@ def main():
             if fired_key not in last_cron_fired and _cron_matches(hour, minute, dow, dom, now):
                 fn = tasks.get(name)
                 if fn:
-                    _run(fn, name)
+                    if name in _BACKGROUND_TASKS:
+                        _run_bg(fn, name)
+                    else:
+                        _run(fn, name)
                 last_cron_fired[fired_key] = now_key
                 # Prune old keys to avoid unbounded growth
                 if len(last_cron_fired) > 500:
