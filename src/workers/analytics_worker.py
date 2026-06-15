@@ -400,8 +400,8 @@ def wake_up_brief():
             {"name": "STATUS",      "value": "🟢  Scanning all sports",                    "inline": True},
             {"name": "MODE",        "value": "High-confidence picks only",                  "inline": True},
             {"name": "​", "value": "​",                                            "inline": True},
-            {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  HardRock + Kalshi/Poly", "inline": True},
-            {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi/Poly",  "inline": True},
+            {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  HardRock + Kalshi", "inline": True},
+            {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi",  "inline": True},
             {"name": "​", "value": "​",                                            "inline": True},
             {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
              "value": "Picks post automatically when edge is found.\nAll picks require positive EV + 85%+ confidence.",
@@ -592,7 +592,6 @@ def health_check():
             "fields": [
                 {"name": "Odds API Props",  "value": f"{len(odds_props):,}", "inline": True},
                 {"name": "Kalshi",          "value": f"{len(kalshi_props):,}", "inline": True},
-                {"name": "Polymarket",      "value": f"{len(poly_props):,}", "inline": True},
                 {"name": "Active Picks",    "value": f"{picks_count} picks ✅" if picks_count else "None yet ⏳", "inline": True},
             ],
             "footer": {"text": f"Health check · {time_str}"},

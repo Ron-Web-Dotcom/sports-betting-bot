@@ -287,10 +287,10 @@ def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
         "hockey": "🏒  HOCKEY", "tennis": "🎾  TENNIS",
         "mma": "🥊  MMA", "golf": "⛳  GOLF",
     }
-    _COLORS  = {"kalshi": 0x1B5E20, "polymarket": 0x6C3FC5}
+    _COLORS  = {"kalshi": 0x1B5E20, "polymarket": 0x1B5E20}
     _FOOTERS = {
         "kalshi":     "Kalshi · Place manually · Prediction markets — not a sportsbook · Bet responsibly",
-        "polymarket": "Polymarket · Place manually · USDC on Polygon · Bet responsibly",
+        "polymarket": "Kalshi · Place manually · Prediction markets — not a sportsbook · Bet responsibly",
     }
 
     m          = markets[0]
