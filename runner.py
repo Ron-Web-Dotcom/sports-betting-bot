@@ -119,7 +119,6 @@ CRON_TASKS = [
     (14, 0,  "scan_and_save_odds",                       None, None),  # pull night game odds fresh at 2 PM
     (16, 30, "generate_hardrock_night_entry",            None, None),  # HardRock night entry
     (16, 35, "generate_prediction_market_night_entry",   None, None),  # Kalshi/Poly night entry (5 min after)
-    (0,  0,  "send_weekly_summary",     6,    None),  # Sunday midnight — week recap + new week combined
 ]
 
 

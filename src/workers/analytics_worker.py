@@ -327,6 +327,48 @@ def enter_sleep_mode():
     win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
     loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
 
+    # ── Weekly summary (posted first at 3 AM before goodnight) ───────────────
+    try:
+        w_wins, w_losses, w_pushes, w_winners, w_losers = _load_slip_results(days_back=7)
+        w_total  = w_wins + w_losses + w_pushes
+        w_pct    = f" ({round(w_wins/w_total*100)}% hit rate)" if w_total > 0 else ""
+        w_record = f"{w_wins}W – {w_losses}L – {w_pushes}P{w_pct}" if w_total > 0 else "No settled slips this week"
+        w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners[:5]) or "—"
+        w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers[:5])  or "—"
+        w_sport: dict = {}
+        for slip in w_winners + w_losers:
+            for pick in slip.get("picks", []):
+                sk = pick.get("sport_key", "other")
+                if sk not in w_sport:
+                    w_sport[sk] = {"w": 0, "l": 0}
+                w_sport[sk]["w" if slip.get("status") == "cashed" else "l"] += 1
+        w_sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in w_sport.items()]
+        import hashlib as _hl
+        week_num = et.isocalendar()[1]
+        w_slip_id = _hl.md5(f"weekly{et.strftime('%Y-W%W')}".encode()).hexdigest()[:8].upper()
+        w_color = 0x1B5E20 if w_wins >= w_losses and w_total > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
+        weekly_embed = {
+            "title": f"📊  WEEK {week_num} SUMMARY",
+            "description": (
+                f"**{et.strftime('%b %-d, %Y')}**  ·  Slip `#{w_slip_id}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            "color": w_color,
+            "fields": [
+                {"name": "WEEK'S RECORD", "value": w_record,                              "inline": False},
+                {"name": "TOTAL SLIPS",   "value": str(w_total),                          "inline": True},
+                {"name": "BY SPORT",      "value": "  ".join(w_sport_lines) or "—",       "inline": True},
+                {"name": "​",       "value": "​",                               "inline": True},
+                {"name": "✅  CASHED",    "value": w_win_lines,                           "inline": True},
+                {"name": "❌  DEAD",      "value": w_loss_lines,                          "inline": True},
+            ],
+            "footer": {"text": f"Week {week_num} recap  ·  3:00 AM ET  ·  {et.strftime('%b %-d, %Y')}"},
+        }
+        _run_async(_post({"embeds": [weekly_embed]}))
+        logger.info("Weekly summary posted at 3 AM: %dW-%dL-%dP", w_wins, w_losses, w_pushes)
+    except Exception as _we:
+        logger.warning("3 AM weekly summary failed: %s", _we)
+
     # Run self-improvement silently while sleeping
     try:
         run_full_self_improvement()
@@ -699,8 +741,15 @@ def yesterday_recap():
     slip_id  = hashlib.md5(f"recap{date_str}".encode()).hexdigest()[:8].upper()
 
     yesterday = et - timedelta(days=1)
+    is_monday = et.weekday() == 0
+    week_num  = et.isocalendar()[1]
+    title_str = (
+        f"🟢  NEW WEEK · WEEK {week_num}  ·  {yesterday.strftime('%A, %b %-d')}"
+        if is_monday else
+        f"📊  MORNING RECAP  ·  {yesterday.strftime('%A, %b %-d')}"
+    )
     embed = {
-        "title": f"📊  MORNING RECAP  ·  {yesterday.strftime('%A, %b %-d')}",
+        "title": title_str,
         "description": (
             f"**{date_str}**  ·  Slip `#{slip_id}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
