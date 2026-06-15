@@ -504,7 +504,10 @@ def track_slips() -> dict:
                 if not ct:
                     continue
                 mins = (ct - now).total_seconds() / 60
-                if mins < -150:
+                sport = pick.get("sport_key", "")
+                # MMA/boxing can end fast — 90 min buffer; all others 150 min
+                settle_after = -90 if any(k in sport for k in ("mma", "boxing")) else -150
+                if mins < settle_after:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
@@ -513,7 +516,8 @@ def track_slips() -> dict:
             settled_picks = [
                 p for p in picks
                 if _parse_time(p.get("commence_time", "")) and
-                (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() > 150 * 60
+                (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() >
+                (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 150) * 60
             ]
             if results and len(results) == len(picks) and len(settled_picks) == len(picks):
                 if "lost" in results:
