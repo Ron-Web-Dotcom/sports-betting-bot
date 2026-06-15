@@ -160,14 +160,23 @@ def _run_bg(fn, name: str):
     t.start()
 
 
+# Tasks with a posting window — fire anytime within N minutes after scheduled time.
+# Redis dedup prevents double-posting within the same window.
+CRON_WINDOWS = {
+    "generate_hardrock_day_entry":           60,  # 10:30–11:30 AM
+    "generate_prediction_market_day_entry":  60,  # 10:35–11:35 AM
+    "generate_hardrock_night_entry":         60,  # 4:30–5:30 PM
+    "generate_prediction_market_night_entry":60,  # 4:35–5:35 PM
+}
+
+
 def _cron_matches(hour: int, minute: int, day_of_week, day_of_month, now: datetime) -> bool:
-    if now.hour != hour or now.minute != minute:
-        return False
     if day_of_week is not None and now.weekday() != day_of_week:
         return False
     if day_of_month is not None and now.day != day_of_month:
         return False
-    return True
+    # Check exact minute match for regular tasks
+    return now.hour == hour and now.minute == minute
 
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
@@ -242,15 +251,29 @@ def main():
 
         # ── Cron tasks ──────────────────────────────────────────────────────
         for hour, minute, name, dow, dom in CRON_TASKS:
-            fired_key = f"{name}:{now_key}"
-            if fired_key not in last_cron_fired and _cron_matches(hour, minute, dow, dom, now):
-                fn = tasks.get(name)
-                if fn:
-                    if name in _BACKGROUND_TASKS:
-                        _run_bg(fn, name)
-                    else:
+            window = CRON_WINDOWS.get(name, 0)
+            if window:
+                # Window-based: fire anytime within N minutes after scheduled time
+                scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                elapsed   = (now - scheduled).total_seconds() / 60
+                in_window = 0 <= elapsed <= window
+                day_ok    = (dow is None or now.weekday() == dow) and (dom is None or now.day == dom)
+                date_key  = f"{name}:{now.strftime('%Y-%m-%d')}"
+                if in_window and day_ok and date_key not in last_cron_fired:
+                    fn = tasks.get(name)
+                    if fn:
                         _run(fn, name)
-                last_cron_fired[fired_key] = now_key
+                    last_cron_fired[date_key] = now_key
+            else:
+                fired_key = f"{name}:{now_key}"
+                if fired_key not in last_cron_fired and _cron_matches(hour, minute, dow, dom, now):
+                    fn = tasks.get(name)
+                    if fn:
+                        if name in _BACKGROUND_TASKS:
+                            _run_bg(fn, name)
+                        else:
+                            _run(fn, name)
+                    last_cron_fired[fired_key] = now_key
                 # Prune old keys to avoid unbounded growth
                 if len(last_cron_fired) > 500:
                     oldest = sorted(last_cron_fired)[:-200]
