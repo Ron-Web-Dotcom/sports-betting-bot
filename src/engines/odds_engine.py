@@ -18,27 +18,46 @@ MARKETS = ["h2h", "spreads", "totals"]
 
 # Player prop markets available on 100K+ plan
 PLAYER_PROP_MARKETS = [
-    # Basketball
+    # Basketball — player props
     "player_points", "player_rebounds", "player_assists",
     "player_threes", "player_blocks", "player_steals",
-    "player_points_rebounds_assists",
-    # Football
-    "player_pass_tds", "player_pass_yds", "player_pass_attempts", "player_pass_completions",
-    "player_rush_yds", "player_rush_attempts",
+    "player_points_rebounds_assists", "player_points_rebounds",
+    "player_points_assists", "player_rebounds_assists",
+    "player_turnovers", "player_double_double", "player_triple_double",
+    "player_first_basket",
+    # Football — player props
+    "player_pass_tds", "player_pass_yds", "player_pass_attempts",
+    "player_pass_completions", "player_pass_interceptions",
+    "player_rush_yds", "player_rush_attempts", "player_rush_tds",
     "player_reception_yds", "player_receptions", "player_receiving_tds",
-    # Baseball
-    "player_hits", "player_total_bases", "player_strikeouts", "player_home_runs",
-    "player_rbis", "player_runs_scored",
-    # Hockey
-    "player_shots_on_goal", "player_points",
-    # Soccer
+    "player_longest_reception", "player_longest_rush",
+    "player_kicking_points", "player_field_goals",
+    "player_sacks", "player_tackles_assists",
+    "player_anytime_td",
+    # Baseball — player props
+    "player_hits", "player_total_bases", "player_strikeouts",
+    "player_home_runs", "player_rbis", "player_runs_scored",
+    "player_walks", "player_singles", "player_doubles",
+    "pitcher_hits_allowed", "pitcher_walks", "pitcher_earned_runs",
+    "pitcher_outs", "pitcher_record_a_win",
+    "batter_hits", "batter_total_bases", "batter_home_runs",
+    "batter_rbis", "batter_runs_scored", "batter_strikeouts",
+    # Hockey — player props
+    "player_shots_on_goal", "player_points", "player_goals",
+    "player_assists", "player_saves", "player_blocked_shots",
+    "player_power_play_points",
+    # Soccer — player props
     "player_shots_on_target", "player_goals", "player_assists",
-    # Golf
-    "player_top_5_finish", "player_top_10_finish", "player_make_cut",
-    # MMA / Boxing
-    "player_method_of_victory",
-    # Tennis
-    "player_sets_won",
+    "player_cards", "player_shots", "player_tackles",
+    "player_to_score_anytime", "player_to_score_first",
+    # Golf — player props
+    "player_top_5_finish", "player_top_10_finish", "player_top_20_finish",
+    "player_make_cut", "player_win",
+    # MMA / Boxing — player props
+    "player_method_of_victory", "player_total_rounds",
+    "player_win_by_ko", "player_win_by_submission", "player_win_by_decision",
+    # Tennis — player props
+    "player_sets_won", "player_games_won", "player_to_win_set",
 ]
 
 # Soccer — all leagues share same prop market names
@@ -151,24 +170,69 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     _GAME_FOOTBALL   = ["team_points_q1", "alternate_totals", "alternate_spreads"]
 
     # Team prop markets — available on HardRock and most books
-    _TEAM_BASKETBALL = ["team_totals", "team_first_basket", "team_points_q1"]
-    _TEAM_FOOTBALL   = ["team_totals", "team_first_td_scorer"]
-    _TEAM_BASEBALL   = ["team_totals", "team_first_to_score"]
-    _TEAM_HOCKEY     = ["team_totals", "team_first_goal_scorer"]
-    _TEAM_SOCCER     = ["team_totals", "team_first_goal"]
+    _TEAM_BASKETBALL = [
+        "team_totals", "team_first_basket", "team_points_q1", "team_points_q2",
+        "team_points_q3", "team_points_q4", "team_blocks", "team_rebounds",
+        "team_assists", "team_threes",
+    ]
+    _TEAM_FOOTBALL = [
+        "team_totals", "team_first_td_scorer", "team_points_q1",
+        "team_rushing_yards", "team_passing_yards", "team_first_to_score",
+    ]
+    _TEAM_BASEBALL = [
+        "team_totals", "team_first_to_score", "team_hits",
+        "team_runs_q1", "team_strikeouts",
+    ]
+    _TEAM_HOCKEY = [
+        "team_totals", "team_first_goal_scorer", "team_shots_on_goal",
+        "team_power_play_goals",
+    ]
+    _TEAM_SOCCER = [
+        "team_totals", "team_first_goal", "team_corners",
+        "team_shots_on_target", "team_to_score_in_both_halves",
+    ]
+
+    _BASKETBALL_FULL = [
+        "player_points", "player_rebounds", "player_assists", "player_threes",
+        "player_blocks", "player_steals", "player_points_rebounds_assists",
+        "player_points_rebounds", "player_points_assists", "player_rebounds_assists",
+        "player_turnovers", "player_double_double", "player_first_basket",
+    ]
+    _FOOTBALL_FULL = [
+        "player_pass_tds", "player_pass_yds", "player_pass_attempts",
+        "player_pass_completions", "player_rush_yds", "player_rush_attempts",
+        "player_rush_tds", "player_reception_yds", "player_receptions",
+        "player_receiving_tds", "player_anytime_td", "player_sacks",
+        "player_tackles_assists",
+    ]
+    _BASEBALL_FULL = [
+        "batter_home_runs", "batter_hits", "batter_total_bases", "batter_rbis",
+        "batter_runs_scored", "batter_strikeouts", "pitcher_strikeouts",
+        "pitcher_hits_allowed", "pitcher_walks", "pitcher_earned_runs",
+        "pitcher_outs", "pitcher_record_a_win",
+    ]
+    _HOCKEY_FULL = [
+        "player_shots_on_goal", "player_points", "player_goals",
+        "player_assists", "player_blocked_shots", "player_power_play_points",
+    ]
+    _MMA_FULL = [
+        "player_method_of_victory", "player_total_rounds",
+        "player_win_by_ko", "player_win_by_submission", "player_win_by_decision",
+    ]
 
     _sport_markets = {
-        "basketball_nba":               _BASKETBALL_MARKETS + _TEAM_BASKETBALL + _GAME_BASKETBALL,
-        "basketball_wnba":              _BASKETBALL_MARKETS + _TEAM_BASKETBALL + _GAME_BASKETBALL,
-        "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
-        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
-        "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
-        "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
-        "baseball_mlb":                 ["batter_home_runs", "batter_hits", "batter_total_bases", "pitcher_strikeouts"] + _TEAM_BASEBALL + _GAME_BASEBALL,
-        "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"] + _TEAM_HOCKEY + _GAME_HOCKEY,
+        "basketball_nba":               _BASKETBALL_FULL + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_wnba":              _BASKETBALL_FULL + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists", "player_threes", "player_double_double"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists", "player_threes"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "americanfootball_nfl":         _FOOTBALL_FULL + _TEAM_FOOTBALL + _GAME_FOOTBALL,
+        "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_anytime_td"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
+        "baseball_mlb":                 _BASEBALL_FULL + _TEAM_BASEBALL + _GAME_BASEBALL,
+        "icehockey_nhl":                _HOCKEY_FULL + _TEAM_HOCKEY + _GAME_HOCKEY,
         "tennis_atp_french_open":       _TENNIS_MARKETS,
         "tennis_wta_french_open":       _TENNIS_MARKETS,
-        "mma_mixed_martial_arts":       ["player_method_of_victory", "player_total_rounds"],
+        "mma_mixed_martial_arts":       _MMA_FULL,
+        "boxing_boxing":                _MMA_FULL,
         "soccer_usa_nwsl":              _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER,
         "soccer_fifa_womens_world_cup": _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER,
         # All other soccer leagues
