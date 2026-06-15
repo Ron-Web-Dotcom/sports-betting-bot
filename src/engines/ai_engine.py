@@ -146,7 +146,7 @@ Return ONLY valid JSON — no markdown, no extra text:
 {
   "should_bet": true|false,
   "recommendation": "BET"|"PASS",
-  "selection": "<team or player name>",
+  "selection": "<EXACT team name from the event — copy it exactly as given in home_team or away_team>",
   "market": "h2h"|"spreads"|"totals"|"player_prop",
   "win_probability": <float 0.0-1.0>,
   "confidence": <float 0.0-1.0>,

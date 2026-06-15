@@ -549,6 +549,9 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
             .all()
         )
         for snap, game in rows:
+            # commence_time stored as naive UTC — tag it so parsers can convert to ET correctly
+            ct = game.commence_time
+            ct_str = (ct.strftime("%Y-%m-%dT%H:%M:%SZ") if ct else "")
             result.setdefault(snap.game_id, []).append({
                 "book":          snap.book,
                 "market":        snap.market,
@@ -558,6 +561,6 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
                 "sport_key":     game.sport,
                 "home_team":     game.home_team,
                 "away_team":     game.away_team,
-                "commence_time": str(game.commence_time or ""),
+                "commence_time": ct_str,
             })
     return result

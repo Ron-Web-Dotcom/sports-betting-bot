@@ -115,6 +115,16 @@ def generate_picks():
                           if s.get("market") == market and s.get("selection") == selection
                           and s.get("book")}
             if not books_odds:
+                # Fuzzy fallback: AI may return "White Sox" instead of "Chicago White Sox"
+                # Try partial match against snapshot selections
+                for s in snap_list:
+                    s_sel = (s.get("selection") or "").lower()
+                    s_mkt = s.get("market", "")
+                    if s_mkt == market and s.get("book") and (
+                        selection.lower() in s_sel or s_sel in selection.lower()
+                    ):
+                        books_odds[s["book"]] = s["best_odds"]
+            if not books_odds:
                 logger.warning("picks: no odds matched selection=%r market=%r for %s @ %s — falling back to game odds", selection, market, away_team, home_team)
                 books_odds = odds_by_book
             # Derive best_odds from AI's actual selection — not snapshot[0] which may be the other side
