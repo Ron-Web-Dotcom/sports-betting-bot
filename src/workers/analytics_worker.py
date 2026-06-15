@@ -175,7 +175,7 @@ def send_daily_summary():
 
 
 def send_weekly_summary():
-    """Fires Sunday midnight Eastern — full week recap from Redis slip data."""
+    """Fires Sunday midnight Eastern — last week recap + new week fresh start in one embed."""
     import hashlib, zoneinfo
     from datetime import datetime
     from src.workers.alert_worker import _run_async
@@ -220,29 +220,34 @@ def send_weekly_summary():
     sport_breakdown = "  ".join(sport_lines) or "—"
 
     week_num = now_et.isocalendar()[1]
+    next_week = week_num + 1
     date_str = now_et.strftime("%b %-d, %Y")
     slip_id  = hashlib.md5(f"weekly{date_str}".encode()).hexdigest()[:8].upper()
     color    = 0x1B5E20 if wins >= losses and total > 0 else (0xB71C1C if losses > wins else 0x607D8B)
 
     embed = {
-        "title": f"📊  WEEKLY SUMMARY  ·  Week {week_num}",
+        "title": f"📊  WEEK {week_num} RECAP  ·  🟢  WEEK {next_week} STARTS NOW",
         "description": (
             f"**{date_str}**  ·  Slip `#{slip_id}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         "color": color,
         "fields": [
-            {"name": "WEEKLY RECORD",  "value": record,          "inline": False},
+            {"name": "WEEK'S RECORD",  "value": record,          "inline": False},
             {"name": "TOTAL SLIPS",    "value": str(total),      "inline": True},
             {"name": "BY SPORT",       "value": sport_breakdown,  "inline": True},
             {"name": "​",        "value": "​",          "inline": True},
             {"name": "✅  WINNERS",    "value": win_lines,        "inline": True},
             {"name": "❌  LOSERS",     "value": loss_lines,       "inline": True},
+            {"name": "​",        "value": "​",          "inline": True},
             {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-             "value": "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**",
+             "value": (
+                 f"Fresh slate  ·  Record resets  ·  Let's build the streak 🎯\n"
+                 f"☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**"
+             ),
              "inline": False},
         ],
-        "footer": {"text": f"Weekly recap  ·  {now_et.strftime('%-I:%M %p ET')}  ·  {date_str}"},
+        "footer": {"text": f"Week {week_num} closed  ·  Week {next_week} open  ·  {date_str}"},
     }
 
     _run_async(_post({"embeds": [embed]}))
@@ -252,31 +257,13 @@ def send_weekly_summary():
     except Exception:
         pass
 
-    logger.info("Weekly summary sent: %dW-%dL-%dP", wins, losses, pushes)
+    logger.info("Weekly summary + new week sent: %dW-%dL-%dP", wins, losses, pushes)
     return {"wins": wins, "losses": losses, "pushes": pushes, "total": total}
 
 
 def send_weekly_fresh_start():
-    """Fires Monday 12:05 AM Eastern — signals start of new betting week."""
-    from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post, _embed
-    from datetime import datetime
-
-    week_num = datetime.now().isocalendar()[1]
-    embed = _embed(
-        title=f"🟢  New Week — Week {week_num}",
-        description=(
-            f"─────────────────────────\n"
-            f"Fresh slate. Record resets.\n\n"
-            f"All sports scanning  ·  Props + game picks active\n"
-            f"☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**\n\n"
-            f"Let's build the streak  🎯"
-        ),
-        color=0x1565C0,
-    )
-    _run_async(_post({"embeds": [embed]}))
-    logger.info("Weekly fresh-start alert sent")
-    return {"week": week_num}
+    """No-op — new week message is now combined into send_weekly_summary."""
+    return {"skipped": "combined_into_weekly_summary"}
 
 
 def send_monthly_summary():
@@ -337,7 +324,8 @@ def enter_sleep_mode():
         record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
         color = 0x1A237E
 
-    win_text = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
+    win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
+    loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
 
     # Run self-improvement silently while sleeping
     try:
@@ -354,17 +342,18 @@ def enter_sleep_mode():
         {"name": "TODAY'S RECORD", "value": record_str,  "inline": True},
         {"name": "TOTAL PICKS",    "value": str(total),  "inline": True},
         {"name": "​",         "value": "​",     "inline": True},
+        {"name": "✅  CASHED",     "value": win_text,    "inline": True},
+        {"name": "❌  DEAD",       "value": loss_text,   "inline": True},
+        {"name": "​",         "value": "​",     "inline": True},
+        {
+            "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "value": f"Scanning paused  ·  AI self-improvement running\n{et.strftime('%-I:%M %p ET')}   CLOSED",
+            "inline": False,
+        },
     ]
-    if winner_slips:
-        fields.append({"name": "✅  TOP WINNERS", "value": win_text, "inline": False})
-    fields.append({
-        "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "value": f"Scanning paused  ·  AI self-improvement running\n{et.strftime('%-I:%M %p ET')}   CLOSED",
-        "inline": False,
-    })
 
     embed = {
-        "title": "🌙  GOODNIGHT  ·  Back at 5 AM ET",
+        "title": "🌙  DAILY SUMMARY  ·  Back at 5 AM ET",
         "description": (
             f"**{date_str}**  ·  Slip `#{slip_id}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
