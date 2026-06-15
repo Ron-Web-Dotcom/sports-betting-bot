@@ -143,6 +143,13 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     _BASKETBALL_MARKETS = ["player_points", "player_rebounds", "player_assists", "player_threes"]
     _TENNIS_MARKETS     = ["player_games_won", "player_sets_won"]
 
+    # Game prop markets — over/under and result-based game props
+    _GAME_SOCCER     = ["btts", "draw_no_bet", "double_chance", "h2h_corners", "h2h_cards"]
+    _GAME_BASKETBALL = ["team_points_q1", "team_points_q2", "alternate_totals"]
+    _GAME_BASEBALL   = ["innings_1_5_total", "alternate_totals"]
+    _GAME_HOCKEY     = ["alternate_totals"]
+    _GAME_FOOTBALL   = ["team_points_q1", "alternate_totals", "alternate_spreads"]
+
     # Team prop markets — available on HardRock and most books
     _TEAM_BASKETBALL = ["team_totals", "team_first_basket", "team_points_q1"]
     _TEAM_FOOTBALL   = ["team_totals", "team_first_td_scorer"]
@@ -151,21 +158,21 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     _TEAM_SOCCER     = ["team_totals", "team_first_goal"]
 
     _sport_markets = {
-        "basketball_nba":               _BASKETBALL_MARKETS + _TEAM_BASKETBALL,
-        "basketball_wnba":              _BASKETBALL_MARKETS + _TEAM_BASKETBALL,
-        "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL,
-        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL,
-        "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"] + _TEAM_FOOTBALL,
-        "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"] + _TEAM_FOOTBALL,
-        "baseball_mlb":                 ["batter_home_runs", "batter_hits", "batter_total_bases", "pitcher_strikeouts"] + _TEAM_BASEBALL,
-        "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"] + _TEAM_HOCKEY,
+        "basketball_nba":               _BASKETBALL_MARKETS + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_wnba":              _BASKETBALL_MARKETS + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "americanfootball_nfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
+        "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
+        "baseball_mlb":                 ["batter_home_runs", "batter_hits", "batter_total_bases", "pitcher_strikeouts"] + _TEAM_BASEBALL + _GAME_BASEBALL,
+        "icehockey_nhl":                ["player_shots_on_target", "player_points", "player_goals"] + _TEAM_HOCKEY + _GAME_HOCKEY,
         "tennis_atp_french_open":       _TENNIS_MARKETS,
         "tennis_wta_french_open":       _TENNIS_MARKETS,
         "mma_mixed_martial_arts":       ["player_method_of_victory", "player_total_rounds"],
-        "soccer_usa_nwsl":              _SOCCER_MARKETS + _TEAM_SOCCER,
-        "soccer_fifa_womens_world_cup": _SOCCER_MARKETS + _TEAM_SOCCER,
+        "soccer_usa_nwsl":              _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER,
+        "soccer_fifa_womens_world_cup": _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER,
         # All other soccer leagues
-        **{league: _SOCCER_MARKETS + _TEAM_SOCCER for league in _SOCCER_LEAGUES},
+        **{league: _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER for league in _SOCCER_LEAGUES},
     }
     markets = _sport_markets.get(sport_key, [])
     if not markets:
