@@ -618,7 +618,8 @@ def yesterday_recap():
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 
     # Pull results from Redis slip tracker (not DB — DB is unused)
-    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
+    # days_back=2 so morning recap at 6 AM catches slips from yesterday (created the day before)
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=2)
     total = wins + losses + pushes
 
     if total == 0:
