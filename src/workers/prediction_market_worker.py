@@ -414,7 +414,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "❌  OTHER SIDE",
-                "value":  f"**{'NO' if answer == 'YES' else 'YES'}**  ·  {other_pct}% chance",
+                "value":  f"{'NO' if answer == 'YES' else 'YES'}  ·  {other_pct}% chance",
                 "inline": True,
             },
             {
