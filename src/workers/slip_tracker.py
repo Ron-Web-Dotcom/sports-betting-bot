@@ -273,11 +273,40 @@ def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | Non
 
 # ── Result checking ────────────────────────────────────────────────────────────
 
+def _check_kalshi_result(pick: dict) -> str | None:
+    """Check Kalshi market result via the API using stored market_id."""
+    market_id = pick.get("market_id", "")
+    if not market_id:
+        return None
+    try:
+        from src.apis.kalshi import _get
+        data = _get(f"/markets/{market_id}")
+        if not data:
+            return None
+        m = data.get("market", data)
+        result = (m.get("result") or "").lower()
+        if not result or result in ("", "unknown", "void"):
+            return None
+        answer = (pick.get("answer") or pick.get("side") or "yes").lower()
+        if result == "yes":
+            return "won" if answer == "yes" else "lost"
+        elif result == "no":
+            return "won" if answer == "no" else "lost"
+        return None
+    except Exception as e:
+        logger.debug("Kalshi result check failed for %s: %s", market_id, e)
+        return None
+
+
 def _check_pick_result(pick: dict) -> str | None:
     """
     Returns 'won', 'lost', 'push', or None (not settled yet).
-    Uses Odds API scores endpoint.
+    Kalshi picks resolved via Kalshi API; others via Odds API scores.
     """
+    # Kalshi picks resolved via their own API
+    if pick.get("question") or pick.get("market_id"):
+        return _check_kalshi_result(pick)
+
     try:
         from src.engines.odds_engine import fetch_scores
         sport_key = pick.get("sport_key", "")
@@ -501,23 +530,33 @@ def track_slips() -> dict:
 
             for pick in picks:
                 ct = _parse_time(pick.get("commence_time", ""))
-                if not ct:
-                    continue
-                mins = (ct - now).total_seconds() / 60
-                sport = pick.get("sport_key", "")
-                # MMA/boxing can end fast — 90 min buffer; all others 150 min
-                settle_after = -90 if any(k in sport for k in ("mma", "boxing")) else -150
-                if mins < settle_after:
+                is_kalshi = bool(pick.get("question") or pick.get("market_id"))
+                if is_kalshi:
+                    # Kalshi: check result immediately once close_time has passed
+                    if ct and now < ct:
+                        continue  # market still open
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
+                else:
+                    if not ct:
+                        continue
+                    mins = (ct - now).total_seconds() / 60
+                    sport = pick.get("sport_key", "")
+                    settle_after = -90 if any(k in sport for k in ("mma", "boxing")) else -150
+                    if mins < settle_after:
+                        res = _check_pick_result(pick)
+                        if res:
+                            results.append(res)
 
             # Only settle when ALL legs have a result and are old enough
             settled_picks = [
                 p for p in picks
-                if _parse_time(p.get("commence_time", "")) and
-                (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() >
-                (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 150) * 60
+                if (p.get("question") or p.get("market_id")) or (
+                    _parse_time(p.get("commence_time", "")) and
+                    (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() >
+                    (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 150) * 60
+                )
             ]
             if results and len(results) == len(picks) and len(settled_picks) == len(picks):
                 if "lost" in results:
