@@ -542,27 +542,27 @@ def _build_hardrock_candidates(
             m = s.get("market", "h2h")
             snaps_by_market.setdefault(m, []).append(s)
 
-        # Day/night filter — Sofascore cache first, fall back to commence_time
-        if sofascore_events:
-            if not (_team_matches(home_team, sofascore_events) or _team_matches(away_team, sofascore_events)):
+        # Day/night filter — always enforce today-only first, then period split
+        try:
+            from dateutil.parser import parse as _parse
+            import zoneinfo as _zi
+            _ct = _parse(commence)
+            if _ct.tzinfo is None:
+                _ct = _ct.replace(tzinfo=__import__('datetime').timezone.utc)
+            _ct_et = _ct.astimezone(_zi.ZoneInfo("America/New_York"))
+            _today_et = __import__('datetime').datetime.now(_zi.ZoneInfo("America/New_York")).date()
+            if _ct_et.date() != _today_et:
+                continue  # tomorrow's game — skip entirely
+            _is_night_game = _ct_et.hour >= 18
+            if period == "day" and _is_night_game:
                 continue
-        else:
-            # Sofascore unavailable — use commence_time directly for period split
-            # Day = before 18:00 ET, Night = 18:00 ET and later
-            try:
-                from dateutil.parser import parse as _parse
-                import zoneinfo as _zi
-                _ct = _parse(commence)
-                if _ct.tzinfo is None:
-                    _ct = _ct.replace(tzinfo=__import__('datetime').timezone.utc)
-                _ct_et = _ct.astimezone(_zi.ZoneInfo("America/New_York"))
-                _is_night_game = _ct_et.hour >= 18
-                if period == "day" and _is_night_game:
+            if period == "night" and not _is_night_game:
+                continue
+        except Exception:
+            # Sofascore cache fallback — at least check team is in today's list
+            if sofascore_events:
+                if not (_team_matches(home_team, sofascore_events) or _team_matches(away_team, sofascore_events)):
                     continue
-                if period == "night" and not _is_night_game:
-                    continue
-            except Exception:
-                pass  # unparseable time — include in both periods
 
         event         = {"sport_key": sport_key, "home_team": home_team, "away_team": away_team, "commence_time": commence}
         game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
@@ -746,8 +746,21 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     }
     game_pre: list[dict] = []
     try:
+        import zoneinfo as _zi2
+        from dateutil.parser import parse as _parse2
+        _today_et2 = __import__('datetime').datetime.now(_zi2.ZoneInfo("America/New_York")).date()
         snapshots = get_latest_snapshots_by_game()
         for game_id, snap_list in list(snapshots.items())[:30]:
+            # today-only gate — skip tomorrow's games
+            _commence_chk = snap_list[0].get("commence_time", "") if snap_list else ""
+            try:
+                _ct2 = _parse2(_commence_chk)
+                if _ct2.tzinfo is None:
+                    _ct2 = _ct2.replace(tzinfo=__import__('datetime').timezone.utc)
+                if _ct2.astimezone(_zi2.ZoneInfo("America/New_York")).date() != _today_et2:
+                    continue
+            except Exception:
+                pass
             for snap in snap_list:
                 mkt = snap.get("market", "")
                 if mkt not in game_prop_markets:
