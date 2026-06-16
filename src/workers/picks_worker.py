@@ -593,8 +593,18 @@ def _build_hardrock_candidates(
             market    = ai.get("market", mkt)
             selection = ai.get("selection", "")
             books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps if s.get("market") == market and s.get("selection") == selection and s.get("book")}
+            if not books_odds and selection:
+                # Fuzzy fallback — partial team name match (handles "Nationals" vs "Washington Nationals")
+                sel_low = selection.lower()
+                books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps
+                              if s.get("market") == market and s.get("book") and
+                              (sel_low in (s.get("selection") or "").lower() or
+                               (s.get("selection") or "").lower() in sel_low)}
             if not books_odds:
-                books_odds = odds_by_book
+                # Last resort: all odds for this market (may pick wrong side — logged)
+                books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps if s.get("book")}
+                if books_odds:
+                    logger.warning("picks: no odds matched market=%s selection=%s — using market fallback", market, selection)
 
             best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else -110
             opp_prob      = ai.get("opponent_probability")
