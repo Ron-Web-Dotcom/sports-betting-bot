@@ -558,6 +558,7 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
                 "selection":     snap.selection,
                 "best_odds":     snap.american_odds,
                 "decimal_odds":  snap.decimal_odds,
+                "line_value":    snap.line_value,
                 "sport_key":     game.sport,
                 "home_team":     game.home_team,
                 "away_team":     game.away_team,

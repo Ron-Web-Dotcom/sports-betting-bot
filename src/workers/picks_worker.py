@@ -641,6 +641,9 @@ def _build_hardrock_candidates(
                 "commence_time":commence,
                 "market":       market,
                 "selection":    selection,
+                "line_value":   next((s.get("line_value") for s in mkt_snaps
+                                      if s.get("market") == market and s.get("selection") == selection
+                                      and s.get("line_value") is not None), None),
                 "best_odds":    best_odds_val,
                 "best_book":    best_snap.get("book", "hardrock"),
                 "books_odds":   books_odds,
@@ -948,11 +951,17 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
             gt    = _game_time(p.get("commence_time", ""))
             inj   = "  ⚠️" if p.get("injuries", 0) > 0 else ""
             time_str = f"  ·  {gt}" if gt else ""
+            line_val  = p.get("line_value")
+            # For spreads/totals show the line next to selection
+            if line_val is not None and p["market"] in ("spreads", "totals", "alternate_totals", "team_totals"):
+                line_str = f" {'+' if line_val > 0 else ''}{line_val}"
+            else:
+                line_str = ""
             pick_fields.append({
                 "name":  f"PICK {i}  ·  {emoji}  `{badge}`",
                 "value": (
                     f"**{p['away_team']} @ {p['home_team']}**{inj}{time_str}\n"
-                    f"✅  **{p['selection']}**\n"
+                    f"✅  **{p['selection']}{line_str}**\n"
                     f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
                     + (f"\n> _{reason_short}_" if reason_short else "")
                 ),
