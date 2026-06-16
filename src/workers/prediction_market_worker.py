@@ -163,73 +163,122 @@ def _fetch_todays_games() -> list[dict]:
 
 def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks: int = 1) -> list[dict]:
     """
-    Use AI to score today's games from Odds API and return the single best
-    pick formatted as a Kalshi-style YES/NO contract.
-    kalshi_markets and poly_markets are accepted for signature compat but unused.
+    Score today's Kalshi markets across ALL market types:
+    game winners, player props, game props (totals, BTTS, spreads, team totals).
+    Returns the single best qualifying pick as a Kalshi YES/NO contract.
     """
     import json as _json
     from src.engines.ai_engine import _call_json
 
+    # Pull full Kalshi event markets (player props, game props, totals, BTTS, etc.)
+    kalshi_full: list[dict] = []
+    try:
+        from src.apis.kalshi import get_sports_events
+        kalshi_full = get_sports_events(limit=200)
+        logger.info("Kalshi full markets: %d sub-markets available", len(kalshi_full))
+    except Exception as _ke:
+        logger.warning("Kalshi get_sports_events failed: %s", _ke)
+
+    # Fall back to game-winner candidates from Odds API if Kalshi API empty
     games = _fetch_todays_games()
-    if not games:
-        logger.info("Kalshi entry: no games from Odds API")
+    if not kalshi_full and not games:
+        logger.info("Kalshi entry: no markets available")
         return []
 
-    candidates = [g for g in games if 0.20 <= g["home_prob"] <= 0.80] or games
+    # Build candidate list — Kalshi full markets preferred, Odds API games as fallback
+    candidates: list[dict] = []
+    if kalshi_full:
+        # Use Kalshi's own markets (player props, game props, totals, BTTS, spreads)
+        for m in kalshi_full[:60]:
+            yes_prob = m.get("yes_price", 0)
+            no_prob  = round(1 - yes_prob, 4)
+            if not yes_prob or yes_prob < 0.30 or yes_prob > 0.90:
+                continue  # too extreme — skip
+            candidates.append({
+                "source":       "kalshi",
+                "market_id":    m.get("market_id", ""),
+                "title":        m.get("title", ""),
+                "event_title":  m.get("event_title", m.get("title", "")),
+                "yes_prob":     yes_prob,
+                "no_prob":      no_prob,
+                "yes_american": m.get("yes_american", 0),
+                "no_american":  m.get("no_american", 0),
+                "volume":       m.get("volume", 0),
+                "close_time":   m.get("close_time", ""),
+            })
+        candidates.sort(key=lambda x: x["volume"], reverse=True)  # highest liquidity first
+    else:
+        # Odds API fallback — game winners only
+        for g in games:
+            if not (0.20 <= g["home_prob"] <= 0.80):
+                continue
+            candidates.append({
+                "source":       "odds_api",
+                "title":        g["title"],
+                "event_title":  g["title"],
+                "yes_prob":     g["home_prob"],
+                "no_prob":      round(1 - g["home_prob"], 4),
+                "yes_american": int(g["home_odds"]),
+                "no_american":  int(g["away_odds"]),
+                "home_team":    g["home_team"],
+                "away_team":    g["away_team"],
+                "sport_key":    g["sport_key"],
+                "volume":       0,
+                "close_time":   g.get("commence", ""),
+            })
 
-    system = """You are an elite sports analyst and prediction market researcher.
+    if not candidates:
+        return []
 
-Given today's live games, do deep research on EACH game before deciding:
-- Recent form (last 5-10 games, win/loss streak, home/away splits)
-- Key injuries and lineup changes affecting this matchup
-- Head-to-head history (last 5 meetings, recent series if playoffs)
-- Pace, defensive/offensive ratings, matchup advantages
-- Rest days, travel, back-to-back situations
-- Market line vs your true probability estimate
+    system = """You are an elite sports analyst and prediction market researcher specializing in Kalshi.
 
-After researching all games, identify the SINGLE best game where you have the highest
-confidence edge — where the true probability clearly differs from the market price.
+You will be given a list of Kalshi YES/NO contracts covering ALL market types:
+- Game winners (Will Team X win?)
+- Player props (Will [Player] score over X points/goals?)
+- Game props (Will total goals be over X? Will both teams score? Will Team X cover -1.5?)
+- Team totals, spreads, BTTS, alternate lines
+
+For each contract research deeply:
+- Recent form, stats, injuries, matchup edges
+- Whether the YES probability is mis-priced vs true probability
+- High volume = sharp money — respect it
+
+Pick the SINGLE best contract where YES has the highest confidence edge.
 
 Return ONLY valid JSON:
 {
-  "index": <int>,
-  "team": "<team name to back>",
-  "question": "<Kalshi-style YES/NO question based on the actual game, e.g. 'Will [Team] win tonight?' or 'Will [Team] win Game [N]?' — use the real game number if it's a playoff series>",
-  "true_prob": <float 0.0-1.0>,
+  "index": <int — index into the candidates list>,
+  "answer": "YES"|"NO",
+  "question": "<the market title rewritten as a clear question if needed>",
+  "true_prob": <float 0.0-1.0 — your true probability of YES>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
-  "reasoning": "<3-4 sentences covering recent form, key injury/matchup factor, and why the market is wrong>"
+  "reasoning": "<3-4 sentences: what you researched, what edge you found, why the market is wrong>"
 }
 
 Only pick if confidence >= 0.65 and ev_pct >= 0.04. Return {"index": null} if nothing qualifies."""
-
-    game_list = [
-        {
-            "index":      i,
-            "game":       g["title"],
-            "sport":      g["sport_key"].split("_")[-1].upper(),
-            "home_team":  g["home_team"],
-            "away_team":  g["away_team"],
-            "home_win_%": f"{round(g['home_prob']*100)}%",
-            "away_win_%": f"{round(g['away_prob']*100)}%",
-            "home_odds":  f"{int(g['home_odds']):+d}",
-            "away_odds":  f"{int(g['away_odds']):+d}",
-            "game_time":  g.get("commence", ""),
-        }
-        for i, g in enumerate(candidates[:40])
-    ]
 
     from datetime import datetime
     import zoneinfo
     today_str = datetime.now(zoneinfo.ZoneInfo("America/New_York")).strftime("%A %B %-d, %Y")
 
+    candidate_list = [
+        {
+            "index":        i,
+            "market":       c.get("title", ""),
+            "event":        c.get("event_title", ""),
+            "yes_prob_%":   f"{round(c['yes_prob']*100)}%",
+            "yes_american": f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
+            "volume":       c.get("volume", 0),
+        }
+        for i, c in enumerate(candidates[:50])
+    ]
+
     prompt = (
-        f"Today is {today_str}. These are the games being played TODAY:\n\n"
-        f"```json\n{_json.dumps(game_list, indent=2)}\n```\n\n"
-        f"Research each game deeply using your training knowledge (injuries, form, H2H, "
-        f"matchup edges, playoff context if applicable). Write the question based on the "
-        f"ACTUAL game — use the real series game number if it's playoffs, do not guess. "
-        f"Pick the single game where you have the most confident edge for a Kalshi YES/NO contract."
+        f"Today is {today_str}. These are today's available Kalshi contracts (sorted by volume):\n\n"
+        f"```json\n{_json.dumps(candidate_list, indent=2)}\n```\n\n"
+        f"Research each market deeply — player props, game props, game winners, totals, BTTS. "
+        f"Find the single contract with the most confident edge where the market price is wrong."
     )
 
     try:
@@ -242,37 +291,40 @@ Only pick if confidence >= 0.65 and ev_pct >= 0.04. Return {"index": null} if no
         logger.info("Kalshi AI: no qualifying pick")
         return []
 
-    idx        = result.get("index", 0)
+    idx        = int(result.get("index", 0))
     confidence = float(result.get("confidence") or 0)
     ev_pct     = float(result.get("ev_pct") or 0)
+    answer     = result.get("answer", "YES").upper()
 
     if idx >= len(candidates) or confidence < 0.62 or ev_pct < 0.04:
         return []
 
-    game      = candidates[idx]
-    team      = result.get("team", game["home_team"])
+    pick      = candidates[idx]
     true_prob = float(result.get("true_prob") or confidence)
-    is_home   = team.lower() in game["home_team"].lower()
-    yes_prob  = game["home_prob"] if is_home else game["away_prob"]
-    no_prob   = round(1 - yes_prob, 4)
+    yes_prob  = pick["yes_prob"]
+    no_prob   = pick["no_prob"]
+    question  = result.get("question") or pick.get("title", "")
 
-    question = result.get("question") or f"Will {team} win tonight?"
+    # Derive team/subject name from title for display
+    team = pick.get("home_team", "") or question.split("Will ")[-1].split(" win")[0] if "Will" in question else question[:40]
 
     return [{
-        "title":      game["title"],
+        "title":      pick.get("event_title", pick.get("title", question)),
         "team":       team,
         "question":   question,
-        "sport_key":  game["sport_key"],
+        "answer":     answer,
+        "sport_key":  pick.get("sport_key", ""),
+        "market_id":  pick.get("market_id", ""),
         "yes_price":  yes_prob,
         "no_price":   no_prob,
         "true_prob":  true_prob,
-        "side":       "yes",
+        "side":       answer.lower(),
         "confidence": confidence,
         "ev_pct":     ev_pct,
         "reasoning":  result.get("reasoning", ""),
-        "home_odds":  game["home_odds"],
-        "away_odds":  game["away_odds"],
-        "commence_time": game.get("commence", ""),
+        "home_odds":  pick.get("yes_american", 0),
+        "away_odds":  pick.get("no_american", 0),
+        "commence_time": pick.get("close_time", ""),
     }]
 
 
@@ -313,11 +365,14 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     pick      = picks[0]
     question  = pick.get("question", f"Will {pick.get('team', '')} win tonight?")
     sport     = (pick.get("sport_key") or "").split("_")[-1].upper() or "SPORTS"
+    answer    = (pick.get("answer") or pick.get("side") or "YES").upper()
     yes_pct   = round(pick["yes_price"] * 100)
     no_pct    = round(pick["no_price"]  * 100)
+    our_pct   = yes_pct if answer == "YES" else no_pct
+    other_pct = no_pct  if answer == "YES" else yes_pct
     conf      = round((pick.get("confidence") or 0) * 100)
     ev        = f"+{round((pick.get('ev_pct') or 0) * 100, 1)}%"
-    cost      = round(pick["yes_price"] * 10, 2)
+    cost      = round((pick["yes_price"] if answer == "YES" else pick["no_price"]) * 10, 2)
     reasoning = pick.get("reasoning", "")
 
     try:
@@ -344,12 +399,12 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "✅  ANSWER",
-                "value":  f"**YES**  ·  {yes_pct}% chance",
+                "value":  f"**{answer}**  ·  {our_pct}% chance",
                 "inline": True,
             },
             {
                 "name":   "❌  OTHER SIDE",
-                "value":  f"**NO**  ·  {no_pct}% chance",
+                "value":  f"**{'NO' if answer == 'YES' else 'YES'}**  ·  {other_pct}% chance",
                 "inline": True,
             },
             {

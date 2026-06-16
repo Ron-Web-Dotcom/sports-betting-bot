@@ -284,3 +284,99 @@ def _prob_to_american(prob: float) -> int:
     if prob >= 0.5:
         return int(-100 * prob / (1 - prob))
     return int(100 * (1 - prob) / prob)
+
+
+def get_event_markets(event_ticker: str) -> list[dict]:
+    """
+    Fetch all sub-markets for a Kalshi event (player props, game props, spreads, totals).
+    event_ticker is the event-level ticker e.g. 'FIFA-WCSF-FRAVEN-20260616'.
+    """
+    data = _get(f"/events/{event_ticker}")
+    if not data:
+        return []
+    markets = (data.get("event") or {}).get("markets", []) or data.get("markets", [])
+    out = []
+    for m in markets:
+        yes_bid = (m.get("yes_bid") or 0) / 100
+        yes_ask = (m.get("yes_ask") or 0) / 100
+        no_bid  = (m.get("no_bid")  or 0) / 100
+        no_ask  = (m.get("no_ask")  or 0) / 100
+        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
+        out.append({
+            "market_id":    m.get("ticker", ""),
+            "title":        m.get("title", ""),
+            "yes_price":    round(yes_mid, 4),
+            "no_price":     round(no_mid,  4),
+            "yes_american": _prob_to_american(yes_mid),
+            "no_american":  _prob_to_american(no_mid),
+            "volume":       m.get("volume", 0),
+            "close_time":   m.get("close_time", ""),
+            "source":       "kalshi",
+        })
+    return out
+
+
+def get_sports_events(limit: int = 100) -> list[dict]:
+    """
+    Fetch today's sports events from Kalshi with ALL their sub-markets
+    (player props, game props, spreads, totals, BTTS, team totals, etc).
+    Returns flat list of all markets across all events closing within 24 h.
+    """
+    data = _get("/events", {"limit": limit, "status": "open", "with_nested_markets": "true"})
+    if not data:
+        return []
+
+    events_raw = data.get("events", []) if isinstance(data, dict) else []
+    out = []
+    for ev in events_raw:
+        ev_title    = (ev.get("title") or "").lower()
+        ev_category = (ev.get("category") or "").lower()
+        ev_tags     = [t.lower() for t in (ev.get("tags") or [])]
+
+        # Sports only
+        is_sports = (
+            "sports" in ev_category
+            or any(kw in ev_title for kw in _SPORTS_KEYWORDS)
+            or any(kw in " ".join(ev_tags) for kw in _SPORTS_KEYWORDS)
+        )
+        if not is_sports:
+            continue
+
+        # Today-only: event must close within 24 h
+        close = ev.get("close_time", "")
+        if not _kalshi_is_game_day(close):
+            continue
+
+        # Block futures
+        if any(pat in ev_title for pat in _KALSHI_FUTURES):
+            continue
+
+        markets = ev.get("markets") or []
+        for m in markets:
+            yes_bid = (m.get("yes_bid") or 0) / 100
+            yes_ask = (m.get("yes_ask") or 0) / 100
+            no_bid  = (m.get("no_bid")  or 0) / 100
+            no_ask  = (m.get("no_ask")  or 0) / 100
+            yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
+            no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
+            if not yes_mid:
+                continue
+            out.append({
+                "market_id":    m.get("ticker", ""),
+                "event_ticker": ev.get("event_ticker", ""),
+                "event_title":  ev.get("title", ""),
+                "title":        m.get("title", ""),
+                "category":     ev_category,
+                "tags":         ev_tags,
+                "yes_price":    round(yes_mid, 4),
+                "no_price":     round(no_mid,  4),
+                "yes_american": _prob_to_american(yes_mid),
+                "no_american":  _prob_to_american(no_mid),
+                "volume":       m.get("volume", 0),
+                "close_time":   m.get("close_time", "") or close,
+                "source":       "kalshi",
+            })
+
+    logger.info("Kalshi events: %d sub-markets across today's sports events", len(out))
+    return out
