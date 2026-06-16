@@ -170,14 +170,24 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
     import json as _json
     from src.engines.ai_engine import _call_json
 
-    # Pull full Kalshi event markets (player props, game props, totals, BTTS, etc.)
+    # Pull full Kalshi event markets — Redis cache (refreshed every 20 min by scan_player_props)
+    # Falls back to live API call if cache is cold
     kalshi_full: list[dict] = []
     try:
-        from src.apis.kalshi import get_sports_events
-        kalshi_full = get_sports_events(limit=200)
-        logger.info("Kalshi full markets: %d sub-markets available", len(kalshi_full))
+        from src.core.config import REDIS_URL
+        import redis as _rc, json as _jc
+        _r = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _cached = _r.get("kalshi:live_markets")
+        if _cached:
+            kalshi_full = _jc.loads(_cached)
+            logger.info("Kalshi markets from cache: %d sub-markets", len(kalshi_full))
+        else:
+            from src.apis.kalshi import get_sports_events
+            kalshi_full = get_sports_events(limit=200)
+            _r.setex("kalshi:live_markets", 2400, _jc.dumps(kalshi_full))
+            logger.info("Kalshi markets from live API: %d sub-markets", len(kalshi_full))
     except Exception as _ke:
-        logger.warning("Kalshi get_sports_events failed: %s", _ke)
+        logger.warning("Kalshi market fetch failed: %s", _ke)
 
     # Fall back to game-winner candidates from Odds API if Kalshi API empty
     games = _fetch_todays_games()

@@ -246,6 +246,16 @@ def scan_player_props():
         except Exception as e:
             logger.warning("Odds API player props failed: %s", e)
 
+        # Fetch Kalshi live sports events (player props, game props, totals, BTTS, spreads)
+        kalshi_markets = []
+        try:
+            from src.apis.kalshi import get_sports_events
+            kalshi_markets = get_sports_events(limit=200)
+            r.setex("kalshi:live_markets", 2400, json.dumps(kalshi_markets))
+            logger.info("Kalshi live markets cached: %d sub-markets", len(kalshi_markets))
+        except Exception as e:
+            logger.warning("Kalshi live scan failed: %s", e)
+
         # Detect changes
         prev_raw = r.get("props:odds_api")
         prev_props: list[dict] = json.loads(prev_raw) if prev_raw else []
@@ -259,8 +269,10 @@ def scan_player_props():
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
             _alert_active_pick_changes(r, all_changes)
 
-        logger.info("Props scan complete: odds_api=%d | changes=%d", len(odds_props), len(all_changes))
-        return {"odds_api": len(odds_props), "total": len(odds_props), "changes": len(all_changes)}
+        logger.info("Props scan complete: odds_api=%d kalshi=%d | changes=%d",
+                    len(odds_props), len(kalshi_markets), len(all_changes))
+        return {"odds_api": len(odds_props), "kalshi": len(kalshi_markets),
+                "total": len(odds_props), "changes": len(all_changes)}
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)
