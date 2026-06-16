@@ -454,17 +454,12 @@ def track_slips() -> dict:
         now = _now_utc()
         alerts_fired = 0
 
-        # ── Pass 1: collect soon/live — separated by DAY vs NIGHT ──────────────
-        # soon window: 0–10 min before tip-off
-        day_soon:   list[str] = []
-        night_soon: list[str] = []
-        day_live:   list[str] = []
-        night_live: list[str] = []
+        # ── Pass 1: collect soon/live — one grouped embed each ────────────────
+        all_soon: list[str] = []
+        all_live: list[str] = []
 
         for slip in slips:
             plat   = _platform_label(slip["platform"])
-            period = slip.get("period", "day")
-
             for pick in slip.get("picks", []):
                 ct = _parse_time(pick.get("commence_time", ""))
                 if not ct:
@@ -480,44 +475,26 @@ def track_slips() -> dict:
 
                 soon_key = f"game:soon:{gid}"
                 if 0 <= mins <= 10 and not _alerted(r, soon_key):
-                    line = f"**{name}**  ·  🕐 {gt}  {tag}"
-                    (day_soon if period == "day" else night_soon).append(line)
+                    all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                     _mark_alerted(r, soon_key)
 
                 live_key = f"game:live:{gid}"
                 if -5 <= mins <= 2 and not _alerted(r, live_key):
-                    line = f"🔴 **{name}**  {tag}"
-                    (day_live if period == "day" else night_live).append(line)
+                    all_live.append(f"🔴 **{name}**  {tag}")
                     _mark_alerted(r, live_key)
 
-        if day_soon:
+        if all_soon:
             _post_embed({
-                "title":       "🔔  DAY GAMES STARTING NOW",
-                "description": "\n".join(day_soon),
+                "title":       "🔔  GAMES STARTING NOW",
+                "description": "\n".join(all_soon),
                 "color":       0xF9A825,
                 "footer":      {"text": "⏱️ Last chance — tip-off in under 10 min"},
             })
             alerts_fired += 1
-        if night_soon:
+        if all_live:
             _post_embed({
-                "title":       "🔔  NIGHT GAMES STARTING NOW",
-                "description": "\n".join(night_soon),
-                "color":       0xF9A825,
-                "footer":      {"text": "⏱️ Last chance — tip-off in under 10 min"},
-            })
-            alerts_fired += 1
-        if day_live:
-            _post_embed({
-                "title":       "🔴  DAY GAMES NOW LIVE",
-                "description": "\n".join(day_live),
-                "color":       0xE53935,
-                "footer":      {"text": "Tracking results — updates when games end"},
-            })
-            alerts_fired += 1
-        if night_live:
-            _post_embed({
-                "title":       "🔴  NIGHT GAMES NOW LIVE",
-                "description": "\n".join(night_live),
+                "title":       "🔴  GAMES NOW LIVE",
+                "description": "\n".join(all_live),
                 "color":       0xE53935,
                 "footer":      {"text": "Tracking results — updates when games end"},
             })
