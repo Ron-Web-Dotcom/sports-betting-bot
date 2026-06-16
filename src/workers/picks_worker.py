@@ -653,31 +653,40 @@ def _build_hardrock_candidates(
 
 def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     """
-    Pull player/team props from Redis, pre-screen by odds, then run AI deep research
-    on the top 15 candidates. Confidence comes from AI analysis, not just implied prob.
+    Build a combined pre-screen pool from ALL three prop types:
+      - Player props  (player stats: points, goals, assists, etc.)
+      - Team props    (team totals, team corners, team first goal, etc.)
+      - Game props    (totals Over/Under, btts, alternate lines, team_totals, etc.)
+    Top 5 from each type → 15 total AI analysis slots so no type gets crowded out.
     """
     from src.core.config import REDIS_URL
     from src.engines.ev_engine import implied_prob, evaluate
     from src.engines.ai_engine import analyse_pick
     from src.apis.data_hub import build_player_context
+    from src.engines.odds_engine import get_latest_snapshots_by_game
     import json, redis as _redis
 
+    # ── Source 1 & 2: Player props + Team props (Redis) ──────────────────────
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw = r.get("props:odds_api")
-        all_props: list[dict] = json.loads(raw) if raw else []
+        all_redis_props: list[dict] = json.loads(raw) if raw else []
     except Exception:
-        return []
+        all_redis_props = []
 
-    # Phase 1: odds-based pre-screen (fast, no AI calls)
-    pre_screened: list[dict] = []
-    for prop in all_props:
+    player_pre: list[dict] = []
+    team_pre:   list[dict] = []
+
+    for prop in all_redis_props:
         player    = (prop.get("player") or prop.get("subject") or "").strip()
         stat      = prop.get("stat", "")
         sport_key = prop.get("sport_key", "")
         event_id  = prop.get("event_id", "")
         line      = prop.get("line")
-        if not player or not stat:
+        is_team   = prop.get("is_team_prop", False)
+        if not stat:
+            continue
+        if not is_team and not player:
             continue
 
         over_odds  = prop.get("over_odds", {})
@@ -697,7 +706,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         raw_prob = implied_prob(best_odds_val)
-        if raw_prob < 0.55:   # wider pre-screen — AI may find edge the market missed
+        if raw_prob < 0.55:
             continue
 
         opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
@@ -706,9 +715,9 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         prop_ev = evaluate(american_odds=best_odds_val, projected_prob=raw_prob,
                            opponent_odds=opp_odds_val)
 
-        pre_screened.append({
-            "type":         "prop",
-            "player":       player,
+        entry = {
+            "prop_type":    "team" if is_team else "player",
+            "player":       player if not is_team else stat,
             "stat":         stat,
             "line":         line,
             "direction":    direction,
@@ -719,30 +728,86 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             "raw_prob":     raw_prob,
             "ev_pct":       prop_ev.ev_pct,
             "units":        float(prop_ev.units or 1),
-            "is_team_prop": prop.get("is_team_prop", False),
+            "is_team_prop": is_team,
             "home_team":    prop.get("home_team", ""),
             "away_team":    prop.get("away_team", ""),
-        })
+        }
+        (team_pre if is_team else player_pre).append(entry)
 
-    # Sort by implied prob descending, take top 15 for AI research
+    player_pre.sort(key=lambda x: x["raw_prob"], reverse=True)
+    team_pre.sort(key=lambda x: x["raw_prob"], reverse=True)
+
+    # ── Source 3: Game props (totals, btts, team_totals from DB snapshots) ────
+    game_prop_markets = {
+        "totals", "alternate_totals", "team_totals",
+        "btts", "draw_no_bet", "double_chance",
+        "h2h_corners", "h2h_cards", "innings_1_5_total",
+        "team_points_q1", "team_points_q2",
+    }
+    game_pre: list[dict] = []
+    try:
+        snapshots = get_latest_snapshots_by_game()
+        for game_id, snap_list in list(snapshots.items())[:30]:
+            for snap in snap_list:
+                mkt = snap.get("market", "")
+                if mkt not in game_prop_markets:
+                    continue
+                sport_key  = snap.get("sport_key", "")
+                home_team  = snap.get("home_team", "")
+                away_team  = snap.get("away_team", "")
+                selection  = snap.get("selection", "")
+                best_odds  = snap.get("best_odds")
+                if best_odds is None:
+                    continue
+                raw_prob = implied_prob(best_odds)
+                if raw_prob < 0.55:
+                    continue
+                prop_ev = evaluate(american_odds=best_odds, projected_prob=raw_prob)
+                game_pre.append({
+                    "prop_type":    "game",
+                    "player":       f"{home_team} vs {away_team}",
+                    "stat":         mkt,
+                    "line":         selection,
+                    "direction":    selection,
+                    "sport_key":    sport_key,
+                    "event_id":     str(game_id),
+                    "best_odds":    best_odds,
+                    "books_odds":   {snap.get("book", "book"): best_odds},
+                    "raw_prob":     raw_prob,
+                    "ev_pct":       prop_ev.ev_pct,
+                    "units":        float(prop_ev.units or 1),
+                    "is_team_prop": False,
+                    "home_team":    home_team,
+                    "away_team":    away_team,
+                })
+    except Exception as _ge:
+        logger.warning("Game prop pre-screen failed: %s", _ge)
+
+    game_pre.sort(key=lambda x: x["raw_prob"], reverse=True)
+
+    # ── Merge: top 5 from each type → 15 AI slots ────────────────────────────
+    pre_screened = player_pre[:5] + team_pre[:5] + game_pre[:5]
     pre_screened.sort(key=lambda x: x["raw_prob"], reverse=True)
 
+    logger.info("Prop pre-screen: %d player, %d team, %d game → %d to AI",
+                len(player_pre), len(team_pre), len(game_pre), len(pre_screened))
+
+    # ── Phase 2: AI deep research on combined pool ────────────────────────────
     candidates: list[dict] = []
-    for prop in pre_screened[:15]:
+    for prop in pre_screened:
         player    = prop["player"]
         stat      = prop["stat"]
         sport_key = prop["sport_key"]
         direction = prop["direction"]
         line      = prop["line"]
+        prop_type = prop.get("prop_type", "player")
 
-        # Build player context (recent form, vs-opponent)
         opponent = prop.get("away_team") or prop.get("home_team") or ""
         try:
             player_ctx = build_player_context(player, sport_key, opponent=opponent, n_games=5)
         except Exception:
             player_ctx = {}
 
-        # Run AI deep research on this prop
         event = {
             "sport_key":      sport_key,
             "home_team":      prop.get("home_team", ""),
@@ -752,7 +817,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             "prop_stat":      stat,
             "prop_line":      line,
             "prop_direction": direction,
-            "description":    f"{player} {stat} {direction} {line}",
+            "prop_type":      prop_type,
+            "description":    f"{player} · {stat} {direction} {line}",
         }
         ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, player_ctx)
 
@@ -768,6 +834,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
 
         candidates.append({
             "type":         "prop",
+            "prop_type":    prop_type,
             "score":        conf * (1 + ev),
             "player":       player,
             "stat":         stat,
