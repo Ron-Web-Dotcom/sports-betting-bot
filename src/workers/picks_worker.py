@@ -935,17 +935,33 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
         reason_short = (reasoning.split(".")[0].strip()[:120] + "…") if reasoning else ""
 
         if p["type"] == "prop":
-            label    = "TEAM PROP" if p.get("is_team_prop") else "PLAYER PROP"
-            direction = p["direction"].upper()
-            pick_fields.append({
-                "name":  f"PICK {i}  ·  {emoji}  `{label}`",
-                "value": (
-                    f"**{p['player']}**  —  {p['stat']} **{direction} {p['line']}**\n"
-                    f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
-                    + (f"\n> _{reason_short}_" if reason_short else "")
-                ),
-                "inline": False,
-            })
+            prop_type = p.get("prop_type", "player")
+            if prop_type == "game":
+                label = _MARKET_BADGE.get(p.get("stat", ""), p.get("stat", "GAME PROP").upper())
+                gt    = _game_time(p.get("commence_time", ""))
+                time_str = f"  ·  {gt}" if gt else ""
+                pick_fields.append({
+                    "name":  f"PICK {i}  ·  {emoji}  `{label}`",
+                    "value": (
+                        f"**{p.get('home_team', '')} vs {p.get('away_team', '')}**{time_str}\n"
+                        f"✅  **{p['direction']}**\n"
+                        f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
+                        + (f"\n> _{reason_short}_" if reason_short else "")
+                    ),
+                    "inline": False,
+                })
+            else:
+                label    = "TEAM PROP" if p.get("is_team_prop") else "PLAYER PROP"
+                direction = p["direction"].upper()
+                pick_fields.append({
+                    "name":  f"PICK {i}  ·  {emoji}  `{label}`",
+                    "value": (
+                        f"**{p['player']}**  —  {p['stat']} **{direction} {p['line']}**\n"
+                        f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
+                        + (f"\n> _{reason_short}_" if reason_short else "")
+                    ),
+                    "inline": False,
+                })
         else:
             badge = _MARKET_BADGE.get(p["market"], p["market"].upper())
             gt    = _game_time(p.get("commence_time", ""))
