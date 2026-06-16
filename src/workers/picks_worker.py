@@ -642,7 +642,7 @@ def _build_hardrock_candidates(
 def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     """
     Pull player/team props from Redis, pre-screen by odds, then run AI deep research
-    on the top 8 candidates. Confidence comes from AI analysis, not just implied prob.
+    on the top 15 candidates. Confidence comes from AI analysis, not just implied prob.
     """
     from src.core.config import REDIS_URL
     from src.engines.ev_engine import implied_prob, evaluate
@@ -685,7 +685,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         raw_prob = implied_prob(best_odds_val)
-        if raw_prob < 0.58:   # wider pre-screen — AI may find edge the market missed
+        if raw_prob < 0.55:   # wider pre-screen — AI may find edge the market missed
             continue
 
         opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
@@ -712,11 +712,11 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             "away_team":    prop.get("away_team", ""),
         })
 
-    # Sort by implied prob descending, take top 8 for AI research
+    # Sort by implied prob descending, take top 15 for AI research
     pre_screened.sort(key=lambda x: x["raw_prob"], reverse=True)
 
     candidates: list[dict] = []
-    for prop in pre_screened[:8]:
+    for prop in pre_screened[:15]:
         player    = prop["player"]
         stat      = prop["stat"]
         sport_key = prop["sport_key"]
