@@ -881,7 +881,21 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
     date_str     = now_et.strftime("%b %-d, %Y")
     period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
     period_emoji = "☀️" if period == "day" else "🌙"
-    _MARKET_BADGE = {"h2h": "MONEYLINE", "spreads": "SPREAD", "totals": "TOTAL"}
+    _MARKET_BADGE = {
+        "h2h":           "MONEYLINE",
+        "spreads":       "SPREAD",
+        "totals":        "TOTAL O/U",
+        "alternate_totals": "ALT TOTAL",
+        "team_totals":   "TEAM TOTAL",
+        "btts":          "BTTS",
+        "draw_no_bet":   "DNB",
+        "double_chance": "DBL CHANCE",
+        "h2h_corners":   "CORNERS",
+        "h2h_cards":     "CARDS",
+        "innings_1_5_total": "F5 TOTAL",
+        "team_points_q1": "Q1 TOTAL",
+        "team_points_q2": "Q2 TOTAL",
+    }
     slip_id      = hashlib.md5(f"{period}{date_str}".encode()).hexdigest()[:8].upper()
 
     def _fmt(v) -> str:

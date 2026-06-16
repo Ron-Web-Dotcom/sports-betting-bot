@@ -146,8 +146,8 @@ Return ONLY valid JSON — no markdown, no extra text:
 {
   "should_bet": true|false,
   "recommendation": "BET"|"PASS",
-  "selection": "<EXACT team name from the event — copy it exactly as given in home_team or away_team>",
-  "market": "h2h"|"spreads"|"totals"|"player_prop",
+  "selection": "<depends on market: h2h/spreads → exact team name from home_team or away_team; totals/team_totals/alternate_totals → 'Over X.X' or 'Under X.X' (e.g. 'Over 2.5'); btts → 'Yes' or 'No'; player_prop → 'Over X' or 'Under X'>",
+  "market": "h2h"|"spreads"|"totals"|"team_totals"|"alternate_totals"|"btts"|"player_prop",
   "win_probability": <float 0.0-1.0>,
   "confidence": <float 0.0-1.0>,
   "opponent_probability": <float 0.0-1.0>,
