@@ -252,8 +252,8 @@ def scan_player_props():
         all_changes = _detect_prop_changes(prev_props, odds_props, "odds_api")
 
         # Cache
-        r.setex("props:odds_api", 1500, json.dumps(odds_props))
-        r.setex("props:all",      1500, json.dumps(odds_props))
+        r.setex("props:odds_api", 2400, json.dumps(odds_props))
+        r.setex("props:all",      2400, json.dumps(odds_props))
 
         if all_changes:
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
