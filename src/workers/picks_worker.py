@@ -536,6 +536,12 @@ def _build_hardrock_candidates(
         away_team = best_snap.get("away_team", "")
         commence  = str(best_snap.get("commence_time", ""))
 
+        # Group snaps by market so we can evaluate h2h, totals, spreads, team_totals separately
+        snaps_by_market: dict[str, list] = {}
+        for s in snap_list:
+            m = s.get("market", "h2h")
+            snaps_by_market.setdefault(m, []).append(s)
+
         # Day/night filter — Sofascore cache first, fall back to commence_time
         if sofascore_events:
             if not (_team_matches(home_team, sofascore_events) or _team_matches(away_team, sofascore_events)):
@@ -558,9 +564,8 @@ def _build_hardrock_candidates(
             except Exception:
                 pass  # unparseable time — include in both periods
 
-        event        = {"sport_key": sport_key, "home_team": home_team, "away_team": away_team, "commence_time": commence}
+        event         = {"sport_key": sport_key, "home_team": home_team, "away_team": away_team, "commence_time": commence}
         game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
-        odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
 
         try:
             game_context = build_game_context(sport_key=sport_key, home_team=home_team, away_team=away_team, game_time=commence)
@@ -571,65 +576,72 @@ def _build_hardrock_candidates(
         all_injuries = hub_injuries or game_injuries
         hub_news     = game_context.get("news_espn", [])
 
-        ai = analyse_pick(event, all_injuries, hub_news, odds_by_book, game_context)
-        if not ai:
-            continue
+        # Evaluate each available market separately (h2h, totals, spreads, team_totals)
+        # so Over 1.5 goals, team totals, etc. each get their own AI analysis + confidence score
+        markets_to_try = list(snaps_by_market.keys()) or ["h2h"]
+        for mkt in markets_to_try:
+            mkt_snaps   = snaps_by_market.get(mkt, snap_list)
+            odds_by_book = {s["book"]: s["best_odds"] for s in mkt_snaps if "book" in s}
+            if not odds_by_book:
+                continue
 
-        market    = ai.get("market", best_snap.get("market", "h2h"))
-        selection = ai.get("selection", "")
-        books_odds = {s["book"]: s["best_odds"] for s in snap_list if s.get("market") == market and s.get("selection") == selection and s.get("book")}
-        if not books_odds:
-            books_odds = odds_by_book
+            mkt_event = {**event, "market": mkt}
+            ai = analyse_pick(mkt_event, all_injuries, hub_news, odds_by_book, game_context)
+            if not ai:
+                continue
 
-        # Use odds for the AI's actual selection — not the snapshot's top odds (which may be the other side)
-        best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else best_snap.get("best_odds", -110)
-        opp_prob      = ai.get("opponent_probability")
-        opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
+            market    = ai.get("market", mkt)
+            selection = ai.get("selection", "")
+            books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps if s.get("market") == market and s.get("selection") == selection and s.get("book")}
+            if not books_odds:
+                books_odds = odds_by_book
 
-        confidence = compute_confidence(
-            ai_win_prob         = ai.get("win_probability", 0.5),
-            model_consensus     = ai.get("confidence", 0.5),
-            line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
-            news_impact_score   = game_context.get("news_impact_score", 0.5),
-            sport               = sport_key,
-            market              = "h2h",
-        )
+            best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else -110
+            opp_prob      = ai.get("opponent_probability")
+            opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
 
-        _top_seen_conf = max(_top_seen_conf, confidence.calibrated_score)
-        if confidence.calibrated_score < 0.765:
-            logger.info(
-                "PASS [%s vs %s] conf=%.1f%% ai_prob=%.1f%% — below threshold",
-                home_team, away_team,
-                confidence.calibrated_score * 100,
-                ai.get("win_probability", 0) * 100,
+            confidence = compute_confidence(
+                ai_win_prob         = ai.get("win_probability", 0.5),
+                model_consensus     = ai.get("confidence", 0.5),
+                line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
+                news_impact_score   = game_context.get("news_impact_score", 0.5),
+                sport               = sport_key,
+                market              = market,
             )
-            continue
 
-        ev_result = evaluate(american_odds=best_odds_val, projected_prob=confidence.calibrated_score, opponent_odds=opponent_odds)
+            _top_seen_conf = max(_top_seen_conf, confidence.calibrated_score)
+            if confidence.calibrated_score < 0.765:
+                logger.info(
+                    "PASS [%s vs %s] market=%s conf=%.1f%% — below threshold",
+                    home_team, away_team, market,
+                    confidence.calibrated_score * 100,
+                )
+                continue
 
-        if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
-            continue
+            ev_result = evaluate(american_odds=best_odds_val, projected_prob=confidence.calibrated_score, opponent_odds=opponent_odds)
+            if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
+                continue
 
-        candidates.append({
-            "type":         "team",
-            "score":        confidence.calibrated_score * (1 + ev_result.ev_pct),
-            "sport_key":    sport_key,
-            "home_team":    home_team,
-            "away_team":    away_team,
-            "commence_time":commence,
-            "market":       market,
-            "selection":    selection,
-            "best_odds":    best_odds_val,
-            "best_book":    best_snap.get("book", "hardrock"),
-            "books_odds":   books_odds,
-            "ev_pct":       ev_result.ev_pct,
-            "no_vig_prob":  ev_result.no_vig_prob,
-            "confidence":   confidence.calibrated_score,
-            "units":        ev_result.units,
-            "reasoning":    ai.get("reasoning", ""),
-            "key_factors":  ai.get("key_factors", []),
-            "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
-        })
+            candidates.append({
+                "type":         "team",
+                "score":        confidence.calibrated_score * (1 + ev_result.ev_pct),
+                "sport_key":    sport_key,
+                "home_team":    home_team,
+                "away_team":    away_team,
+                "commence_time":commence,
+                "market":       market,
+                "selection":    selection,
+                "best_odds":    best_odds_val,
+                "best_book":    best_snap.get("book", "hardrock"),
+                "books_odds":   books_odds,
+                "ev_pct":       ev_result.ev_pct,
+                "no_vig_prob":  ev_result.no_vig_prob,
+                "confidence":   confidence.calibrated_score,
+                "units":        ev_result.units,
+                "reasoning":    ai.get("reasoning", ""),
+                "key_factors":  ai.get("key_factors", []),
+                "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
+            })
 
     # Attach best-seen confidence so caller can report it even when no picks qualify
     if not candidates:
