@@ -448,8 +448,10 @@ def _get_parlay_senders():
 
 def scan_todays_games():
     """
-    8 AM daily: full Sofascore scan across all sports.
+    8 AM / 2 PM daily: full Sofascore scan across all sports.
     Splits today's games into DAY (before 6 PM ET) and NIGHT (6 PM ET+).
+    Also fetches tomorrow's date to capture late games (10 PM–midnight ET)
+    that Sofascore lists under the next UTC calendar date.
     Caches both lists in Redis for the entry generators to use.
     """
     from src.apis.sofascore import SPORT_MAP, get_scheduled_events
@@ -457,35 +459,52 @@ def scan_todays_games():
     from src.core.config import REDIS_URL
     from concurrent.futures import ThreadPoolExecutor
     import json, zoneinfo
-    from datetime import datetime
+    from datetime import datetime, timedelta
     import redis as _redis
 
     ET = zoneinfo.ZoneInfo("America/New_York")
-    today = et_naive().strftime("%Y-%m-%d")
+    today    = et_naive().strftime("%Y-%m-%d")
+    tomorrow = (et_naive() + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    def _fetch(sport_key: str) -> list:
+    def _fetch(sport_key: str, date: str) -> list:
         try:
-            return get_scheduled_events(sport_key, today)
+            return get_scheduled_events(sport_key, date)
         except Exception:
             return []
 
     day_games: list[dict] = []
     night_games: list[dict] = []
 
+    # Fetch today + tomorrow so late games listed under next UTC date are included
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
-        for fut in futures:
-            for ev in fut.result():
-                ct = ev.get("commence_time", "")
-                is_night = False
-                try:
-                    from dateutil.parser import parse as _parse
-                    t = _parse(ct).astimezone(ET) if ct else None
-                    if t and t.hour >= 18:
+        today_futures    = {pool.submit(_fetch, sk, today):    sk for sk in SPORT_MAP}
+        tomorrow_futures = {pool.submit(_fetch, sk, tomorrow): sk for sk in SPORT_MAP}
+
+    seen_ids: set[str] = set()
+    for fut in list(today_futures) + list(tomorrow_futures):
+        for ev in fut.result():
+            ev_id = ev.get("id") or ev.get("event_id") or ""
+            if ev_id and ev_id in seen_ids:
+                continue
+            if ev_id:
+                seen_ids.add(ev_id)
+            ct = ev.get("commence_time", "")
+            is_night = False
+            try:
+                from dateutil.parser import parse as _parse
+                t = _parse(ct).astimezone(ET) if ct else None
+                if t:
+                    # Night = 6 PM ET today through 3 AM ET tomorrow
+                    if t.hour >= 18 or t.hour < 3:
                         is_night = True
-                except Exception:
-                    pass
-                (night_games if is_night else day_games).append(ev)
+                    # Only include tomorrow's games if they start before 3 AM ET
+                    # (genuine late-night games, not next day's slate)
+                    tomorrow_date = (datetime.now(ET) + timedelta(days=1)).date()
+                    if t.date() == tomorrow_date and t.hour >= 3:
+                        continue  # skip — next day's games, not tonight
+            except Exception:
+                pass
+            (night_games if is_night else day_games).append(ev)
 
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
     r.setex("sofascore:day_games",   86400, json.dumps(day_games))
