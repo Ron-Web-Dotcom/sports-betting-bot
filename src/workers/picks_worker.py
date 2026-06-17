@@ -517,208 +517,163 @@ def _build_hardrock_candidates(
     """
     Score all today's games that match the given period (day/night).
     Returns a flat list of scored candidate dicts.
+
+    Simplified gates — one pass, no re-applied checks:
+      -odds: AI win_probability >= 77% AND simple EV > 0
+      +odds: AI win_prob >= 42% AND edge over implied >= 5% AND EV > 0
     """
     from src.engines.odds_engine import get_latest_snapshots_by_game
     from src.engines.news_engine import get_recent_injuries
-    from src.engines.confidence_engine import compute_confidence
-    from src.engines.ev_engine import evaluate, decimal_to_american
+    from src.engines.ev_engine import evaluate, decimal_to_american, american_to_decimal
     from src.engines.ai_engine import analyse_pick
     from src.apis.data_hub import build_game_context
+    import zoneinfo as _zi
+    from dateutil.parser import parse as _dparse
+    import datetime as _dt
 
     snapshots = get_latest_snapshots_by_game()
     injuries  = get_recent_injuries()
     candidates: list[dict] = []
-    _top_seen_conf: float = 0.0  # track best calibrated score even for rejected picks
+    _top_seen_conf: float  = 0.0
 
-    logger.info("HardRock candidates [%s]: %d games in snapshot window", period, len(snapshots))
+    logger.info("HardRock [%s]: %d games in DB window", period, len(snapshots))
 
-    _filtered_date = 0
-    _filtered_period = 0
-    _ai_calls = 0
-    _ai_failed = 0
+    _today_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York")).date()
 
-    # Cap at 25 games per HardRock entry build to stay within 1GB RAM
     for game_id, snap_list in list(snapshots.items())[:25]:
         if not snap_list:
             continue
-        best_snap = snap_list[0]
-        sport_key = best_snap.get("sport_key", "")
-        home_team = best_snap.get("home_team", "")
-        away_team = best_snap.get("away_team", "")
-        commence  = str(best_snap.get("commence_time", ""))
 
-        # Group snaps by market so we can evaluate h2h, totals, spreads, team_totals separately
-        snaps_by_market: dict[str, list] = {}
-        for s in snap_list:
-            m = s.get("market", "h2h")
-            snaps_by_market.setdefault(m, []).append(s)
+        rep        = snap_list[0]
+        sport_key  = rep.get("sport_key", "")
+        home_team  = rep.get("home_team", "")
+        away_team  = rep.get("away_team", "")
+        commence   = str(rep.get("commence_time", ""))
 
-        # Day/night filter — always enforce today-only first, then period split
+        # ── Date / period filter ─────────────────────────────────────────────
         try:
-            from dateutil.parser import parse as _parse
-            import zoneinfo as _zi
-            _ct = _parse(commence)
+            _ct = _dparse(commence)
             if _ct.tzinfo is None:
-                _ct = _ct.replace(tzinfo=__import__('datetime').timezone.utc)
+                _ct = _ct.replace(tzinfo=_dt.timezone.utc)
             _ct_et = _ct.astimezone(_zi.ZoneInfo("America/New_York"))
-            _today_et = __import__('datetime').datetime.now(_zi.ZoneInfo("America/New_York")).date()
             if _ct_et.date() != _today_et:
-                _filtered_date += 1
-                logger.debug("SKIP [%s vs %s] date=%s != today=%s", home_team, away_team, _ct_et.date(), _today_et)
-                continue  # tomorrow's game — skip entirely
-            _is_night_game = _ct_et.hour >= 18
-            if period == "day" and _is_night_game:
-                _filtered_period += 1
                 continue
-            if period == "night" and not _is_night_game:
-                _filtered_period += 1
-                continue
+            _is_night = _ct_et.hour >= 18
+            if period == "day"   and _is_night:  continue
+            if period == "night" and not _is_night: continue
         except Exception:
-            # Sofascore cache fallback — at least check team is in today's list
-            if sofascore_events:
-                if not (_team_matches(home_team, sofascore_events) or _team_matches(away_team, sofascore_events)):
-                    continue
+            if sofascore_events and not (
+                _team_matches(home_team, sofascore_events) or
+                _team_matches(away_team, sofascore_events)
+            ):
+                continue
 
-        event         = {"sport_key": sport_key, "home_team": home_team, "away_team": away_team, "commence_time": commence}
+        # ── Build market groups ───────────────────────────────────────────────
+        by_mkt: dict[str, list] = {}
+        for s in snap_list:
+            by_mkt.setdefault(s.get("market", "h2h"), []).append(s)
+
         game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
-
         try:
-            game_context = build_game_context(sport_key=sport_key, home_team=home_team, away_team=away_team, game_time=commence)
+            ctx = build_game_context(sport_key=sport_key, home_team=home_team,
+                                     away_team=away_team, game_time=commence)
         except Exception:
-            game_context = {}
+            ctx = {}
+        all_injuries = ctx.get("injuries_espn_home", []) + ctx.get("rotowire_injuries", []) or game_injuries
+        hub_news     = ctx.get("news_espn", [])
 
-        hub_injuries = game_context.get("injuries_espn_home", []) + game_context.get("rotowire_injuries", [])
-        all_injuries = hub_injuries or game_injuries
-        hub_news     = game_context.get("news_espn", [])
-
-        # Evaluate top 3 markets per game — h2h first, then best-odds alternative markets
-        # Capped at 3 to avoid 250+ AI calls across 25 games × all markets
-        priority_order = ["h2h", "spreads", "totals", "team_totals", "alternate_totals",
-                          "btts", "draw_no_bet", "innings_1_5_total", "team_points_q1"]
-        available = [m for m in priority_order if m in snaps_by_market]
-        # Also include any market not in priority list (e.g. custom markets)
-        extras = [m for m in snaps_by_market if m not in priority_order]
-        markets_to_try = (available + extras)[:3]  # max 3 per game
-
-        for mkt in markets_to_try:
-            mkt_snaps    = snaps_by_market.get(mkt, snap_list)
-            odds_by_book = {s["book"]: s["best_odds"] for s in mkt_snaps if "book" in s}
-            if not odds_by_book:
+        # ── Try up to 3 markets per game ─────────────────────────────────────
+        priority = ["h2h", "spreads", "totals", "team_totals", "alternate_totals",
+                    "btts", "draw_no_bet", "innings_1_5_total", "team_points_q1"]
+        ordered  = [m for m in priority if m in by_mkt] + [m for m in by_mkt if m not in priority]
+        for mkt in ordered[:3]:
+            snaps     = by_mkt[mkt]
+            odds_map  = {s["book"]: s["best_odds"] for s in snaps if s.get("book")}
+            if not odds_map:
                 continue
 
-            mkt_event = {**event, "market": mkt}
-            _ai_calls += 1
-            ai = analyse_pick(mkt_event, all_injuries, hub_news, odds_by_book, game_context)
+            ai = analyse_pick(
+                {**{"sport_key": sport_key, "home_team": home_team,
+                    "away_team": away_team, "commence_time": commence}, "market": mkt},
+                all_injuries, hub_news, odds_map, ctx,
+            )
             if not ai:
-                _ai_failed += 1
                 continue
 
             market    = ai.get("market", mkt)
             selection = ai.get("selection", "")
-            books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps if s.get("market") == market and s.get("selection") == selection and s.get("book")}
-            if not books_odds and selection:
-                # Fuzzy fallback — partial team name match (handles "Nationals" vs "Washington Nationals")
-                sel_low = selection.lower()
-                books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps
-                              if s.get("market") == market and s.get("book") and
-                              (sel_low in (s.get("selection") or "").lower() or
-                               (s.get("selection") or "").lower() in sel_low)}
-            if not books_odds:
-                # Last resort: all odds for this market (may pick wrong side — logged)
-                books_odds = {s["book"]: s["best_odds"] for s in mkt_snaps if s.get("book")}
-                if books_odds:
-                    logger.warning("picks: no odds matched market=%s selection=%s — using market fallback", market, selection)
+            ai_prob   = float(ai.get("win_probability", 0.5))
+            opp_prob  = float(ai.get("opponent_probability") or (1 - ai_prob))
 
-            best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else -110
-            opp_prob      = ai.get("opponent_probability")
-            opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
+            # Resolve odds for selected side
+            books = {s["book"]: s["best_odds"] for s in snaps
+                     if s.get("market") == market and s.get("selection") == selection and s.get("book")}
+            if not books and selection:
+                sl = selection.lower()
+                books = {s["book"]: s["best_odds"] for s in snaps if s.get("book") and
+                         (sl in (s.get("selection") or "").lower() or
+                          (s.get("selection") or "").lower() in sl)}
+            if not books:
+                books = {s["book"]: s["best_odds"] for s in snaps if s.get("book")}
+            if not books:
+                continue
 
-            ai_win_prob = ai.get("win_probability", 0.5)
-            confidence = compute_confidence(
-                ai_win_prob         = ai_win_prob,
-                model_consensus     = ai.get("confidence", 0.5),
-                line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
-                news_impact_score   = game_context.get("news_impact_score", 0.5),
-                sport               = sport_key,
-                market              = market,
-            )
+            # Best odds = highest payout (highest American value)
+            best_odds = max(books.values(), key=lambda v: v if v > 0 else -(100 / (100 - v) * 100))
 
-            is_plus_odds = best_odds_val > 0
-            if is_plus_odds:
-                # For + odds value plays: gate on edge over implied prob + EV,
-                # not win-prob floor (a 55% true prob on +170 is massive value).
-                implied = 100 / (100 + best_odds_val)  # market implied prob
-                edge    = ai_win_prob - implied
-                if ai_win_prob < 0.42:  # no extreme longshots
-                    logger.info("PASS [%s vs %s] market=%s +odds=%d ai_prob=%.1f%% — below 42%% floor",
-                                home_team, away_team, market, best_odds_val, ai_win_prob * 100)
+            # ── Simple gate ───────────────────────────────────────────────────
+            _top_seen_conf = max(_top_seen_conf, ai_prob)
+            if best_odds > 0:
+                implied = 100 / (100 + best_odds)
+                if ai_prob < 0.42 or (ai_prob - implied) < 0.05:
+                    logger.info("SKIP +odds [%s vs %s] %s: prob=%.0f%% implied=%.0f%%",
+                                home_team, away_team, market, ai_prob*100, implied*100)
                     continue
-                if edge < 0.05:  # need at least 5% real edge over implied
-                    logger.info("PASS [%s vs %s] market=%s +odds=%d edge=%.1f%% — insufficient edge",
-                                home_team, away_team, market, best_odds_val, edge * 100)
-                    continue
-                projected_for_ev = ai_win_prob
-                _top_seen_conf = max(_top_seen_conf, ai_win_prob)
             else:
-                # For - odds: keep 77% calibrated confidence floor
-                _top_seen_conf = max(_top_seen_conf, confidence.calibrated_score)
-                if confidence.calibrated_score < CONF_FLOOR:
-                    logger.info(
-                        "PASS [%s vs %s] market=%s conf=%.1f%% — below threshold",
-                        home_team, away_team, market,
-                        confidence.calibrated_score * 100,
-                    )
+                if ai_prob < CONF_FLOOR:
+                    logger.info("SKIP -odds [%s vs %s] %s: prob=%.0f%% < 77%%",
+                                home_team, away_team, market, ai_prob*100)
                     continue
-                projected_for_ev = confidence.calibrated_score
 
-            ev_result = evaluate(american_odds=best_odds_val, projected_prob=projected_for_ev, opponent_odds=opponent_odds)
-            if ev_result.ev_pct < EV_FLOOR:
-                logger.info("PASS [%s vs %s] market=%s odds=%d ev=%.2f%% — below EV floor",
-                            home_team, away_team, market, best_odds_val, ev_result.ev_pct * 100)
-                continue
-            # Only apply no-vig edge check when opponent odds are known.
-            # When unknown, no_vig_prob == book_implied (includes vig), making
-            # the check unfairly reject heavy favorites like -500, -800.
-            if opponent_odds and ev_result.projected_prob <= ev_result.no_vig_prob:
-                logger.info("PASS [%s vs %s] market=%s odds=%d — below no-vig prob",
-                            home_team, away_team, market, best_odds_val)
+            # Simple EV: our_prob × decimal_payout - 1 > 0
+            dec = american_to_decimal(best_odds)
+            ev  = ai_prob * (dec - 1) - (1 - ai_prob)
+            if ev < EV_FLOOR:
+                logger.info("SKIP [%s vs %s] %s: ev=%.2f%% < floor", home_team, away_team, market, ev*100)
                 continue
 
-            # Use the calibrated score for - odds; for + odds blend ai_win_prob + implied edge
-            display_confidence = confidence.calibrated_score if not is_plus_odds else min(0.84, (ai_win_prob + projected_for_ev) / 2 + 0.05)
+            opp_odds = decimal_to_american(1.0 / opp_prob) if 0 < opp_prob < 1 else None
+            ev_full  = evaluate(american_odds=best_odds, projected_prob=ai_prob,
+                                opponent_odds=opp_odds)
 
             candidates.append({
                 "type":         "team",
-                "score":        display_confidence * (1 + ev_result.ev_pct),
+                "score":        ai_prob * (1 + ev),
                 "sport_key":    sport_key,
                 "home_team":    home_team,
                 "away_team":    away_team,
                 "commence_time":commence,
                 "market":       market,
                 "selection":    selection,
-                "line_value":   next((s.get("line_value") for s in mkt_snaps
-                                      if s.get("market") == market and s.get("selection") == selection
+                "line_value":   next((s.get("line_value") for s in snaps
+                                      if s.get("market") == market
+                                      and s.get("selection") == selection
                                       and s.get("line_value") is not None), None),
-                "best_odds":    best_odds_val,
-                "best_book":    best_snap.get("book", "hardrock"),
-                "books_odds":   books_odds,
-                "ev_pct":       ev_result.ev_pct,
-                "no_vig_prob":  ev_result.no_vig_prob,
-                "confidence":   display_confidence,
-                "units":        ev_result.units,
+                "best_odds":    best_odds,
+                "best_book":    rep.get("book", "hardrock"),
+                "books_odds":   books,
+                "ev_pct":       ev,
+                "no_vig_prob":  ev_full.no_vig_prob,
+                "confidence":   ai_prob,
+                "units":        ev_full.units,
                 "reasoning":    ai.get("reasoning", ""),
                 "key_factors":  ai.get("key_factors", []),
                 "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
             })
 
-    logger.info(
-        "HardRock candidates [%s]: %d passed → %d qualified | filtered(date=%d period=%d) ai(calls=%d failed=%d) best_conf=%.1f%%",
-        period, len(snapshots), len(candidates),
-        _filtered_date, _filtered_period, _ai_calls, _ai_failed,
-        _top_seen_conf * 100,
-    )
+    logger.info("HardRock [%s]: %d qualified from %d games | best_conf=%.0f%%",
+                period, len(candidates), len(snapshots), _top_seen_conf * 100)
 
-    # Attach best-seen confidence so caller can report it even when no picks qualify
     if not candidates:
         candidates.append({"_meta": True, "_top_conf": _top_seen_conf})
     else:
@@ -1148,6 +1103,9 @@ def _generate_hardrock_entry(period: str) -> dict:
                 combined_dec      *= _american_to_dec(int(p["best_odds"]))
             return combined_win_prob * combined_dec > 1.0
 
+        # Candidates already passed all gates inside their builders.
+        # Here: just deduplicate (no same game twice, no same player twice)
+        # and take the top 1-2 picks by score.
         entry: list[dict]            = []
         blocked_event_keys: set[str] = set()
         seen_players: set[str]       = set()
@@ -1156,39 +1114,16 @@ def _generate_hardrock_entry(period: str) -> dict:
             if len(entry) == 2:
                 break
 
-            conf      = pick["confidence"]
-            ev        = pick.get("ev_pct", 0)
-            best_odds = pick.get("best_odds", -110)
-
-            if ev < EV_FLOOR:
-                continue
-
-            if best_odds > 0:
-                # + odds value play: AI win prob must beat implied prob by ≥ 5% with ≥ 42% floor
-                implied = 100 / (100 + best_odds)
-                if conf < 0.42 or (conf - implied) < 0.05:
-                    continue
-            else:
-                # - odds: keep 77% calibrated confidence floor
-                if conf < CONF_FLOOR:
-                    continue
-
-            # Every leg added must keep the parlay profitable as a whole.
-            # If the combined win_prob × payout drops below 1.0, skip this leg.
-            # This naturally prevents 3-leg parlays unless all 3 genuinely earn it.
-            if entry and not _parlay_is_profitable(entry + [pick]):
-                continue
-
             if pick["type"] == "prop":
-                player_key = pick["player"].lower()
-                event_key  = pick.get("event_id", "")
+                player_key = (pick.get("player") or "").lower()
+                event_key  = str(pick.get("event_id", ""))
                 if event_key and event_key in blocked_event_keys:
                     continue
-                if player_key in seen_players:
+                if player_key and player_key in seen_players:
                     continue
                 seen_players.add(player_key)
             else:
-                event_key = f"{pick['home_team']}:{pick['away_team']}".lower()
+                event_key = f"{pick.get('home_team','')}:{pick.get('away_team','')}".lower()
                 if event_key in blocked_event_keys:
                     continue
                 blocked_event_keys.add(event_key)
