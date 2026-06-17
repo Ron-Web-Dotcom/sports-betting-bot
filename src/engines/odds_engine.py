@@ -117,11 +117,12 @@ def _get(path: str, params: dict) -> dict | list | None:
     try:
         r = httpx.get(f"{ODDS_API_BASE}{path}", params=params, timeout=20)
         r.raise_for_status()
-        logger.debug("OddsAPI %s remaining=%s", path, r.headers.get("x-requests-remaining"))
+        remaining = r.headers.get("x-requests-remaining", "?")
+        logger.info("OddsAPI %s → OK (credits remaining: %s)", path, remaining)
         return r.json()
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (404, 422):
-            logger.debug("OddsAPI %s → %s (off-season or unsupported market)", path, e.response.status_code)
+            logger.warning("OddsAPI %s → %s (off-season/unavailable)", path, e.response.status_code)
         else:
             logger.error("OddsAPI error %s: %s", path, e)
         return None
@@ -455,12 +456,16 @@ def scan_all_sports() -> dict[str, list[dict]]:
     No filtering, no gating. Sofascore already told us what's playing at 8 AM;
     we don't re-check it here. We just pull every line available.
     """
+    sport_keys = set(SPORTS.values())
+    logger.info("OddsAPI scanning %d sport keys...", len(sport_keys))
     result: dict[str, list[dict]] = {}
-    for sport_key in set(SPORTS.values()):
+    for sport_key in sport_keys:
         events = fetch_events(sport_key)
         if events:
             result[sport_key] = [normalise_event(e, sport_key) for e in events]
             logger.info("Odds: %d events for %s", len(events), sport_key)
+    if not result:
+        logger.warning("OddsAPI: 0 events across ALL %d sports — check API key quota and sport availability", len(sport_keys))
     return result
 
 
