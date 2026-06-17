@@ -1040,8 +1040,8 @@ def _generate_hardrock_entry(period: str) -> dict:
         if not sofascore_events:
             logger.info("HardRock %s entry: no Sofascore cache yet — proceeding anyway", period)
 
-        raw_game  = _build_hardrock_candidates(period, sofascore_events)
-        raw_props = _build_prop_candidates(sofascore_events)
+        raw_game  = [c for c in _build_hardrock_candidates(period, sofascore_events) if not c.get("_meta")]
+        raw_props = [c for c in _build_prop_candidates(sofascore_events) if not c.get("_meta")]
         pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
 
         # Every pick must independently justify its inclusion.
