@@ -246,8 +246,8 @@ def get_recent_form(sport_key: str, team_name: str, n: int = 5) -> list[dict]:
     team_id = _find_team_id(sport_key, team_name)
     if not team_id:
         return []
-    from datetime import datetime
-    year = datetime.utcnow().year
+    from src.core.timezone import et_naive
+    year = et_naive().year
     data = _get(f"{base}/seasons/{year}/REG/teams/{team_id}/statistics.json")
     if not data:
         return []

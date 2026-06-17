@@ -607,13 +607,14 @@ def send_pregame_alerts():
     from src.engines.timing_engine import upcoming_games_by_window, should_fire_alert, minutes_to_game
     from src.db.session import get_db
     from src.db.models import Game, AlertRecord
-    from datetime import datetime
+    from datetime import datetime, timezone
+    from src.core.timezone import et_naive, ET
 
     # Extract plain values inside session — avoids DetachedInstanceError after close
     with get_db() as db:
         rows = db.query(
             Game.id, Game.home_team, Game.away_team, Game.commence_time
-        ).filter(Game.commence_time >= datetime.utcnow()).all()
+        ).filter(Game.commence_time >= datetime.now(ET).astimezone(timezone.utc).replace(tzinfo=None)).all()
 
     events = [
         {
@@ -656,5 +657,5 @@ def send_pregame_alerts():
                     alert_type=f"pregame_{window}",
                     channel=f"game-alerts:{event['id']}",
                     priority="high" if window <= 15 else "medium",
-                    sent_at=datetime.utcnow(),
+                    sent_at=et_naive(),
                 ))

@@ -17,6 +17,7 @@ A slip is DEAD if any pick lost (like a parlay — one loss kills the ticket).
 import json
 import logging
 from datetime import datetime, timezone, timedelta
+from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,8 @@ def _redis():
     return _r.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+def _now_et() -> datetime:
+    return et_naive()
 
 
 def _parse_time(ct: str) -> datetime | None:
@@ -108,7 +109,7 @@ def save_slip(period: str, platform: str, picks: list[dict]) -> str:
         "id":       slip_id,
         "period":   period,
         "platform": platform,
-        "created":  _now_utc().isoformat(),
+        "created":  _now_et().isoformat(),
         "picks":    picks,
         "status":   "active",   # active | cashed | dead
     }
@@ -478,7 +479,7 @@ def track_slips() -> dict:
         if not slips:
             return {"slips": 0}
 
-        now = _now_utc()
+        now = _now_et()
         alerts_fired = 0
 
         # ── Pass 1: collect soon/live — one grouped embed each ────────────────
@@ -558,7 +559,7 @@ def track_slips() -> dict:
                 p for p in picks
                 if (p.get("question") or p.get("market_id")) or (
                     _parse_time(p.get("commence_time", "")) and
-                    (_now_utc() - _parse_time(p.get("commence_time", ""))).total_seconds() >
+                    (_now_et() - _parse_time(p.get("commence_time", ""))).total_seconds() >
                     (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 150) * 60
                 )
             ]

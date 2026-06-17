@@ -358,8 +358,9 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor
     from datetime import timezone, timedelta
     from dateutil.parser import parse as _parse
+    from zoneinfo import ZoneInfo
 
-    cutoff = datetime.now(timezone.utc) + timedelta(hours=24)
+    cutoff = datetime.now(ZoneInfo("America/New_York")).astimezone(timezone.utc) + timedelta(hours=24)
     tasks  = []
     for sport_key, events in all_events.items():
         if sport_key not in PLAYER_PROP_SPORTS:
@@ -473,6 +474,7 @@ def save_snapshots_to_db(all_events: dict[str, list[dict]]) -> None:
     from src.db.models import OddsSnapshot, Game
     from dateutil.parser import parse as _parse
     from datetime import timezone
+    from zoneinfo import ZoneInfo as _ZoneInfo
 
     with get_db() as db:
         for sport_key, events in all_events.items():
@@ -486,7 +488,7 @@ def save_snapshots_to_db(all_events: dict[str, list[dict]]) -> None:
                     try:
                         ct = _parse(ct_raw).replace(tzinfo=None) if isinstance(ct_raw, str) else ct_raw
                     except Exception:
-                        ct = datetime.utcnow()
+                        ct = datetime.now(_ZoneInfo("America/New_York")).astimezone(timezone.utc).replace(tzinfo=None)
                     game = Game(
                         external_id   = ext_id,
                         sport         = sport_key,

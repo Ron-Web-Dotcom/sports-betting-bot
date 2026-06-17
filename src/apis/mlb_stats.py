@@ -11,6 +11,7 @@ Provides:
 import logging
 from datetime import datetime, timezone
 import httpx
+from src.core.timezone import et_now
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def get_todays_games() -> list[dict]:
     Return today's MLB schedule with starting pitchers for each game.
     Each dict: {game_pk, home_team, away_team, game_time, home_pitcher, away_pitcher, venue}
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = et_now().strftime("%Y-%m-%d")
     data  = _get("/schedule", {
         "sportId":    1,
         "date":       today,
@@ -117,7 +118,7 @@ def get_team_recent_form(team_name: str, n: int = 10) -> dict:
                     break
 
     # Last N games from schedule
-    today    = datetime.now(timezone.utc)
+    today    = et_now()
     sched    = _get("/schedule", {
         "teamId":   team_id,
         "sportId":  1,
@@ -207,7 +208,7 @@ def get_pitcher_stats(pitcher_name: str) -> dict:
     stats_data = _get(f"/people/{person_id}/stats", {
         "stats": "season,gameLog",
         "group": "pitching",
-        "season": datetime.now(timezone.utc).year,
+        "season": et_now().year,
         "limit": 3,  # last 3 game log entries
     })
     if not stats_data:

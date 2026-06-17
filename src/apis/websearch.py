@@ -74,8 +74,8 @@ def search_game_news(
     Called when AI is 0.72–0.79 and needs more to reach 0.80.
     Returns a ready-to-inject text summary.
     """
-    from datetime import datetime
-    date_str     = today or datetime.utcnow().strftime("%B %d, %Y")
+    from src.core.timezone import et_naive
+    date_str     = today or et_naive().strftime("%B %d, %Y")
     sport_label  = _sport_label(sport_key)
 
     prompt = (
@@ -92,8 +92,8 @@ def search_player_news(player_name: str, stat: str, sport_key: str = "") -> str:
     Deep-dive search for a player prop.
     Called when AI is borderline on a player prop pick.
     """
-    from datetime import datetime
-    date_str    = datetime.utcnow().strftime("%B %d, %Y")
+    from src.core.timezone import et_naive
+    date_str    = et_naive().strftime("%B %d, %Y")
     sport_label = _sport_label(sport_key)
 
     prompt = (

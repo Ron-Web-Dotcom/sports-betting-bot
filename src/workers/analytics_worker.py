@@ -273,9 +273,9 @@ def send_weekly_fresh_start():
 
 def send_monthly_summary():
     from src.engines.summary_engine import get_monthly_summary
-    from datetime import datetime
+    from src.core.timezone import et_naive
 
-    now = datetime.utcnow()
+    now = et_naive()
     monthly = get_monthly_summary(year=now.year, month=now.month)
 
     roi_str   = f"{monthly['total_roi']:.1%}"
@@ -464,13 +464,13 @@ def snapshot_portfolio():
     from src.engines.portfolio_engine import get_performance_stats
     from src.db.session import get_db
     from src.db.models import BankrollSnapshot
-    from datetime import datetime
+    from src.core.timezone import et_naive
 
     stats = get_performance_stats("lifetime")
     daily_stats = get_performance_stats("daily")
     with get_db() as db:
         db.add(BankrollSnapshot(
-            recorded_at  = datetime.utcnow(),
+            recorded_at  = et_naive(),
             balance      = stats.get("net_units", 0),
             units_total  = daily_stats.get("net_units", 0),
             note         = "auto",
@@ -567,10 +567,11 @@ def cleanup_old_snapshots():
     """
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, LineMovement, AlertRecord
-    from datetime import datetime, timedelta
+    from datetime import timedelta
+    from src.core.timezone import et_naive
 
-    cutoff_snapshots = datetime.utcnow() - timedelta(days=7)
-    cutoff_alerts    = datetime.utcnow() - timedelta(days=30)
+    cutoff_snapshots = et_naive() - timedelta(days=7)
+    cutoff_alerts    = et_naive() - timedelta(days=30)
 
     with get_db() as db:
         deleted_snaps = db.query(OddsSnapshot).filter(

@@ -1188,7 +1188,8 @@ def _generate_hardrock_entry(period: str) -> dict:
                 from datetime import datetime as _dt
                 if PERPLEXITY_API_KEY and close_candidates:
                     _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-                    _date_key = f"perplexity:calls:{_dt.utcnow().strftime('%Y-%m-%d')}"
+                    from src.core.timezone import et_naive as _et_naive
+                    _date_key = f"perplexity:calls:{_et_naive().strftime('%Y-%m-%d')}"
                     _calls_today = int(_r.get(_date_key) or 0)
                     if _calls_today < 2:
                         _perplexity_allowed = True
@@ -1362,7 +1363,8 @@ def generate_parlays():
         from src.engines.parlay_engine import find_best_parlays
         from src.db.session import get_db
         from src.db.models import Pick
-        from datetime import datetime, timedelta
+        from datetime import timedelta
+        from src.core.timezone import et_naive
 
         # Extract plain values inside session — avoids DetachedInstanceError after close
         with get_db() as db:
@@ -1371,7 +1373,7 @@ def generate_parlays():
                 Pick.market, Pick.best_book, Pick.american_odds_at_gen,
                 Pick.confidence_pct, Pick.ev_pct,
             ).filter(
-                Pick.generated_at >= datetime.utcnow() - timedelta(hours=12),
+                Pick.generated_at >= et_naive() - timedelta(hours=12),
                 Pick.recommendation == "BET",
             ).all()
 
