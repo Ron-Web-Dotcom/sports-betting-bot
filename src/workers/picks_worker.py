@@ -14,6 +14,10 @@ from src.db.models import Game
 
 logger = logging.getLogger(__name__)
 
+# Floors — never lower these
+CONF_FLOOR = 0.765  # 77%+ calibrated confidence for -odds picks
+EV_FLOOR   = 0.005  # 0.5% minimum expected value
+
 
 def _post_parlay_bundles(pick_dicts: list[dict], hr_task) -> None:
     """Bundle top picks into a HardRock parlay card — max 4 legs, min 2."""
@@ -629,8 +633,9 @@ def _build_hardrock_candidates(
             opp_prob      = ai.get("opponent_probability")
             opponent_odds = decimal_to_american(1.0 / opp_prob) if opp_prob and 0 < opp_prob < 1 else None
 
+            ai_win_prob = ai.get("win_probability", 0.5)
             confidence = compute_confidence(
-                ai_win_prob         = ai.get("win_probability", 0.5),
+                ai_win_prob         = ai_win_prob,
                 model_consensus     = ai.get("confidence", 0.5),
                 line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
                 news_impact_score   = game_context.get("news_impact_score", 0.5),
@@ -638,22 +643,46 @@ def _build_hardrock_candidates(
                 market              = market,
             )
 
-            _top_seen_conf = max(_top_seen_conf, confidence.calibrated_score)
-            if confidence.calibrated_score < 0.765:
-                logger.info(
-                    "PASS [%s vs %s] market=%s conf=%.1f%% — below threshold",
-                    home_team, away_team, market,
-                    confidence.calibrated_score * 100,
-                )
+            is_plus_odds = best_odds_val > 0
+            if is_plus_odds:
+                # For + odds value plays: gate on edge over implied prob + EV,
+                # not win-prob floor (a 55% true prob on +170 is massive value).
+                implied = 100 / (100 + best_odds_val)  # market implied prob
+                edge    = ai_win_prob - implied
+                if ai_win_prob < 0.42:  # no extreme longshots
+                    logger.info("PASS [%s vs %s] market=%s +odds=%d ai_prob=%.1f%% — below 42%% floor",
+                                home_team, away_team, market, best_odds_val, ai_win_prob * 100)
+                    continue
+                if edge < 0.05:  # need at least 5% real edge over implied
+                    logger.info("PASS [%s vs %s] market=%s +odds=%d edge=%.1f%% — insufficient edge",
+                                home_team, away_team, market, best_odds_val, edge * 100)
+                    continue
+                projected_for_ev = ai_win_prob
+                _top_seen_conf = max(_top_seen_conf, ai_win_prob)
+            else:
+                # For - odds: keep 77% calibrated confidence floor
+                _top_seen_conf = max(_top_seen_conf, confidence.calibrated_score)
+                if confidence.calibrated_score < CONF_FLOOR:
+                    logger.info(
+                        "PASS [%s vs %s] market=%s conf=%.1f%% — below threshold",
+                        home_team, away_team, market,
+                        confidence.calibrated_score * 100,
+                    )
+                    continue
+                projected_for_ev = confidence.calibrated_score
+
+            ev_result = evaluate(american_odds=best_odds_val, projected_prob=projected_for_ev, opponent_odds=opponent_odds)
+            if ev_result.ev_pct < EV_FLOOR or ev_result.projected_prob <= ev_result.no_vig_prob:
+                logger.info("PASS [%s vs %s] market=%s odds=%d ev=%.2f%% — below EV floor",
+                            home_team, away_team, market, best_odds_val, ev_result.ev_pct * 100)
                 continue
 
-            ev_result = evaluate(american_odds=best_odds_val, projected_prob=confidence.calibrated_score, opponent_odds=opponent_odds)
-            if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
-                continue
+            # Use the calibrated score for - odds; for + odds blend ai_win_prob + implied edge
+            display_confidence = confidence.calibrated_score if not is_plus_odds else min(0.84, (ai_win_prob + projected_for_ev) / 2 + 0.05)
 
             candidates.append({
                 "type":         "team",
-                "score":        confidence.calibrated_score * (1 + ev_result.ev_pct),
+                "score":        display_confidence * (1 + ev_result.ev_pct),
                 "sport_key":    sport_key,
                 "home_team":    home_team,
                 "away_team":    away_team,
@@ -668,7 +697,7 @@ def _build_hardrock_candidates(
                 "books_odds":   books_odds,
                 "ev_pct":       ev_result.ev_pct,
                 "no_vig_prob":  ev_result.no_vig_prob,
-                "confidence":   confidence.calibrated_score,
+                "confidence":   display_confidence,
                 "units":        ev_result.units,
                 "reasoning":    ai.get("reasoning", ""),
                 "key_factors":  ai.get("key_factors", []),
@@ -1075,8 +1104,6 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
-        CONF_FLOOR = 0.765  # displays as 77%+ on Discord
-        EV_FLOOR   = 0.005  # 0.5% minimum edge
 
         def _american_to_dec(odds: int) -> float:
             return (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
