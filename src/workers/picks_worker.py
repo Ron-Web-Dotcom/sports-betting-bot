@@ -576,11 +576,17 @@ def _build_hardrock_candidates(
         all_injuries = hub_injuries or game_injuries
         hub_news     = game_context.get("news_espn", [])
 
-        # Evaluate each available market separately (h2h, totals, spreads, team_totals)
-        # so Over 1.5 goals, team totals, etc. each get their own AI analysis + confidence score
-        markets_to_try = list(snaps_by_market.keys()) or ["h2h"]
+        # Evaluate top 3 markets per game — h2h first, then best-odds alternative markets
+        # Capped at 3 to avoid 250+ AI calls across 25 games × all markets
+        priority_order = ["h2h", "spreads", "totals", "team_totals", "alternate_totals",
+                          "btts", "draw_no_bet", "innings_1_5_total", "team_points_q1"]
+        available = [m for m in priority_order if m in snaps_by_market]
+        # Also include any market not in priority list (e.g. custom markets)
+        extras = [m for m in snaps_by_market if m not in priority_order]
+        markets_to_try = (available + extras)[:3]  # max 3 per game
+
         for mkt in markets_to_try:
-            mkt_snaps   = snaps_by_market.get(mkt, snap_list)
+            mkt_snaps    = snaps_by_market.get(mkt, snap_list)
             odds_by_book = {s["book"]: s["best_odds"] for s in mkt_snaps if "book" in s}
             if not odds_by_book:
                 continue

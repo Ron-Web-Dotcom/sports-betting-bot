@@ -323,7 +323,10 @@ def get_sports_events(limit: int = 100) -> list[dict]:
     (player props, game props, spreads, totals, BTTS, team totals, etc).
     Returns flat list of all markets across all events closing within 24 h.
     """
+    # Try with nested markets first; fall back without if param unsupported
     data = _get("/events", {"limit": limit, "status": "open", "with_nested_markets": "true"})
+    if not data or not (data.get("events") if isinstance(data, dict) else None):
+        data = _get("/events", {"limit": limit, "status": "open"})
     if not data:
         return []
 
