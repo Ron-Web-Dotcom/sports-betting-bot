@@ -75,15 +75,15 @@ SPORT_MAP = {
     "soccer_italy_serie_a_feminine":         "football",
     # ── Golf ─────────────────────────────────────────────────────────────────
     "golf_pga_tour":                         "golf",
-    "golf_masters_tournament":               "golf",
-    "golf_pga_championship":                 "golf",
-    "golf_us_open":                          "golf",
-    "golf_the_open_championship":            "golf",
+    "golf_masters_tournament_winner":        "golf",
+    "golf_pga_championship_winner":          "golf",
+    "golf_us_open_winner":                   "golf",
+    "golf_the_open_championship_winner":     "golf",
     "golf_lpga":                             "golf",
     # ── Combat Sports ────────────────────────────────────────────────────────
     "mma_mixed_martial_arts":                "mma",
     "boxing_boxing":                         "boxing",
-    # ── Tennis — All Grand Slams ──────────────────────────────────────────────
+    # ── Tennis — Grand Slams + Active Tour Events ─────────────────────────────
     "tennis_atp_french_open":                "tennis",
     "tennis_wta_french_open":                "tennis",
     "tennis_atp_wimbledon":                  "tennis",
@@ -91,7 +91,10 @@ SPORT_MAP = {
     "tennis_atp_us_open":                    "tennis",
     "tennis_wta_us_open":                    "tennis",
     "tennis_atp_australian_open":            "tennis",
-    "tennis_wta_australian_open":            "tennis",
+    "tennis_wta_aus_open_singles":           "tennis",
+    "tennis_atp_queens_club_champ":          "tennis",
+    "tennis_atp_halle_open":                 "tennis",
+    "tennis_wta_german_open":                "tennis",
     # ── Women's Hockey ────────────────────────────────────────────────────────
     "icehockey_pwhl":                        "ice-hockey",
     # ── Aussie Rules (Men's + Women's) ───────────────────────────────────────
@@ -101,10 +104,15 @@ SPORT_MAP = {
     "rugbyunion_world_cup":                  "rugby",
     "rugbyunion_women_world_cup":            "rugby",
     "rugbyleague_nrl":                       "rugby-league",
+    "rugbyleague_nrl_state_of_origin":       "rugby-league",
     # ── Cricket (Men's + Women's) ─────────────────────────────────────────────
     "cricket_icc_world_cup":                 "cricket",
     "cricket_ipl":                           "cricket",
     "cricket_icc_womens_t20_wc":             "cricket",
+    "cricket_test_match":                    "cricket",
+    "cricket_odi":                           "cricket",
+    "cricket_international_t20":             "cricket",
+    "cricket_t20_world_cup_womens":          "cricket",
 }
 
 _HEADERS = {

@@ -83,16 +83,20 @@ _SOCCER_LEAGUES = {
 
 # Golf tournaments
 _GOLF_TOURNAMENTS = {
-    "golf_pga_tour", "golf_masters_tournament", "golf_pga_championship",
-    "golf_us_open", "golf_the_open_championship", "golf_lpga",
+    "golf_pga_tour",
+    "golf_masters_tournament_winner", "golf_pga_championship_winner",
+    "golf_us_open_winner", "golf_the_open_championship_winner",
+    "golf_lpga",
 }
 
-# Tennis — all grand slams + tours
+# Tennis — grand slams + all active tour events
 _TENNIS = {
-    "tennis_atp_french_open", "tennis_wta_french_open",
-    "tennis_atp_wimbledon",   "tennis_wta_wimbledon",
-    "tennis_atp_us_open",     "tennis_wta_us_open",
-    "tennis_atp_australian_open", "tennis_wta_australian_open",
+    "tennis_atp_french_open",       "tennis_wta_french_open",
+    "tennis_atp_wimbledon",         "tennis_wta_wimbledon",
+    "tennis_atp_us_open",           "tennis_wta_us_open",
+    "tennis_atp_australian_open",   "tennis_wta_aus_open_singles",
+    "tennis_atp_queens_club_champ", "tennis_atp_halle_open",
+    "tennis_wta_german_open",
 }
 
 # All sports that support player props on Odds API
@@ -102,11 +106,13 @@ PLAYER_PROP_SPORTS = {
     "baseball_mlb",
     "icehockey_nhl",
     "mma_mixed_martial_arts", "boxing_boxing",
-    "aussierules_afl",  "aussierules_aflw",
+    "aussierules_afl", "aussierules_aflw",
     "icehockey_pwhl",
     "cricket_icc_world_cup", "cricket_ipl", "cricket_icc_womens_t20_wc",
+    "cricket_test_match", "cricket_odi", "cricket_international_t20",
+    "cricket_t20_world_cup_womens",
     "rugbyunion_world_cup", "rugbyunion_women_world_cup",
-    "rugbyleague_nrl",
+    "rugbyleague_nrl", "rugbyleague_nrl_state_of_origin",
 } | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS
 
 

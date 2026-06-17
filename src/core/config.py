@@ -157,37 +157,47 @@ SPORTS = {
     # ── Golf ─────────────────────────────────────────────────────────────────
     "golf":         "golf_pga_tour",
     "pga":          "golf_pga_tour",
-    "masters":      "golf_masters_tournament",
-    "pgachamp":     "golf_pga_championship",
-    "usopen_golf":  "golf_us_open",
-    "theopen":      "golf_the_open_championship",
+    "masters":      "golf_masters_tournament_winner",
+    "pgachamp":     "golf_pga_championship_winner",
+    "usopen_golf":  "golf_us_open_winner",
+    "theopen":      "golf_the_open_championship_winner",
     "lpga":         "golf_lpga",
     # ── Combat Sports ────────────────────────────────────────────────────────
     "ufc":          "mma_mixed_martial_arts",
     "mma":          "mma_mixed_martial_arts",
     "boxing":       "boxing_boxing",
-    # ── Tennis — All Grand Slams + Tours ─────────────────────────────────────
-    "tennis":       "tennis_atp_french_open",
-    "atp":          "tennis_atp_french_open",
-    "wta":          "tennis_wta_french_open",
-    "wtennis":      "tennis_wta_french_open",
+    # ── Tennis — Grand Slams + Active Tour Events ─────────────────────────────
+    "tennis":       "tennis_atp_queens_club_champ",
+    "atp":          "tennis_atp_queens_club_champ",
+    "queens":       "tennis_atp_queens_club_champ",
+    "halle":        "tennis_atp_halle_open",
+    "wta":          "tennis_wta_german_open",
+    "wtennis":      "tennis_wta_german_open",
+    "germanopen":   "tennis_wta_german_open",
     "wimbledon":    "tennis_atp_wimbledon",
     "wwimbledon":   "tennis_wta_wimbledon",
     "usopen":       "tennis_atp_us_open",
     "wusopen":      "tennis_wta_us_open",
     "ausopen":      "tennis_atp_australian_open",
-    "wausopen":     "tennis_wta_australian_open",
+    "wausopen":     "tennis_wta_aus_open_singles",
+    "frenchopen":   "tennis_atp_french_open",
+    "wfrenchopen":  "tennis_wta_french_open",
     # ── Aussie Rules + Rugby (Men's + Women's) ───────────────────────────────
     "afl":          "aussierules_afl",
-    "aflw":         "aussierules_aflw",          # Women's AFL
+    "aflw":         "aussierules_aflw",
     "rugbywc":      "rugbyunion_world_cup",
-    "wrugbywc":     "rugbyunion_women_world_cup",# Women's Rugby World Cup
+    "wrugbywc":     "rugbyunion_women_world_cup",
     "nrl":          "rugbyleague_nrl",
-    # ── Cricket (Men's + Women's) ─────────────────────────────────────────────
-    "cricket":      "cricket_icc_world_cup",
+    "stateoforigin": "rugbyleague_nrl_state_of_origin",
+    # ── Cricket ───────────────────────────────────────────────────────────────
+    "cricket":      "cricket_test_match",
+    "testcricket":  "cricket_test_match",
+    "odi":          "cricket_odi",
+    "t20":          "cricket_international_t20",
     "ipl":          "cricket_ipl",
-    "wcricket":     "cricket_icc_womens_t20_wc", # Women's T20 World Cup
-    "wt20":         "cricket_icc_womens_t20_wc",
+    "wcricket":     "cricket_t20_world_cup_womens",
+    "wt20":         "cricket_t20_world_cup_womens",
+    "icct20":       "cricket_international_t20",
 }
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
