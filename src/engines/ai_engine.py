@@ -139,11 +139,14 @@ STEP 3 — DIG DEEPER IF BORDERLINE:
   If you genuinely cannot get past 0.76 after all that research, it is a PASS for -odds bets.
 
 STEP 4 — DECIDE:
-  For -odds picks (favorites): BET if confidence ≥ 0.77 AND ev_pct > 0 AND at least 3 signals fired
+  For -odds h2h (game winner) picks: BET if confidence ≥ 0.77 AND ev_pct > 0 AND at least 3 signals fired
+  For -odds totals/spreads/props/btts: BET if confidence ≥ 0.65 AND ev_pct > 0 AND at least 2 signals fired
+    These markets have more frequent edges — a 68% true probability on Over 2.5 at -130 is a strong bet.
   For +odds picks (underdogs/value): BET if confidence ≥ 0.50 AND your true win_probability beats the
     market implied probability by 5%+ AND at least 2 signals fired AND ev_pct > 0
     Example: +180 implies 36% — if you assess 48%+ true probability with 2+ signals, BET.
-  PASS only if you genuinely see no edge after full research.
+  PASS only if you genuinely see no edge after full research. With player props, team props, and game
+    props all in play, there is almost always something worth betting — be thorough.
 
 Return ONLY valid JSON — no markdown, no extra text:
 {

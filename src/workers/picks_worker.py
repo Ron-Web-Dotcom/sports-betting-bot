@@ -622,6 +622,10 @@ def _build_hardrock_candidates(
             best_odds = max(books.values(), key=lambda v: v if v > 0 else -(100 / (100 - v) * 100))
 
             # ── Simple gate ───────────────────────────────────────────────────
+            # h2h (game winner) requires full 77% — it's the hardest market to edge.
+            # All other markets (totals, spreads, btts, team_totals, props) use 65%
+            # because variance is higher but edges are more frequent.
+            _min_prob = CONF_FLOOR if market == "h2h" else 0.65
             _top_seen_conf = max(_top_seen_conf, ai_prob)
             if best_odds > 0:
                 implied = 100 / (100 + best_odds)
@@ -630,9 +634,9 @@ def _build_hardrock_candidates(
                                 home_team, away_team, market, ai_prob*100, implied*100)
                     continue
             else:
-                if ai_prob < CONF_FLOOR:
-                    logger.info("SKIP -odds [%s vs %s] %s: prob=%.0f%% < 77%%",
-                                home_team, away_team, market, ai_prob*100)
+                if ai_prob < _min_prob:
+                    logger.info("SKIP -odds [%s vs %s] %s: prob=%.0f%% < %.0f%%",
+                                home_team, away_team, market, ai_prob*100, _min_prob*100)
                     continue
 
             # Simple EV: our_prob × decimal_payout - 1 > 0
