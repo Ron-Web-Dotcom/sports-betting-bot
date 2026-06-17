@@ -437,7 +437,7 @@ def wake_up_brief():
             {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi",  "inline": True},
             {"name": "​", "value": "​",                                            "inline": True},
             {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-             "value": "Picks post automatically when edge is found.\nAll picks require positive EV + 85%+ confidence.",
+             "value": "Picks post automatically when edge is found.\nAll picks require positive EV + 77%+ confidence.",
              "inline": False},
         ],
         "color": 0x00C851,

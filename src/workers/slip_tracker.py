@@ -372,6 +372,33 @@ def _check_pick_result(pick: dict) -> str | None:
                     else:
                         return "lost"
 
+                elif market == "spreads":
+                    line_val = pick.get("line_value")
+                    if line_val is None:
+                        # fallback: treat as moneyline
+                        if not winner or not selection:
+                            return None
+                        return "won" if (winner in selection or selection in winner) else "lost"
+                    home_score_val = next((float(s.get("score", 0) or 0) for s in score_list
+                                          if _normalize_team_name(s.get("name","")) in
+                                          _normalize_team_name(item.get("home_team","")) or
+                                          _normalize_team_name(item.get("home_team","")) in
+                                          _normalize_team_name(s.get("name",""))), None)
+                    away_score_val = next((float(s.get("score", 0) or 0) for s in score_list
+                                          if s.get("name") != item.get("home_team","")), None)
+                    if home_score_val is None or away_score_val is None:
+                        return None
+                    home_team_norm = _normalize_team_name(item.get("home_team", ""))
+                    sel_norm       = _normalize_team_name(selection)
+                    is_home = home_team_norm and sel_norm and (
+                        home_team_norm in sel_norm or sel_norm in home_team_norm
+                    )
+                    margin  = (home_score_val - away_score_val) if is_home else (away_score_val - home_score_val)
+                    covered = margin + float(line_val)
+                    if abs(covered) < 0.1:
+                        return "push"
+                    return "won" if covered > 0 else "lost"
+
                 elif market == "totals":
                     total = sum(float(s.get("score", 0) or 0) for s in score_list)
                     line = pick.get("line") or pick.get("best_odds")
