@@ -144,14 +144,24 @@ def generate_picks():
                 sport               = sport_key,
                 market              = "h2h",
             )
-            if confidence.calibrated_score < 0.765:
-                continue
+            # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ (h2h) or 65%+
+            _cal = confidence.calibrated_score
+            _min_prob = CONF_FLOOR if market == "h2h" else 0.65
+            if best_odds_val > 0:
+                _implied = 100 / (100 + best_odds_val)
+                if _cal < 0.42 or (_cal - _implied) < 0.05:
+                    continue
+            else:
+                if _cal < _min_prob:
+                    continue
             # Use calibrated score for EV so edge reflects realistic win probability
             ev_result  = evaluate(american_odds=best_odds_val,
-                                   projected_prob=confidence.calibrated_score,
+                                   projected_prob=_cal,
                                    opponent_odds=opponent_odds)
-            # Require positive EV — our win probability must beat the market
-            if ev_result.ev_pct <= 0 or ev_result.projected_prob <= ev_result.no_vig_prob:
+            # Require positive EV — skip no-vig check when opponent_odds unknown (avoids blocking favorites)
+            if ev_result.ev_pct <= EV_FLOOR:
+                continue
+            if opponent_odds is not None and _cal <= ev_result.no_vig_prob:
                 continue
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
@@ -198,8 +208,11 @@ def generate_picks():
                 under_odds = prop.get("under_odds", {})
                 best_over  = max(over_odds.values(),  default=None) if over_odds  else None
                 best_under = max(under_odds.values(), default=None) if under_odds else None
+                # Pick the side with HIGHER implied probability (more likely outcome)
                 direction, best_odds_val, all_book_odds = None, None, {}
-                if best_over is not None and (best_under is None or best_over >= best_under):
+                ip_over  = implied_prob(best_over)  if best_over  is not None else 0.0
+                ip_under = implied_prob(best_under) if best_under is not None else 0.0
+                if best_over is not None and ip_over >= ip_under:
                     direction, best_odds_val = "Over", best_over
                     all_book_odds = {f"{bk} Over": v for bk, v in over_odds.items()}
                 elif best_under is not None:
@@ -208,16 +221,23 @@ def generate_picks():
                 if direction is None or best_odds_val is None:
                     continue
                 conf = implied_prob(best_odds_val)
-                if conf < 0.65:
-                    continue
-                # Vig-remove using both sides — if opposite side available use it, else estimate
+                # Dual-path gate for props — +odds needs 42%+ AND 5% edge; -odds needs 60%+
                 opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
                                 else max(over_odds.values()) if direction == "Under" and over_odds
                                 else None)
+                if best_odds_val > 0:
+                    _prop_implied = 100 / (100 + best_odds_val)
+                    if conf < 0.42 or (conf - _prop_implied) < 0.05:
+                        continue
+                else:
+                    if conf < 0.60:
+                        continue
                 prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
                                    opponent_odds=opp_odds_val)
-                # Require positive EV — our estimated prob must beat the no-vig market prob
-                if prop_ev.ev_pct <= 0 or conf <= prop_ev.no_vig_prob:
+                # Require positive EV — skip no-vig check when opposite side unknown
+                if prop_ev.ev_pct <= EV_FLOOR:
+                    continue
+                if opp_odds_val is not None and conf <= prop_ev.no_vig_prob:
                     continue
                 is_team = prop.get("is_team_prop", False)
                 prop_pool.append({
