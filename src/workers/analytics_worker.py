@@ -184,6 +184,11 @@ def send_weekly_summary():
     ET = zoneinfo.ZoneInfo("America/New_York")
     now_et = datetime.now(ET)
 
+    # Only fire on Sunday (weekday 6) — prevents accidental daily firing
+    if now_et.weekday() != 6:
+        logger.info("send_weekly_summary: skipping — not Sunday (weekday=%d)", now_et.weekday())
+        return {"skipped": "not_sunday"}
+
     # Guard: only post once per week
     try:
         from src.core.config import REDIS_URL

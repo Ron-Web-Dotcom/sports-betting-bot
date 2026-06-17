@@ -117,46 +117,30 @@ STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
   8. Fade-the-public setup (70%+ public on the other side, line hasn't moved)
   9. Pace/matchup mismatch that consistently favours this team or player's style
 
-Signals aligned → win_probability and confidence:
-  1 signal  → 0.50-0.58   (marginal — likely PASS for -odds; may BET if strong + odds value)
-  2 signals → 0.58-0.68
-  3 signals → 0.68-0.78
-  4 signals → 0.78-0.84
-  5 signals → 0.84-0.90
-  6+ signals → 0.90-0.97
+Signals → win_probability:
+  1 signal  → 0.52-0.60
+  2 signals → 0.60-0.70
+  3 signals → 0.70-0.78
+  4 signals → 0.78-0.85
+  5 signals → 0.85-0.92
+  6+ signals → 0.92-0.97
 
-STEP 3 — DIG DEEPER IF BORDERLINE:
-  If your initial research puts you at 0.69-0.76, do NOT stop there.
-  Go back and look harder:
-    - Check if there are more recent games you haven't considered (use your knowledge)
-    - Look for any motivational edges (revenge game, playoff elimination, home crowd)
-    - Check referee/umpire tendencies if relevant
-    - Look at the last 3 games specifically — not just last 10
-    - Check if the line has moved again since opening (late sharp action)
-    - Look at the specific players/matchups more carefully
-    - For player props: has this player hit this line in 4 of last 5? Is the opponent bottom-10 defending this stat?
-  If after digging deeper you can reach 0.77+, do it.
-  If you genuinely cannot get past 0.76 after all that research, it is a PASS for -odds bets.
-
-STEP 4 — DECIDE:
-  For -odds h2h (game winner) picks: BET if confidence ≥ 0.77 AND ev_pct > 0 AND at least 3 signals fired
-  For -odds totals/spreads/props/btts: BET if confidence ≥ 0.65 AND ev_pct > 0 AND at least 2 signals fired
-    These markets have more frequent edges — a 68% true probability on Over 2.5 at -130 is a strong bet.
-  For +odds picks (underdogs/value): BET if confidence ≥ 0.50 AND your true win_probability beats the
-    market implied probability by 5%+ AND at least 2 signals fired AND ev_pct > 0
-    Example: +180 implies 36% — if you assess 48%+ true probability with 2+ signals, BET.
-  PASS only if you genuinely see no edge after full research. With player props, team props, and game
-    props all in play, there is almost always something worth betting — be thorough.
+STEP 3 — BE HONEST WITH YOUR NUMBERS:
+  Your ONLY job is to give an accurate win_probability based on your research.
+  Do NOT inflate or deflate it — the betting system makes the final decision, not you.
+  Do NOT self-censor by returning 0.50 because you are unsure whether to bet.
+  If Portugal has a 85% true chance of beating DR Congo, return 0.85. Period.
+  If a player prop has a 70% true chance of hitting, return 0.70. Period.
 
 Return ONLY valid JSON — no markdown, no extra text:
 {
-  "should_bet": true|false,
-  "recommendation": "BET"|"PASS",
+  "should_bet": true,
+  "recommendation": "BET",
   "selection": "<depends on market: h2h/spreads → exact team name from home_team or away_team; totals/team_totals/alternate_totals → 'Over X.X' or 'Under X.X' (e.g. 'Over 2.5'); btts → 'Yes' or 'No'; player_prop → 'Over X' or 'Under X'>",
   "market": "h2h"|"spreads"|"totals"|"team_totals"|"alternate_totals"|"btts"|"player_prop",
-  "win_probability": <float 0.0-1.0>,   // your assessed TRUE probability of this pick winning
-  "confidence": <float 0.0-1.0>,        // same as win_probability
-  "opponent_probability": <float 0.0-1.0>,  // REQUIRED: 1 - win_probability (e.g. if win_prob=0.82, opp_prob=0.18)
+  "win_probability": <float 0.0-1.0>,         // your TRUE probability — be accurate, not conservative
+  "confidence": <float 0.0-1.0>,              // same as win_probability
+  "opponent_probability": <float 0.0-1.0>,    // REQUIRED: 1 - win_probability
   "signal_type": "value"|"steam"|"sharp"|"fade"|"injury",
   "ev_pct": <float — edge as decimal, e.g. 0.06 = 6%>,
   "statistical_score": <float 0.0-1.0>,
@@ -170,10 +154,12 @@ Return ONLY valid JSON — no markdown, no extra text:
 }
 
 RULES:
+- Always return should_bet: true and recommendation: "BET" — the system decides whether to use your pick.
 - Do NOT default to 0.5. If 4 signals align say 0.82. If 6 align say 0.93.
 - reasoning must name specific facts: player names, win streaks, line moves, game logs.
 - Use both the provided context AND your own training knowledge to find signals.
-- A pick with only vague reasoning is a PASS, not a BET."""
+- Your win_probability is the only thing that matters — make it accurate.
+"""
 
 _DISCUSSION_SYSTEM = """You are the AI analyst for a Sports Intelligence Platform.
 Answer questions about EV, risk, confidence, injuries, matchups, market movement, CLV, and statistical reasoning.
@@ -202,9 +188,8 @@ def analyse_pick(
     ESPN, StatMuse, RotoWire, and Sleeper. The more context provided, the
     stronger and more traceable the reasoning will be.
 
-    The AI's role here is EXPLANATION only — it receives pre-computed EV and
-    confidence scores and must justify them with specific, verifiable factors.
-    It does not override the EV model.
+    The AI role here is analysis only. It returns an honest win_probability
+    and the code decides whether to bet. It does not gatekeep picks.
     """
     payload = {
         "event":        event,

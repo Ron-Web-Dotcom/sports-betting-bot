@@ -199,11 +199,11 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
     candidates: list[dict] = []
     if kalshi_full:
         # Use Kalshi's own markets (player props, game props, totals, BTTS, spreads)
-        for m in kalshi_full[:60]:
+        for m in kalshi_full[:100]:
             yes_prob = m.get("yes_price", 0)
             no_prob  = round(1 - yes_prob, 4)
-            if not yes_prob or yes_prob < 0.30 or yes_prob > 0.90:
-                continue  # too extreme — skip
+            if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
+                continue  # drop only near-certain or near-impossible contracts
             candidates.append({
                 "source":       "kalshi",
                 "market_id":    m.get("market_id", ""),
@@ -281,7 +281,7 @@ Only pick if confidence >= 0.60 and ev_pct >= 0.03. Return {"index": null} if no
             "yes_american": f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
             "volume":       c.get("volume", 0),
         }
-        for i, c in enumerate(candidates[:50])
+        for i, c in enumerate(candidates[:80])
     ]
 
     prompt = (

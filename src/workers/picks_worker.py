@@ -1221,7 +1221,7 @@ def _generate_hardrock_entry(period: str) -> dict:
                             }
                             ai2 = _analyse(event, [], [{"headline": web_news, "source": "perplexity"}],
                                            {candidate["direction"]: candidate["best_odds"]}, enriched_ctx)
-                            if not ai2 or not ai2.get("should_bet") or ai2.get("recommendation") == "PASS":
+                            if not ai2:
                                 continue
                             new_conf = ai2.get("win_probability", 0)
                             new_ev   = ai2.get("ev_pct", candidate["ev_pct"])
@@ -1234,7 +1234,7 @@ def _generate_hardrock_entry(period: str) -> dict:
                             }
                             ai2 = _analyse(event, [], [{"headline": web_news, "source": "perplexity"}],
                                            candidate["books_odds"], enriched_ctx)
-                            if not ai2 or not ai2.get("should_bet") or ai2.get("recommendation") == "PASS":
+                            if not ai2:
                                 continue
                             conf_result = _conf(
                                 ai_win_prob          = ai2.get("win_probability", 0.5),
