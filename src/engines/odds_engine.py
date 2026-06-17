@@ -14,9 +14,7 @@ from src.engines.ev_engine import american_to_decimal, implied_prob
 
 logger = logging.getLogger(__name__)
 
-MARKETS = ["h2h", "spreads", "totals", "btts", "draw_no_bet", "team_totals",
-           "alternate_totals", "double_chance", "h2h_corners", "h2h_cards",
-           "innings_1_5_total", "team_points_q1"]
+MARKETS = ["h2h", "spreads", "totals"]
 
 # Player prop markets available on 100K+ plan
 PLAYER_PROP_MARKETS = [
