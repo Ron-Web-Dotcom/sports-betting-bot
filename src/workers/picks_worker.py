@@ -448,9 +448,11 @@ def _get_parlay_senders():
 
 def scan_todays_games():
     """
-    8 AM daily: full Sofascore scan across all sports.
-    Splits today's games into DAY (before 6 PM ET) and NIGHT (6 PM ET+).
-    Caches both lists in Redis for the entry generators to use.
+    8 AM scan: full Sofascore scan — captures ALL of today's games (day + night).
+    2 PM scan: re-checks for fixture changes on games that haven't started yet.
+
+    All games cached in one unified list. Entry builders filter by kick-off time
+    at generation time so each entry only picks from games still upcoming.
     """
     from src.apis.sofascore import SPORT_MAP, get_scheduled_events
     from src.core.timezone import et_naive
@@ -469,53 +471,90 @@ def scan_todays_games():
         except Exception:
             return []
 
-    day_games: list[dict] = []
-    night_games: list[dict] = []
+    all_games: list[dict] = []
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
         for fut in futures:
-            for ev in fut.result():
-                ct = ev.get("commence_time", "")
-                is_night = False
-                try:
-                    from dateutil.parser import parse as _parse
-                    t = _parse(ct).astimezone(ET) if ct else None
-                    if t and t.hour >= 18:
-                        is_night = True
-                except Exception:
-                    pass
-                (night_games if is_night else day_games).append(ev)
+            all_games.extend(fut.result())
 
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+    # Cache unified list — entry builders filter by commence_time at generation time
+    r.setex("sofascore:all_games", 86400, json.dumps(all_games))
+
+    # Keep day/night keys populated for any legacy reads
+    day_games   = []
+    night_games = []
+    for ev in all_games:
+        ct = ev.get("commence_time", "")
+        try:
+            from dateutil.parser import parse as _parse
+            t = _parse(ct).astimezone(ET) if ct else None
+            if t and t.hour >= 18:
+                night_games.append(ev)
+            else:
+                day_games.append(ev)
+        except Exception:
+            day_games.append(ev)
+
     r.setex("sofascore:day_games",   86400, json.dumps(day_games))
     r.setex("sofascore:night_games", 86400, json.dumps(night_games))
 
-    # Store all today's games in a flat lookup keyed by lowercased team name
-    all_today = day_games + night_games
+    # Team name index for kick-off time lookups
     team_index: dict[str, dict] = {}
-    for ev in all_today:
+    for ev in all_games:
         for field in ("home_team", "away_team"):
             name = (ev.get(field) or "").lower().strip()
             if name:
                 team_index[name] = ev
     r.setex("sofascore:today_index", 86400, json.dumps(team_index))
 
-    logger.info("Today's games scan: %d day, %d night, %d total (%d teams indexed)",
-                len(day_games), len(night_games), len(all_today), len(team_index))
-    return {"day": len(day_games), "night": len(night_games), "total": len(all_today)}
+    logger.info("Games scan: %d total (%d day, %d night) — %d teams indexed",
+                len(all_games), len(day_games), len(night_games), len(team_index))
+    return {"total": len(all_games), "day": len(day_games), "night": len(night_games)}
 
 
 def _load_todays_games(period: str) -> list[dict]:
-    """Load day or night games from Redis cache (populated by scan_todays_games)."""
+    """
+    Load games for the given entry period — filters the unified all_games list
+    to only games that haven't started yet at the time of the call.
+
+    Day entry (10:30 AM): all upcoming games at that moment
+    Night entry (4:30 PM): all upcoming games at that moment (day games already started are excluded)
+    """
     from src.core.config import REDIS_URL
-    import json, redis as _redis
+    import json, redis as _redis, zoneinfo
+    from datetime import datetime
     try:
-        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        raw = r.get(f"sofascore:{period}_games")
-        return json.loads(raw) if raw else []
+        r   = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        raw = r.get("sofascore:all_games")
+        if not raw:
+            # Fall back to legacy period-specific keys
+            raw = r.get(f"sofascore:{period}_games")
+        if not raw:
+            return []
+
+        all_games = json.loads(raw)
+        ET  = zoneinfo.ZoneInfo("America/New_York")
+        now = datetime.now(ET)
+
+        upcoming = []
+        for ev in all_games:
+            ct = ev.get("commence_time", "")
+            try:
+                from dateutil.parser import parse as _parse
+                t = _parse(ct).astimezone(ET) if ct else None
+                if t and t > now:
+                    upcoming.append(ev)
+            except Exception:
+                upcoming.append(ev)  # include if we can't parse time
+
+        logger.info("_load_todays_games [%s]: %d upcoming from %d total",
+                    period, len(upcoming), len(all_games))
+        return upcoming
     except Exception as e:
-        logger.warning("Could not load %s games from Redis: %s", period, e)
+        logger.warning("Could not load games from Redis: %s", e)
         return []
 
 
