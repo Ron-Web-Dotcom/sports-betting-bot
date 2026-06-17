@@ -672,9 +672,16 @@ def _build_hardrock_candidates(
                 projected_for_ev = confidence.calibrated_score
 
             ev_result = evaluate(american_odds=best_odds_val, projected_prob=projected_for_ev, opponent_odds=opponent_odds)
-            if ev_result.ev_pct < EV_FLOOR or ev_result.projected_prob <= ev_result.no_vig_prob:
+            if ev_result.ev_pct < EV_FLOOR:
                 logger.info("PASS [%s vs %s] market=%s odds=%d ev=%.2f%% — below EV floor",
                             home_team, away_team, market, best_odds_val, ev_result.ev_pct * 100)
+                continue
+            # Only apply no-vig edge check when opponent odds are known.
+            # When unknown, no_vig_prob == book_implied (includes vig), making
+            # the check unfairly reject heavy favorites like -500, -800.
+            if opponent_odds and ev_result.projected_prob <= ev_result.no_vig_prob:
+                logger.info("PASS [%s vs %s] market=%s odds=%d — below no-vig prob",
+                            home_team, away_team, market, best_odds_val)
                 continue
 
             # Use the calibrated score for - odds; for + odds blend ai_win_prob + implied edge

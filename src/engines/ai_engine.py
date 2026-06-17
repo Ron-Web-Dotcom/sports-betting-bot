@@ -151,9 +151,9 @@ Return ONLY valid JSON — no markdown, no extra text:
   "recommendation": "BET"|"PASS",
   "selection": "<depends on market: h2h/spreads → exact team name from home_team or away_team; totals/team_totals/alternate_totals → 'Over X.X' or 'Under X.X' (e.g. 'Over 2.5'); btts → 'Yes' or 'No'; player_prop → 'Over X' or 'Under X'>",
   "market": "h2h"|"spreads"|"totals"|"team_totals"|"alternate_totals"|"btts"|"player_prop",
-  "win_probability": <float 0.0-1.0>,
-  "confidence": <float 0.0-1.0>,
-  "opponent_probability": <float 0.0-1.0>,
+  "win_probability": <float 0.0-1.0>,   // your assessed TRUE probability of this pick winning
+  "confidence": <float 0.0-1.0>,        // same as win_probability
+  "opponent_probability": <float 0.0-1.0>,  // REQUIRED: 1 - win_probability (e.g. if win_prob=0.82, opp_prob=0.18)
   "signal_type": "value"|"steam"|"sharp"|"fade"|"injury",
   "ev_pct": <float — edge as decimal, e.g. 0.06 = 6%>,
   "statistical_score": <float 0.0-1.0>,
