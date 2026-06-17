@@ -69,8 +69,10 @@ _SOCCER_LEAGUES = {
     "soccer_brazil_campeonato", "soccer_turkey_super_league", "soccer_spl",
     "soccer_uefa_champs_league", "soccer_uefa_europa_league",
     "soccer_uefa_europa_conference_league",
-    "soccer_fifa_world_cup", "soccer_conmebol_copa_america",
-    "soccer_conmebol_copa_libertadores", "soccer_africa_cup_of_nations",
+    "soccer_fifa_world_cup", "soccer_fifa_club_world_cup",
+    "soccer_conmebol_copa_america",
+    "soccer_conmebol_copa_libertadores", "soccer_conmebol_copa_sudamericana",
+    "soccer_africa_cup_of_nations",
     # Women's soccer
     "soccer_usa_nwsl", "soccer_fifa_womens_world_cup",
     "soccer_uefa_womens_champs_league",

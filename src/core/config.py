@@ -132,9 +132,12 @@ SPORTS = {
     "conferenceleague": "soccer_uefa_europa_conference_league",
     "worldcup":     "soccer_fifa_world_cup",
     "wc":           "soccer_fifa_world_cup",
+    "cwc":          "soccer_fifa_club_world_cup",           # FIFA Club World Cup 2026 (Jun–Jul)
+    "clubworldcup": "soccer_fifa_club_world_cup",
     "copaamerica":  "soccer_conmebol_copa_america",
     "conmebol":     "soccer_conmebol_copa_libertadores",
     "copalibertadores": "soccer_conmebol_copa_libertadores",
+    "copasudamericana": "soccer_conmebol_copa_sudamericana", # Copa Sudamericana
     "afcon":        "soccer_africa_cup_of_nations",
     # ── Women's Soccer ────────────────────────────────────────────────────────
     "nwsl":         "soccer_usa_nwsl",                      # USA Women's

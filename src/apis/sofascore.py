@@ -59,8 +59,10 @@ SPORT_MAP = {
     "soccer_uefa_europa_league":             "football",
     "soccer_uefa_europa_conference_league":  "football",
     "soccer_fifa_world_cup":                 "football",
+    "soccer_fifa_club_world_cup":            "football",   # Club World Cup 2026
     "soccer_conmebol_copa_america":          "football",
     "soccer_conmebol_copa_libertadores":     "football",
+    "soccer_conmebol_copa_sudamericana":     "football",   # Copa Sudamericana
     "soccer_africa_cup_of_nations":          "football",
     # ── Women's Soccer ────────────────────────────────────────────────────────
     "soccer_usa_nwsl":                       "football",
