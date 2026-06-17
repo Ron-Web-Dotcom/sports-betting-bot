@@ -333,6 +333,11 @@ def _get_active_sports_cached() -> set[str]:
             if slug and any(_SM.get(a) == slug for a in active_from_sofascore):
                 active.add(sk)
 
+        # Never cache an empty set — if Sofascore returned nothing, fall back to all known sports
+        if not active:
+            logger.warning("Active sports: Sofascore returned empty — defaulting to all sports")
+            return set(PLAYER_PROP_SPORTS)
+
         now_et = et_naive()
         from datetime import datetime as _dt, timedelta
         midnight = _dt.combine(now_et.date(), _dt.min.time()) + timedelta(days=1)

@@ -235,12 +235,13 @@ def main():
 
     logger.info("Runner loop started")
 
-    # ── Startup: run one synchronous odds scan so catchup entry tasks have fresh data ──
-    # scan_and_save_odds is normally a background interval task, but if we fire
-    # catchup entry tasks first, the DB is empty and all picks fail with "no data".
-    # Running it synchronously here ensures data exists before catchup runs.
+    # ── Startup: refresh sports list then scan odds so catchup tasks have fresh data ──
     _startup_hour = datetime.now(ET).hour
     if 5 <= _startup_hour < 23:  # skip during dead hours (2:30–6 AM)
+        # Refresh active sports FIRST — a mid-day restart finds a stale/empty Redis
+        # sports list and scan_and_save_odds returns 0 events → no picks all day.
+        logger.info("Startup: refreshing active sports...")
+        _run(tasks.get("refresh_active_sports"), "refresh_active_sports [startup]")
         logger.info("Startup: running initial odds scan before catchup...")
         _run(tasks.get("scan_and_save_odds"), "scan_and_save_odds [startup]")
         last_run["scan_and_save_odds"] = time.monotonic()  # prevent immediate re-run
