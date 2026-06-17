@@ -907,15 +907,24 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         }
         ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, player_ctx)
 
-        if not ai or ai.get("recommendation") == "PASS" or not ai.get("should_bet", True):
+        if not ai:
             continue
 
         conf      = ai.get("win_probability", prop["raw_prob"])
         ev        = ai.get("ev_pct", prop["ev_pct"])
         reasoning = ai.get("reasoning", "")
+        best_odds = prop["best_odds"]
 
-        if ev <= 0:
-            continue
+        # Gate on numbers, not recommendation label — label is calibrated for -odds.
+        # For + odds props: need 42%+ win prob AND 5%+ edge AND positive EV.
+        # For - odds props: need 60%+ win prob (lower than team floor since props are noisier).
+        if best_odds > 0:
+            implied = 100 / (100 + best_odds)
+            if conf < 0.42 or (conf - implied) < 0.05 or ev <= 0:
+                continue
+        else:
+            if conf < 0.60 or ev <= 0:
+                continue
 
         candidates.append({
             "type":         "prop",
@@ -1092,6 +1101,17 @@ def _generate_hardrock_entry(period: str) -> dict:
         sofascore_events = _load_todays_games(period)
         if not sofascore_events:
             logger.info("HardRock %s entry: no Sofascore cache yet — proceeding anyway", period)
+
+        # If DB has no snapshots at all (e.g. runner just restarted before first scan),
+        # run one emergency scan synchronously so we have data to work with.
+        from src.engines.odds_engine import get_latest_snapshots_by_game as _check_snaps
+        if not _check_snaps():
+            logger.warning("HardRock %s: no snapshots in DB — running emergency odds scan", period)
+            try:
+                from src.workers.odds_worker import scan_and_save_odds as _emergency_scan
+                _emergency_scan()
+            except Exception as _se:
+                logger.warning("Emergency odds scan failed: %s", _se)
 
         _game_raw  = _build_hardrock_candidates(period, sofascore_events)
         _props_raw = _build_prop_candidates(sofascore_events)
