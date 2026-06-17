@@ -526,13 +526,16 @@ def generate_prediction_market_night_entry() -> dict:
 
 
 def _generate_entry(period: str) -> dict:
+    _r_dedup = None
+    _dedup_key = None
     try:
         # Dedup: atomic SET NX so two simultaneous restarts can't both post
+        # Use 1h TTL initially — extended to 24h only after successful post
         from src.core.timezone import et_naive as _et_naive
         _today = _et_naive().strftime("%Y-%m-%d")
         _dedup_key = f"kalshi:posted:{period}:{_today}"
-        _r = _redis()
-        if not _r.set(_dedup_key, "1", ex=86400, nx=True):
+        _r_dedup = _redis()
+        if not _r_dedup.set(_dedup_key, "1", ex=3600, nx=True):
             logger.info("Kalshi %s entry already posted today — skipping", period)
             return {"skipped": "already_posted", "period": period}
 
@@ -555,10 +558,22 @@ def _generate_entry(period: str) -> dict:
                 }]}))
             except Exception as _e:
                 logger.warning("Could not post no-picks Kalshi alert: %s", _e)
+            # Release lock so a retry can attempt a different market
+            try:
+                if _r_dedup and _dedup_key:
+                    _r_dedup.delete(_dedup_key)
+            except Exception:
+                pass
             return {"picks": 0, "posted": False}
 
         _post_prediction_entry(period, picks)
-        _r.setex(_dedup_key, 86400, "1")
+
+        # Extend to full 24h now that posting succeeded
+        try:
+            if _r_dedup and _dedup_key:
+                _r_dedup.expire(_dedup_key, 86400)
+        except Exception:
+            pass
 
         try:
             from src.workers.slip_tracker import save_slip
@@ -569,6 +584,12 @@ def _generate_entry(period: str) -> dict:
         return {"period": period, "picks": len(picks), "posted": True}
     except Exception as exc:
         logger.error("Prediction market %s entry failed: %s", period, exc)
+        # Release lock so retry is possible
+        try:
+            if _r_dedup and _dedup_key:
+                _r_dedup.delete(_dedup_key)
+        except Exception:
+            pass
         return {"error": str(exc)}
 
 

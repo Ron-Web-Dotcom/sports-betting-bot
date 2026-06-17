@@ -237,7 +237,8 @@ def _epoch_to_iso(ts: int | None) -> str:
     if not ts:
         return ""
     try:
-        return datetime.fromtimestamp(ts, tz=ET).replace(tzinfo=None).isoformat()
+        # Keep timezone offset so parsers on UTC servers don't misread ET times as UTC
+        return datetime.fromtimestamp(ts, tz=ET).isoformat()
     except (OSError, ValueError):
         return ""
 

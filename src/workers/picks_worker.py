@@ -471,18 +471,31 @@ def scan_todays_games():
 
     day_games: list[dict] = []
     night_games: list[dict] = []
+    seen_ids: set[str] = set()  # deduplicate — multiple sport_keys share same Sofascore slug
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
         for fut in futures:
             for ev in fut.result():
+                eid = ev.get("id", "")
+                if eid and eid in seen_ids:
+                    continue
+                if eid:
+                    seen_ids.add(eid)
                 ct = ev.get("commence_time", "")
                 is_night = False
                 try:
                     from dateutil.parser import parse as _parse
-                    t = _parse(ct).astimezone(ET) if ct else None
-                    if t and t.hour >= 18:
-                        is_night = True
+                    t = _parse(ct) if ct else None
+                    if t:
+                        # If tz-aware (isoformat with offset), convert to ET.
+                        # If naive (should not happen after _epoch_to_iso fix), assume ET.
+                        if t.tzinfo is not None:
+                            t = t.astimezone(ET)
+                        else:
+                            t = t.replace(tzinfo=ET)
+                        if t.hour >= 18:
+                            is_night = True
                 except Exception:
                     pass
                 (night_games if is_night else day_games).append(ev)
@@ -1078,15 +1091,17 @@ def _generate_hardrock_entry(period: str) -> dict:
         return {"skipped": "sleep_mode"}
 
     # Dedup: only post once per period per day
+    _r_dedup = None
+    _dedup_key = None
     try:
         import redis as _redis
         from src.core.config import REDIS_URL
         from src.core.timezone import et_naive as _et_naive
-        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _r_dedup = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         _today = _et_naive().strftime("%Y-%m-%d")
         _dedup_key = f"hardrock:posted:{period}:{_today}"
         # Atomic SET NX — only one process wins even on simultaneous restart
-        if not _r.set(_dedup_key, "1", ex=86400, nx=True):
+        if not _r_dedup.set(_dedup_key, "1", ex=3600, nx=True):
             logger.info("HardRock %s entry already posted today — skipping duplicate", period)
             return {"skipped": "already_posted", "period": period}
     except Exception:
@@ -1183,7 +1198,7 @@ def _generate_hardrock_entry(period: str) -> dict:
             # AND we haven't already used Perplexity twice today.
             close_candidates = [
                 p for p in pool
-                if 0.70 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) > 0
+                if p["confidence"] >= 0.60 and p.get("ev_pct", 0) > 0
             ][:1]  # one candidate only — absolute last resort
 
             # Daily rate gate — max 2 Perplexity calls per day across all entries
@@ -1334,12 +1349,23 @@ def _generate_hardrock_entry(period: str) -> dict:
         except Exception as e:
             logger.warning("slip_tracker.save_slip failed: %s", e)
 
-        # Dedup key already set atomically at entry — no second write needed
+        # Extend dedup key to full 24h now that posting succeeded
+        try:
+            if _r_dedup and _dedup_key:
+                _r_dedup.expire(_dedup_key, 86400)
+        except Exception:
+            pass
 
         return {"period": period, "picks": len(entry), "posted": True}
 
     except Exception as exc:
         logger.error("HardRock %s entry failed: %s", period, exc)
+        # Release dedup key so the entry can be retried
+        try:
+            if _r_dedup and _dedup_key:
+                _r_dedup.delete(_dedup_key)
+        except Exception:
+            pass
         return {"error": str(exc)}
 
 
