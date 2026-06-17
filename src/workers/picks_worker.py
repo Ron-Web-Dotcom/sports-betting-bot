@@ -762,8 +762,12 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         best_over  = max(over_odds.values(),  default=None) if over_odds  else None
         best_under = max(under_odds.values(), default=None) if under_odds else None
 
+        # Pick the side with HIGHER implied probability (more likely = lower abs American odds)
+        # implied_prob(-130) ≈ 0.565, implied_prob(+110) ≈ 0.476 → pick Over -130
         direction, best_odds_val, all_book_odds = None, None, {}
-        if best_over is not None and (best_under is None or best_over >= best_under):
+        ip_over  = implied_prob(best_over)  if best_over  is not None else 0.0
+        ip_under = implied_prob(best_under) if best_under is not None else 0.0
+        if best_over is not None and ip_over >= ip_under:
             direction, best_odds_val = "Over",  best_over
             all_book_odds = {f"{bk} Over": v for bk, v in over_odds.items()}
         elif best_under is not None:
@@ -774,7 +778,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
 
         raw_prob = implied_prob(best_odds_val)
-        if raw_prob < 0.55:
+        if raw_prob < 0.40:  # drop extreme longshots only; let AI + EV do real gating
             continue
 
         opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
@@ -841,7 +845,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
                 if best_odds is None:
                     continue
                 raw_prob = implied_prob(best_odds)
-                if raw_prob < 0.55:
+                if raw_prob < 0.40:  # drop extreme longshots only
                     continue
                 prop_ev = evaluate(american_odds=best_odds, projected_prob=raw_prob)
                 game_pre.append({
@@ -1125,11 +1129,22 @@ def _generate_hardrock_entry(period: str) -> dict:
             if len(entry) == 2:
                 break
 
-            conf = pick["confidence"]
-            ev   = pick.get("ev_pct", 0)
+            conf      = pick["confidence"]
+            ev        = pick.get("ev_pct", 0)
+            best_odds = pick.get("best_odds", -110)
 
-            if conf < CONF_FLOOR or ev < EV_FLOOR:
+            if ev < EV_FLOOR:
                 continue
+
+            if best_odds > 0:
+                # + odds value play: AI win prob must beat implied prob by ≥ 5% with ≥ 42% floor
+                implied = 100 / (100 + best_odds)
+                if conf < 0.42 or (conf - implied) < 0.05:
+                    continue
+            else:
+                # - odds: keep 77% calibrated confidence floor
+                if conf < CONF_FLOOR:
+                    continue
 
             # Every leg added must keep the parlay profitable as a whole.
             # If the combined win_prob × payout drops below 1.0, skip this leg.
