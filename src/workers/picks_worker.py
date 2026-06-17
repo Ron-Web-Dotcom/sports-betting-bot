@@ -583,10 +583,8 @@ def _build_hardrock_candidates(
             # Night entry: only games not yet started at entry time (excludes finished day games)
             if _ct_et <= _now_et:
                 continue  # game already started — skip for both periods
-            _is_night = _ct_et.hour >= 18
-            # Night entry only uses night games (day games already kicked off by 4:30 PM)
-            if period == "night" and not _is_night:
-                continue
+            # Both entries: only skip games that have already started at entry time
+            # (handled above by _ct_et <= _now_et check)
         except Exception:
             if sofascore_events and not (
                 _team_matches(home_team, sofascore_events) or
@@ -1094,12 +1092,9 @@ def _generate_hardrock_entry(period: str) -> dict:
         pass  # Redis unavailable — allow through
 
     try:
-        # Day entry uses ALL today's games — props are valid for any game not yet started.
-        # Night entry uses only night games (day games are already live by 4:30 PM).
-        if period == "day":
-            sofascore_events = _load_todays_games("day") + _load_todays_games("night")
-        else:
-            sofascore_events = _load_todays_games(period)
+        # Both entries use ALL today's games — the period filter in _build_hardrock_candidates
+        # skips any game that has already kicked off at entry time.
+        sofascore_events = _load_todays_games("day") + _load_todays_games("night")
         if not sofascore_events:
             logger.info("HardRock %s entry: no Sofascore cache yet — proceeding anyway", period)
 
