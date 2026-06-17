@@ -535,15 +535,23 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     """
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
-    from datetime import timedelta
+    from datetime import timedelta, timezone
+    from zoneinfo import ZoneInfo
     from src.core.timezone import et_naive as _et_naive
 
-    # captured_at is stored as naive ET; commence_time is stored as naive UTC.
-    # Use separate now values to match each column's storage convention.
-    now_et    = _et_naive()
-    now_utc   = datetime.utcnow()
-    cutoff_lo = now_et  - timedelta(hours=6)    # snapshot freshness gate (ET naive)
-    cutoff_hi = now_utc + timedelta(hours=24)   # game window gate (UTC naive)
+    _ET = ZoneInfo("America/New_York")
+    # All time math anchored to ET.
+    # commence_time is stored as naive UTC in the DB, so we convert ET→UTC for filters.
+    now_et_aware = datetime.now(_ET)
+    now_et       = now_et_aware.replace(tzinfo=None)          # naive ET (matches captured_at column)
+    now_utc      = now_et_aware.astimezone(timezone.utc).replace(tzinfo=None)   # naive UTC (matches commence_time column)
+
+    # Snapshot freshness: captured within last 6 ET hours
+    cutoff_lo = now_et - timedelta(hours=6)
+
+    # Game window: ET end-of-tomorrow (so the full day+night slate is always covered)
+    et_eod = now_et_aware.replace(hour=23, minute=59, second=59) + timedelta(days=1)
+    cutoff_hi = et_eod.astimezone(timezone.utc).replace(tzinfo=None)
 
     result: dict[int, list[dict]] = {}
     with get_db() as db:
@@ -553,8 +561,8 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
             .filter(
                 OddsSnapshot.captured_at >= cutoff_lo,
                 Game.commence_time != None,
-                Game.commence_time >= now_utc,    # not already started/past
-                Game.commence_time <  cutoff_hi,  # within next 24 h
+                Game.commence_time >= now_utc,    # not already started (ET-anchored, stored as UTC)
+                Game.commence_time <  cutoff_hi,  # within ET end-of-tomorrow
             )
             .all()
         )
