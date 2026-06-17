@@ -196,14 +196,31 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
         return []
 
     # Build candidate list — Kalshi full markets preferred, Odds API games as fallback
+    import zoneinfo as _zi
+    from datetime import datetime as _dt, timedelta as _td
+    _ET      = _zi.ZoneInfo("America/New_York")
+    _now_et  = _dt.now(_ET)
+    _today   = _now_et.date()
+    _tomorrow = _today + _td(days=1)
+
     candidates: list[dict] = []
     if kalshi_full:
-        # Use Kalshi's own markets (player props, game props, totals, BTTS, spreads)
+        # Use Kalshi's own markets — filter to markets closing TODAY in ET
         for m in kalshi_full[:100]:
             yes_prob = m.get("yes_price", 0)
             no_prob  = round(1 - yes_prob, 4)
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
-                continue  # drop only near-certain or near-impossible contracts
+                continue
+            # Drop markets whose close_time is not today ET
+            _ct = m.get("close_time", "")
+            if _ct:
+                try:
+                    from dateutil.parser import parse as _dp
+                    _ct_et = _dp(_ct).astimezone(_ET).date()
+                    if _ct_et != _today:
+                        continue
+                except Exception:
+                    pass  # keep if unparseable
             candidates.append({
                 "source":       "kalshi",
                 "market_id":    m.get("market_id", ""),
@@ -510,12 +527,12 @@ def generate_prediction_market_night_entry() -> dict:
 
 def _generate_entry(period: str) -> dict:
     try:
-        # Dedup: only post once per period per day
+        # Dedup: atomic SET NX so two simultaneous restarts can't both post
         from src.core.timezone import et_naive as _et_naive
         _today = _et_naive().strftime("%Y-%m-%d")
         _dedup_key = f"kalshi:posted:{period}:{_today}"
         _r = _redis()
-        if _r.get(_dedup_key):
+        if not _r.set(_dedup_key, "1", ex=86400, nx=True):
             logger.info("Kalshi %s entry already posted today — skipping", period)
             return {"skipped": "already_posted", "period": period}
 

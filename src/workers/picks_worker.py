@@ -1080,7 +1080,8 @@ def _generate_hardrock_entry(period: str) -> dict:
         _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         _today = _et_naive().strftime("%Y-%m-%d")
         _dedup_key = f"hardrock:posted:{period}:{_today}"
-        if _r.get(_dedup_key):
+        # Atomic SET NX — only one process wins even on simultaneous restart
+        if not _r.set(_dedup_key, "1", ex=86400, nx=True):
             logger.info("HardRock %s entry already posted today — skipping duplicate", period)
             return {"skipped": "already_posted", "period": period}
     except Exception:
@@ -1328,16 +1329,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         except Exception as e:
             logger.warning("slip_tracker.save_slip failed: %s", e)
 
-        # Mark as posted in Redis so re-runs don't duplicate
-        try:
-            import redis as _redis
-            from src.core.config import REDIS_URL
-            from src.core.timezone import et_naive as _et_naive
-            _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-            _today = _et_naive().strftime("%Y-%m-%d")
-            _r.setex(f"hardrock:posted:{period}:{_today}", 86400, "1")
-        except Exception:
-            pass
+        # Dedup key already set atomically at entry — no second write needed
 
         return {"period": period, "picks": len(entry), "posted": True}
 
