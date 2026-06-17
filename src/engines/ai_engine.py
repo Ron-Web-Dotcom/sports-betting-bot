@@ -118,9 +118,9 @@ STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
   9. Pace/matchup mismatch that consistently favours this team or player's style
 
 Signals aligned → win_probability and confidence:
-  1 signal  → 0.55-0.62   (marginal — likely PASS)
-  2 signals → 0.62-0.70
-  3 signals → 0.70-0.78
+  1 signal  → 0.50-0.58   (marginal — likely PASS for -odds; may BET if strong + odds value)
+  2 signals → 0.58-0.68
+  3 signals → 0.68-0.78
   4 signals → 0.78-0.84
   5 signals → 0.84-0.90
   6+ signals → 0.90-0.97
@@ -136,11 +136,14 @@ STEP 3 — DIG DEEPER IF BORDERLINE:
     - Look at the specific players/matchups more carefully
     - For player props: has this player hit this line in 4 of last 5? Is the opponent bottom-10 defending this stat?
   If after digging deeper you can reach 0.77+, do it.
-  If you genuinely cannot get past 0.76 after all that research, it is a PASS.
+  If you genuinely cannot get past 0.76 after all that research, it is a PASS for -odds bets.
 
 STEP 4 — DECIDE:
-  BET  if confidence ≥ 0.77 AND ev_pct > 0 AND at least 3 signals fired
-  PASS if you cannot reach 0.77 — do not force it
+  For -odds picks (favorites): BET if confidence ≥ 0.77 AND ev_pct > 0 AND at least 3 signals fired
+  For +odds picks (underdogs/value): BET if confidence ≥ 0.50 AND your true win_probability beats the
+    market implied probability by 5%+ AND at least 2 signals fired AND ev_pct > 0
+    Example: +180 implies 36% — if you assess 48%+ true probability with 2+ signals, BET.
+  PASS only if you genuinely see no edge after full research.
 
 Return ONLY valid JSON — no markdown, no extra text:
 {
