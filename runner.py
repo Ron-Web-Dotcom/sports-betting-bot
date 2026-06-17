@@ -193,12 +193,18 @@ CATCHUP_TASKS = [
 ]
 
 
-def _run_catchup(tasks: dict, now: datetime):
+def _run_catchup(tasks: dict, now: datetime, last_cron_fired: dict):
     """On startup: run any critical task whose window was missed in the last N minutes."""
+    date_str = now.strftime("%Y-%m-%d")
     for hour, minute, window, name in CATCHUP_TASKS:
         scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         elapsed   = (now - scheduled).total_seconds() / 60  # minutes since scheduled time
         if 0 < elapsed <= window:
+            # Mark as fired so the cron loop won't fire it again this session
+            date_key = f"{name}:{date_str}"
+            if date_key in last_cron_fired:
+                logger.info("CATCH-UP: %s already fired today — skipping", name)
+                continue
             logger.info("CATCH-UP: %s was scheduled at %02d:%02d, missed by %.0f min — running now", name, hour, minute, elapsed)
             fn = tasks.get(name)
             if fn:
@@ -206,15 +212,13 @@ def _run_catchup(tasks: dict, now: datetime):
                     _run_bg(fn, f"{name} [catch-up]")
                 else:
                     _run(fn, f"{name} [catch-up]")
+            last_cron_fired[date_key] = now.strftime("%Y-%m-%d %H:%M")
 
 
 def main():
     logger.info("Sports Bot runner starting — loading tasks…")
     tasks = _import_tasks()
     logger.info("Tasks loaded: %s", sorted(tasks.keys()))
-
-    # ── Catch-up: run any critical tasks missed due to restart ────────────────
-    _run_catchup(tasks, datetime.now(ET))
 
     # Track last-run time for interval tasks
     last_run: dict[str, float] = {name: 0.0 for _, name in INTERVAL_TASKS}
@@ -230,6 +234,10 @@ def main():
     signal.signal(signal.SIGINT, _stop)
 
     logger.info("Runner loop started")
+
+    # ── Catch-up: run any critical tasks missed due to restart ────────────────
+    # Must run AFTER last_cron_fired is initialized so catchup marks tasks as fired.
+    _run_catchup(tasks, datetime.now(ET), last_cron_fired)
 
     while _running[0]:
         now   = datetime.now(ET)

@@ -526,6 +526,13 @@ def _build_hardrock_candidates(
     candidates: list[dict] = []
     _top_seen_conf: float = 0.0  # track best calibrated score even for rejected picks
 
+    logger.info("HardRock candidates [%s]: %d games in snapshot window", period, len(snapshots))
+
+    _filtered_date = 0
+    _filtered_period = 0
+    _ai_calls = 0
+    _ai_failed = 0
+
     # Cap at 25 games per HardRock entry build to stay within 1GB RAM
     for game_id, snap_list in list(snapshots.items())[:25]:
         if not snap_list:
@@ -552,11 +559,15 @@ def _build_hardrock_candidates(
             _ct_et = _ct.astimezone(_zi.ZoneInfo("America/New_York"))
             _today_et = __import__('datetime').datetime.now(_zi.ZoneInfo("America/New_York")).date()
             if _ct_et.date() != _today_et:
+                _filtered_date += 1
+                logger.debug("SKIP [%s vs %s] date=%s != today=%s", home_team, away_team, _ct_et.date(), _today_et)
                 continue  # tomorrow's game — skip entirely
             _is_night_game = _ct_et.hour >= 18
             if period == "day" and _is_night_game:
+                _filtered_period += 1
                 continue
             if period == "night" and not _is_night_game:
+                _filtered_period += 1
                 continue
         except Exception:
             # Sofascore cache fallback — at least check team is in today's list
@@ -592,8 +603,10 @@ def _build_hardrock_candidates(
                 continue
 
             mkt_event = {**event, "market": mkt}
+            _ai_calls += 1
             ai = analyse_pick(mkt_event, all_injuries, hub_news, odds_by_book, game_context)
             if not ai:
+                _ai_failed += 1
                 continue
 
             market    = ai.get("market", mkt)
@@ -661,6 +674,13 @@ def _build_hardrock_candidates(
                 "key_factors":  ai.get("key_factors", []),
                 "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
             })
+
+    logger.info(
+        "HardRock candidates [%s]: %d passed → %d qualified | filtered(date=%d period=%d) ai(calls=%d failed=%d) best_conf=%.1f%%",
+        period, len(snapshots), len(candidates),
+        _filtered_date, _filtered_period, _ai_calls, _ai_failed,
+        _top_seen_conf * 100,
+    )
 
     # Attach best-seen confidence so caller can report it even when no picks qualify
     if not candidates:
@@ -1040,8 +1060,16 @@ def _generate_hardrock_entry(period: str) -> dict:
         if not sofascore_events:
             logger.info("HardRock %s entry: no Sofascore cache yet — proceeding anyway", period)
 
-        raw_game  = [c for c in _build_hardrock_candidates(period, sofascore_events) if not c.get("_meta")]
-        raw_props = [c for c in _build_prop_candidates(sofascore_events) if not c.get("_meta")]
+        _game_raw  = _build_hardrock_candidates(period, sofascore_events)
+        _props_raw = _build_prop_candidates(sofascore_events)
+        _top_conf_seen = max(
+            next((c.get("_top_conf", 0) for c in _game_raw  if c.get("_meta")), 0),
+            next((c.get("_top_conf", 0) for c in _props_raw if c.get("_meta")), 0),
+            max((c.get("confidence", 0) for c in _game_raw  if not c.get("_meta")), default=0),
+            max((c.get("confidence", 0) for c in _props_raw if not c.get("_meta")), default=0),
+        )
+        raw_game  = [c for c in _game_raw  if not c.get("_meta")]
+        raw_props = [c for c in _props_raw if not c.get("_meta")]
         pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
 
         # Every pick must independently justify its inclusion.
@@ -1103,7 +1131,10 @@ def _generate_hardrock_entry(period: str) -> dict:
             # Only fires when everything else (Sofascore + Sportradar + ESPN +
             # Action Network) was not enough. Takes the top 2 closest candidates
             # and gives them one final chance with fresh web research.
-            best_conf = round(max((p["confidence"] for p in pool), default=0) * 100)
+            best_conf = round(max(
+                max((p["confidence"] for p in pool), default=0),
+                _top_conf_seen,
+            ) * 100)
             logger.info(
                 "HardRock %s entry: no qualifying picks after all sources "
                 "(best conf: %d%%) — trying Perplexity last resort",
@@ -1237,11 +1268,17 @@ def _generate_hardrock_entry(period: str) -> dict:
                     from src.discord_bot.bot import _post
                     period_emoji = "☀️" if period == "day" else "🌙"
                     period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
+                    if best_conf == 0:
+                        _no_pick_reason = "No odds data available yet — odds scan may still be loading."
+                    elif best_conf < 70:
+                        _no_pick_reason = f"Best confidence found: **{best_conf}%** — market has no clear edge today."
+                    else:
+                        _no_pick_reason = f"Best confidence found: **{best_conf}%** — just below 77% floor."
                     _run_async(_post({"embeds": [{
                         "title": f"🎟️  HARDROCK SLIP  ·  {period_emoji} {period_label}",
                         "description": (
                             f"No qualifying picks after all research including web search.\n"
-                            f"Best confidence found: **{best_conf}%** — not enough edge today.\n"
+                            f"{_no_pick_reason}\n"
                             f"_Protecting bankroll — no edge, no bet._"
                         ),
                         "color": 0x546E7A,
