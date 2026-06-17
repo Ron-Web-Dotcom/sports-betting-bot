@@ -142,7 +142,7 @@ def generate_picks():
                 line_movement_score = game_context.get("sharp_action", {}).get("score", 0.5),
                 news_impact_score   = game_context.get("news_impact_score", 0.5),
                 sport               = sport_key,
-                market              = "h2h",
+                market              = market,
             )
             # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ (h2h) or 65%+
             _cal = confidence.calibrated_score

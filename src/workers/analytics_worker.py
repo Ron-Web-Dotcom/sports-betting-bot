@@ -171,7 +171,7 @@ def send_daily_summary():
         pass
 
     logger.info("Daily summary sent")
-    return {"summary_length": len(summary), "stats": daily}
+    return {"sent": True, "wins": wins, "losses": losses, "pushes": pushes}
 
 
 def send_weekly_summary():
@@ -304,7 +304,7 @@ def send_monthly_summary():
     )]}))
 
     logger.info("Monthly summary sent")
-    return {"summary_length": len(summary), "stats": monthly}
+    return {"sent": True, "stats": monthly}
 
 
 def enter_sleep_mode():
