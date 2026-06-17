@@ -903,7 +903,10 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             "confidence":   conf,
             "ev_pct":       ev,
             "units":        prop["units"],
-            "is_team_prop": prop["is_team_prop"],
+            "is_team_prop": prop.get("is_team_prop", False),
+            "home_team":    prop.get("home_team", ""),
+            "away_team":    prop.get("away_team", ""),
+            "commence_time":prop.get("commence_time", ""),
             "reasoning":    reasoning,
         })
 
