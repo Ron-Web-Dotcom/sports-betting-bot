@@ -308,12 +308,20 @@ def send_monthly_summary():
 
 
 def enter_sleep_mode():
-    """3 AM Eastern — pause scanning, post goodnight message with W/L/P summary, run self-improvement."""
+    """3 AM Eastern — settle any remaining picks, post goodnight with W/L/P summary."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post, _embed
     from src.engines.self_improvement_engine import run_full_self_improvement
     from datetime import datetime
     import zoneinfo
+
+    # Settle any late-finishing games before posting the nightly summary
+    try:
+        from src.workers.settlement_worker import settle_completed_picks as _settle
+        _settle()
+        logger.info("Pre-sleep settlement complete")
+    except Exception as _se:
+        logger.warning("Pre-sleep settlement failed: %s", _se)
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 
