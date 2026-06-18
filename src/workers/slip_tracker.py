@@ -33,7 +33,8 @@ def _redis():
 
 
 def _now_et() -> datetime:
-    return et_naive()
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/New_York"))  # tz-aware ET
 
 
 def _parse_time(ct: str) -> datetime | None:
