@@ -1289,6 +1289,12 @@ def _generate_hardrock_entry(period: str) -> dict:
         # Candidates already passed all gates inside their builders.
         # Here: just deduplicate (no same game twice, no same player twice)
         # and take the top 1-2 picks by score.
+        # Favorite-first: -odds picks always rank ahead of +odds picks.
+        # +odds underdogs only make the slip when no -odds alternative exists.
+        _favs    = [p for p in pool if p.get("best_odds", 0) < 0]
+        _dogs    = [p for p in pool if p.get("best_odds", 0) >= 0]
+        pool     = _favs + _dogs  # favorites first, underdogs fill remaining slots
+
         entry: list[dict]            = []
         blocked_event_keys: set[str] = set()
         seen_players: set[str]       = set()
