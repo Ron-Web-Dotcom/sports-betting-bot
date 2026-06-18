@@ -22,6 +22,17 @@ from src.core.timezone import et_naive
 logger = logging.getLogger(__name__)
 
 _SLIP_KEY    = "slips:active"       # Redis hash: slip_id → slip JSON
+
+import re as _re
+_SUFFIXES = _re.compile(
+    r'\b(fc|city|united|sc|cf|afc|bfc|sporting|athletics)\b', _re.IGNORECASE
+)
+
+def _normalize_team_name(name: str) -> str:
+    if not name:
+        return ""
+    name = _SUFFIXES.sub("", name).strip()
+    return _re.sub(r'\s+', ' ', name).lower().strip()
 _RATIO_KEY   = "slips:ratio"        # Redis hash: wins, losses, pushes
 _ALERTED_KEY = "slips:alerted"      # Redis set: {slip_id}:{event} already fired
 
@@ -316,7 +327,7 @@ def _check_pick_result(pick: dict) -> str | None:
         if not sport_key:
             return None
 
-        scores = fetch_scores(sport_key, days_from=1)
+        scores = fetch_scores(sport_key, days_from=3)
         home = (pick.get("home_team") or "").lower()
         away = (pick.get("away_team") or "").lower()
 
@@ -550,7 +561,7 @@ def track_slips() -> dict:
                         continue
                     mins = (ct - now).total_seconds() / 60
                     sport = pick.get("sport_key", "")
-                    settle_after = -90 if any(k in sport for k in ("mma", "boxing")) else -150
+                    settle_after = -90 if any(k in sport for k in ("mma", "boxing")) else -210
                     if mins < settle_after:
                         res = _check_pick_result(pick)
                         if res:
@@ -562,7 +573,7 @@ def track_slips() -> dict:
                 if (p.get("question") or p.get("market_id")) or (
                     _parse_time(p.get("commence_time", "")) and
                     (_now_et() - _parse_time(p.get("commence_time", ""))).total_seconds() >
-                    (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 150) * 60
+                    (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 210) * 60
                 )
             ]
             if results and len(results) == len(picks) and len(settled_picks) == len(picks):
