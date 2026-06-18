@@ -201,11 +201,29 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
     _ET      = _zi.ZoneInfo("America/New_York")
     _now_et  = _dt.now(_ET)
     _today   = _now_et.date()
-    _tomorrow = _today + _td(days=1)
+
+    # Load Sofascore today index to verify teams are actually playing TODAY
+    _today_teams: set[str] = set()
+    try:
+        import redis as _rc
+        from src.core.config import REDIS_URL
+        _rr = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _idx = _rr.get("sofascore:today_index")
+        if _idx:
+            _today_teams = set(json.loads(_idx).keys())
+    except Exception:
+        pass
+
+    def _team_in_title(title: str) -> bool:
+        if not _today_teams:
+            return True  # can't verify — allow through
+        tl = title.lower()
+        return any(team in tl for team in _today_teams)
 
     candidates: list[dict] = []
     if kalshi_full:
         # Use Kalshi's own markets — filter to markets closing TODAY in ET
+        # AND cross-reference with Sofascore to confirm game is today
         for m in kalshi_full[:100]:
             yes_prob = m.get("yes_price", 0)
             no_prob  = round(1 - yes_prob, 4)
@@ -221,6 +239,11 @@ def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks
                         continue
                 except Exception:
                     pass  # keep if unparseable
+            # Drop if neither team plays today per Sofascore
+            _title = m.get("title", "")
+            if _title and not _team_in_title(_title):
+                logger.info("Kalshi: skipping '%s' — not in today's schedule", _title[:60])
+                continue
             candidates.append({
                 "source":       "kalshi",
                 "market_id":    m.get("market_id", ""),
