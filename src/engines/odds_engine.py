@@ -364,12 +364,13 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     called once per day, not on every props scan.
     """
     from concurrent.futures import ThreadPoolExecutor
-    from datetime import timezone, timedelta
+    from datetime import timedelta
     from dateutil.parser import parse as _parse
     from zoneinfo import ZoneInfo
 
-    cutoff = datetime.now(ZoneInfo("America/New_York")).astimezone(timezone.utc) + timedelta(hours=24)
-    tasks  = []
+    _ET      = ZoneInfo("America/New_York")
+    cutoff   = datetime.now(_ET) + timedelta(hours=24)   # ET throughout
+    tasks    = []
     for sport_key, events in all_events.items():
         if sport_key not in PLAYER_PROP_SPORTS:
             continue
@@ -383,9 +384,11 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
                 if isinstance(ct, str):
                     ct = _parse(ct)
                 if ct:
-                    # Use astimezone (not .replace) to correctly convert tz-aware datetimes
-                    ct_utc = ct.astimezone(timezone.utc) if ct.tzinfo else ct.replace(tzinfo=timezone.utc)
-                    if ct_utc > cutoff:
+                    # Convert API UTC time → ET on arrival, compare in ET
+                    from datetime import timezone as _tz
+                    ct_aware = ct if ct.tzinfo else ct.replace(tzinfo=_tz.utc)
+                    ct_et    = ct_aware.astimezone(_ET)
+                    if ct_et > cutoff:
                         continue
             except Exception:
                 pass
