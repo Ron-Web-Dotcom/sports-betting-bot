@@ -958,6 +958,110 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     return candidates
 
 
+def _detect_correlation(p1: dict, p2: dict) -> str | None:
+    """
+    Returns a signal label if p1 and p2 are positively correlated within the same game.
+    Both must be Over bets on attack-related stats — when a team dominates,
+    shots, corners, goals, and possession all move together.
+    """
+    stat1 = (p1.get("stat") or "").lower()
+    stat2 = (p2.get("stat") or "").lower()
+    dir1  = (p1.get("direction") or "").lower()
+    dir2  = (p2.get("direction") or "").lower()
+    pl1   = (p1.get("player") or "").lower()
+    pl2   = (p2.get("player") or "").lower()
+
+    if dir1 != "over" or dir2 != "over":
+        return None  # Under vs Over negatively correlated
+
+    attack_stats = {
+        "shots", "shots on target", "corners", "goals", "assists",
+        "fouls", "touches", "possession", "total shots", "offsides",
+        "saves", "blocks", "hits", "strikeouts", "rushing yards",
+        "receiving yards", "rebounds", "assists", "points",
+    }
+    is_attack1 = any(s in stat1 for s in attack_stats) or "total" in stat1
+    is_attack2 = any(s in stat2 for s in attack_stats) or "total" in stat2
+
+    if not (is_attack1 and is_attack2):
+        return None
+
+    # Same player — don't pair (e.g. shots + shots on target for same player is just one signal)
+    if pl1 and pl2 and pl1 == pl2 and stat1 == stat2:
+        return None
+
+    # Same team — strongest correlation signal
+    ht = (p1.get("home_team") or "").lower()
+    at = (p1.get("away_team") or "").lower()
+    for team in (ht, at):
+        if team and (team in pl1 or pl1 in team) and (team in pl2 or pl2 in team):
+            return "same_team_attack"
+
+    # Both team-level (no specific player) — game-level attacking correlation
+    if not pl1 and not pl2:
+        return "game_attack_stack"
+
+    # Mix of player + game-level over stats — high-scoring game stack
+    if "total" in stat1 or "total" in stat2:
+        return "high_scoring_stack"
+
+    # Both attacking Over props in same game — correlated by match tempo
+    return "game_attack_correlation"
+
+
+def _build_sgp_bundles(prop_candidates: list[dict]) -> list[dict]:
+    """
+    Identify 2-leg correlated prop stacks from the same game.
+
+    When a team dominates — shots, corners, goals all go up together.
+    Combining them in a same-game parlay gives better value than the
+    book's independent pricing implies.
+    Returns a ranked list of SGP bundle dicts (type='sgp').
+    """
+    from itertools import combinations
+
+    # Group props by game
+    by_game: dict[str, list[dict]] = {}
+    for prop in prop_candidates:
+        gk = (prop.get("event_id") or
+              f"{prop.get('home_team','').lower()}:{prop.get('away_team','').lower()}")
+        if gk:
+            by_game.setdefault(gk, []).append(prop)
+
+    bundles: list[dict] = []
+    for game_key, props in by_game.items():
+        if len(props) < 2:
+            continue
+        for p1, p2 in combinations(props[:8], 2):
+            if p1["confidence"] < 0.60 or p2["confidence"] < 0.60:
+                continue
+            if p1.get("stat") == p2.get("stat"):
+                continue
+            signal = _detect_correlation(p1, p2)
+            if not signal:
+                continue
+            bundle_conf  = min(p1["confidence"], p2["confidence"])
+            bundle_score = bundle_conf * 1.08   # correlation bonus — legs are NOT independent
+            bundles.append({
+                "type":         "sgp",
+                "score":        bundle_score,
+                "confidence":   bundle_conf,
+                "sport_key":    p1.get("sport_key", ""),
+                "home_team":    p1.get("home_team", ""),
+                "away_team":    p1.get("away_team", ""),
+                "commence_time":p1.get("commence_time", ""),
+                "event_id":     game_key,
+                "legs":         [p1, p2],
+                "correlation":  signal,
+                "ev_pct":       (p1["ev_pct"] + p2["ev_pct"]) / 2,
+                "best_odds":    min(p1["best_odds"], p2["best_odds"]),  # most conservative leg
+            })
+
+    bundles.sort(key=lambda x: x["score"], reverse=True)
+    logger.info("SGP bundles found: %d", len(bundles))
+    return bundles[:3]
+
+
 def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
     """Build and post the HardRock Discord embed — individual picks, no parlay framing."""
     from src.core.sport_labels import get_emoji
@@ -1011,7 +1115,34 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
         reasoning = p.get("reasoning", "")
         reason_short = (reasoning.split(".")[0].strip()[:120] + "…") if reasoning else ""
 
-        if p["type"] == "prop":
+        if p["type"] == "sgp":
+            gt       = _game_time(p.get("commence_time", ""))
+            time_str = f"  ·  {gt}" if gt else ""
+            corr_labels = {
+                "same_team_attack":       "Same-team attack stack",
+                "game_attack_stack":      "Game attack stack",
+                "high_scoring_stack":     "High-scoring game stack",
+                "game_attack_correlation":"Correlated match props",
+            }
+            corr_label = corr_labels.get(p.get("correlation", ""), "Correlated props")
+            legs_lines = []
+            for leg in p["legs"]:
+                leg_dir  = (leg.get("direction") or "Over").upper()
+                leg_odds = _fmt(leg.get("best_odds", ""))
+                legs_lines.append(
+                    f"  • **{leg.get('player') or leg.get('home_team','')}** "
+                    f"— {leg['stat']} **{leg_dir} {leg.get('line','')}**  `{leg_odds}`"
+                )
+            pick_fields.append({
+                "name":  f"PICK {i}  ·  {emoji}  `⚡ SGP — {corr_label.upper()}`",
+                "value": (
+                    f"**{p.get('away_team', '')} @ {p.get('home_team', '')}**{time_str}\n"
+                    + "\n".join(legs_lines) + "\n"
+                    f"Conf  **{conf}%**   Edge  **+{ev}%**   _(Place as Same-Game Parlay)_"
+                ),
+                "inline": False,
+            })
+        elif p["type"] == "prop":
             prop_type = p.get("prop_type", "player")
             if prop_type == "game":
                 label = _MARKET_BADGE.get(p.get("stat", ""), p.get("stat", "GAME PROP").upper())
@@ -1135,7 +1266,9 @@ def _generate_hardrock_entry(period: str) -> dict:
         )
         raw_game  = [c for c in _game_raw  if not c.get("_meta")]
         raw_props = [c for c in _props_raw if not c.get("_meta")]
-        pool      = sorted(raw_game + raw_props, key=lambda x: x["score"], reverse=True)
+        # Build SGP bundles from qualified props — correlated stacks rank above individual picks
+        sgp_bundles = _build_sgp_bundles(raw_props)
+        pool = sorted(raw_game + raw_props + sgp_bundles, key=lambda x: x["score"], reverse=True)
 
         # Every pick must independently justify its inclusion.
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
@@ -1164,7 +1297,13 @@ def _generate_hardrock_entry(period: str) -> dict:
             if len(entry) == 2:
                 break
 
-            if pick["type"] == "prop":
+            if pick["type"] == "sgp":
+                event_key = str(pick.get("event_id", ""))
+                if event_key and event_key in blocked_event_keys:
+                    continue
+                if event_key:
+                    blocked_event_keys.add(event_key)
+            elif pick["type"] == "prop":
                 player_key = (pick.get("player") or "").lower()
                 event_key  = str(pick.get("event_id", ""))
                 if event_key and event_key in blocked_event_keys:
