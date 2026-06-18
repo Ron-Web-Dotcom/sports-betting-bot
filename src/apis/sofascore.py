@@ -237,8 +237,8 @@ def _epoch_to_iso(ts: int | None) -> str:
     if not ts:
         return ""
     try:
-        # Keep timezone offset so parsers on UTC servers don't misread ET times as UTC
-        return datetime.fromtimestamp(ts, tz=ET).isoformat()
+        # Naive ET string — scan_todays_games treats naive strings as ET
+        return datetime.fromtimestamp(ts, tz=ET).strftime("%Y-%m-%dT%H:%M:%S")
     except (OSError, ValueError):
         return ""
 
