@@ -41,9 +41,10 @@ def _parse_time(ct: str) -> datetime | None:
         return None
     try:
         from dateutil.parser import parse as _p
+        from zoneinfo import ZoneInfo as _ZI
         dt = _p(ct)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=_ZI("America/New_York"))  # naive = ET
         return dt
     except Exception:
         return None

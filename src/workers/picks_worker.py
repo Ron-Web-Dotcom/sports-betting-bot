@@ -586,9 +586,10 @@ def _build_hardrock_candidates(
         # ── Date / period filter ─────────────────────────────────────────────
         try:
             _ct = _dparse(commence)
+            _ET_zone = _zi.ZoneInfo("America/New_York")
             if _ct.tzinfo is None:
-                _ct = _ct.replace(tzinfo=_dt.timezone.utc)
-            _ct_et = _ct.astimezone(_zi.ZoneInfo("America/New_York"))
+                _ct = _ct.replace(tzinfo=_ET_zone)  # naive = ET
+            _ct_et = _ct.astimezone(_ET_zone)
             if _ct_et.date() != _today_et:
                 continue
             _now_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York"))
@@ -831,9 +832,10 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             _commence_chk = snap_list[0].get("commence_time", "") if snap_list else ""
             try:
                 _ct2 = _parse2(_commence_chk)
+                _ET_zone2 = _zi2.ZoneInfo("America/New_York")
                 if _ct2.tzinfo is None:
-                    _ct2 = _ct2.replace(tzinfo=__import__('datetime').timezone.utc)
-                if _ct2.astimezone(_zi2.ZoneInfo("America/New_York")).date() != _today_et2:
+                    _ct2 = _ct2.replace(tzinfo=_ET_zone2)  # naive = ET
+                if _ct2.astimezone(_ET_zone2).date() != _today_et2:
                     continue
             except Exception:
                 pass
