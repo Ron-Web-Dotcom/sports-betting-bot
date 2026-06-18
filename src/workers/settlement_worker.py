@@ -23,11 +23,11 @@ def _normalize_team_name(name: str) -> str:
 
 
 def _settlement_window() -> bool:
-    """Settlement only needed when games could be finishing — noon to 3 AM ET."""
+    """Skip only during sleep window (3–5 AM ET). Settle any time outside that."""
     from datetime import datetime
     import zoneinfo
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    return not (3 <= et.hour < 12)
+    return not (3 <= et.hour < 5)
 
 
 def settle_completed_picks():
