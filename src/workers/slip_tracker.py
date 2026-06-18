@@ -560,23 +560,16 @@ def track_slips() -> dict:
                     if not ct:
                         continue
                     mins = (ct - now).total_seconds() / 60
-                    sport = pick.get("sport_key", "")
-                    settle_after = -90 if any(k in sport for k in ("mma", "boxing")) else -210
-                    if mins < settle_after:
-                        res = _check_pick_result(pick)
-                        if res:
-                            results.append(res)
+                    # Don't check games that haven't started yet or just kicked off
+                    if mins > -10:
+                        continue
+                    res = _check_pick_result(pick)
+                    if res:
+                        results.append(res)
 
-            # Only settle when ALL legs have a result and are old enough
-            settled_picks = [
-                p for p in picks
-                if (p.get("question") or p.get("market_id")) or (
-                    _parse_time(p.get("commence_time", "")) and
-                    (_now_et() - _parse_time(p.get("commence_time", ""))).total_seconds() >
-                    (90 if any(k in p.get("sport_key", "") for k in ("mma", "boxing")) else 210) * 60
-                )
-            ]
-            if results and len(results) == len(picks) and len(settled_picks) == len(picks):
+            # Settle as soon as ALL legs have a confirmed result from the API.
+            # _check_pick_result only returns non-None when completed=True in scores API.
+            if results and len(results) == len(picks):
                 if "lost" in results:
                     slip_result = "dead"
                 elif all(rv == "won" for rv in results):
