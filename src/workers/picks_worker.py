@@ -1200,7 +1200,7 @@ def _generate_hardrock_entry(period: str) -> dict:
             # AND we haven't already used Perplexity twice today.
             close_candidates = [
                 p for p in pool
-                if p["confidence"] >= 0.60 and p.get("ev_pct", 0) > 0
+                if 0.70 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) > 0
             ][:1]  # one candidate only — absolute last resort
 
             # Daily rate gate — max 2 Perplexity calls per day across all entries
