@@ -556,6 +556,14 @@ def track_slips() -> dict:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
+                    elif ct and (now - ct).total_seconds() > 43200:
+                        # 12+ hours past close_time with no settled result —
+                        # Kalshi is slow to settle. Mark unknown so slip can resolve.
+                        results.append("unknown")
+                        logger.info(
+                            "Slip %s: Kalshi market %s unsettled after 12h — marking unknown",
+                            slip.get("id"), pick.get("market_id", "?"),
+                        )
                 else:
                     if not ct:
                         continue
