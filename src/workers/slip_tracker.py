@@ -566,13 +566,23 @@ def track_slips() -> dict:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
+                    elif mins < -360:
+                        # 6+ hours since game started with no score from API —
+                        # sport likely has no scores endpoint (tennis, some soccer).
+                        # Mark as unknown so the rest of the slip can still settle.
+                        results.append("unknown")
+                        logger.info(
+                            "Slip %s: no score after 6h for %s — marking unknown",
+                            slip.get("id"), pick.get("selection") or pick.get("player"),
+                        )
 
-            # Settle as soon as ALL legs have a confirmed result from the API.
-            # _check_pick_result only returns non-None when completed=True in scores API.
+            # Settle as soon as ALL legs have a confirmed result (or unknown) from the API.
+            # unknown = sport has no scores endpoint; treat as push so the other legs count.
+            effective = [r for r in results if r != "unknown"]
             if results and len(results) == len(picks):
-                if "lost" in results:
+                if "lost" in effective:
                     slip_result = "dead"
-                elif all(rv == "won" for rv in results):
+                elif effective and all(rv == "won" for rv in effective):
                     slip_result = "cashed"
                 else:
                     slip_result = "push"
