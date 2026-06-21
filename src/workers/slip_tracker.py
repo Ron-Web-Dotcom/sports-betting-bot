@@ -291,14 +291,28 @@ def _check_kalshi_result(pick: dict) -> str | None:
     """Check Kalshi market result via the API using stored market_id."""
     market_id = pick.get("market_id", "")
     if not market_id:
+        logger.warning("Kalshi result check: no market_id in pick %s", pick.get("question", "?"))
         return None
     try:
         from src.apis.kalshi import _get
+        # Try settled markets endpoint first
         data = _get(f"/markets/{market_id}")
         if not data:
+            # Fallback: search settled markets
+            settled = _get("/markets", {"status": "settled", "limit": 200})
+            if settled:
+                markets = settled.get("markets", []) if isinstance(settled, dict) else []
+                for m in markets:
+                    if m.get("ticker", "") == market_id:
+                        data = {"market": m}
+                        break
+        if not data:
+            logger.warning("Kalshi result check: no data returned for market_id=%s", market_id)
             return None
         m = data.get("market", data)
         result = (m.get("result") or "").lower()
+        status = (m.get("status") or "").lower()
+        logger.info("Kalshi market %s: status=%s result=%s", market_id, status, result)
         if not result or result in ("", "unknown", "void"):
             return None
         answer = (pick.get("answer") or pick.get("side") or "yes").lower()
@@ -308,7 +322,7 @@ def _check_kalshi_result(pick: dict) -> str | None:
             return "won" if answer == "no" else "lost"
         return None
     except Exception as e:
-        logger.debug("Kalshi result check failed for %s: %s", market_id, e)
+        logger.warning("Kalshi result check failed for %s: %s", market_id, e)
         return None
 
 
