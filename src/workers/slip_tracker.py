@@ -636,7 +636,6 @@ def track_slips() -> dict:
             # unknown = can't verify score — treat as lost (conservative, no push).
             #   all won (no unknowns) → cashed
             #   anything else         → dead
-            effective = [r for r in results if r != "unknown"]
             if results and len(results) == len(picks):
                 if not results or any(r != "won" for r in results):
                     slip_result = "dead"
