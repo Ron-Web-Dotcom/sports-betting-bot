@@ -84,7 +84,6 @@ def purge_ghost_slips() -> int:
     r = _redis()
     all_slips = r.hgetall(_SLIP_KEY)
     today     = et_naive().strftime("%Y-%m-%d")
-    yesterday = (et_naive() - __import__('datetime').timedelta(days=1)).strftime("%Y-%m-%d")
     removed   = 0
     for sid, raw in all_slips.items():
         # Valid IDs look like "day:hardrock:2026-06-13"
@@ -92,10 +91,11 @@ def purge_ghost_slips() -> int:
             r.hdel(_SLIP_KEY, sid)
             removed += 1
             logger.info("Purged ghost slip: %s", sid)
-        elif sid.split(":")[-1] not in (today, yesterday):
+        elif sid.split(":")[-1] != today:
+            # Only keep today's slips — yesterday's should never fire results today
             r.hdel(_SLIP_KEY, sid)
             removed += 1
-            logger.info("Purged stale slip: %s", sid)
+            logger.info("Purged yesterday's slip: %s", sid)
     return removed
 
 
@@ -599,12 +599,12 @@ def track_slips() -> dict:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    elif ct and (now - ct).total_seconds() > 43200:
-                        # 12+ hours past close_time with no settled result —
+                    elif ct and (now - ct).total_seconds() > 14400:
+                        # 4+ hours past close_time with no settled result —
                         # Kalshi is slow to settle. Mark unknown so slip can resolve.
                         results.append("unknown")
                         logger.info(
-                            "Slip %s: Kalshi market %s unsettled after 12h — marking unknown",
+                            "Slip %s: Kalshi market %s unsettled after 4h — marking unknown",
                             slip.get("id"), pick.get("market_id", "?"),
                         )
                 else:
