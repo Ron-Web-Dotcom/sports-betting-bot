@@ -617,15 +617,27 @@ def track_slips() -> dict:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    elif mins < -360:
-                        # 6+ hours since game started with no score from API —
-                        # sport likely has no scores endpoint (tennis, some soccer).
-                        # Mark as unknown so the rest of the slip can still settle.
-                        results.append("unknown")
-                        logger.info(
-                            "Slip %s: no score after 6h for %s — marking unknown",
-                            slip.get("id"), pick.get("selection") or pick.get("player"),
-                        )
+                    else:
+                        # Sport-specific timeout — mark unknown once game is certainly over.
+                        # Fire result as soon as last game ends, not hours later.
+                        sport = pick.get("sport_key", "")
+                        if any(k in sport for k in ("mma", "boxing")):
+                            _timeout = -120   # 2h
+                        elif any(k in sport for k in ("wnba", "nba", "basketball")):
+                            _timeout = -180   # 3h — WNBA/NBA games ~2h, no Odds API scores
+                        elif any(k in sport for k in ("tennis",)):
+                            _timeout = -180   # 3h — tennis matches vary
+                        elif any(k in sport for k in ("baseball", "mlb")):
+                            _timeout = -240   # 4h — MLB games ~3h
+                        else:
+                            _timeout = -210   # 3.5h default
+                        if mins < _timeout:
+                            results.append("unknown")
+                            logger.info(
+                                "Slip %s: no score after %dh for %s (%s) — marking unknown",
+                                slip.get("id"), abs(_timeout) // 60,
+                                pick.get("selection") or pick.get("player"), sport,
+                            )
 
             # Settle as soon as ALL legs have a confirmed result (or unknown) from the API.
             # unknown = sport has no scores endpoint; treat as push so the other legs count.
