@@ -111,12 +111,7 @@ CRON_TASKS = [
     (3,  0,  "enter_sleep_mode",        None, None),
     (5,  0,  "wake_up_brief",            None, None),
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
-    (6,  0,  "yesterday_recap",         1,    None),  # Tuesday
-    (6,  0,  "yesterday_recap",         2,    None),  # Wednesday
-    (6,  0,  "yesterday_recap",         3,    None),  # Thursday
-    (6,  0,  "yesterday_recap",         4,    None),  # Friday
-    (6,  0,  "yesterday_recap",         5,    None),  # Saturday
-    (6,  0,  "yesterday_recap",         6,    None),  # Sunday
+    (6,  0,  "yesterday_recap",         None, None),  # every day
     (8,  0,  "scan_todays_games",                        None, None),  # full Sofascore scan — day + night split
     (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
     (10, 35, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry
