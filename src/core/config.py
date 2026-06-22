@@ -97,107 +97,41 @@ PREGAME_ALERT_WINDOWS = [60, 30, 15, 10, 5, 0]
 
 # ── Sports tracked ─────────────────────────────────────────────────────────────
 SPORTS = {
-    # ── US Sports ─────────────────────────────────────────────────────────────
-    "nba":          "basketball_nba",
-    "nfl":          "americanfootball_nfl",
-    "mlb":          "baseball_mlb",
-    "nhl":          "icehockey_nhl",
-    "ncaab":        "basketball_ncaab",
-    "ncaaf":        "americanfootball_ncaaf",
-    # ── Women's US Sports ─────────────────────────────────────────────────────
-    "wnba":         "basketball_wnba",
-    "ncaaw":        "basketball_wncaab",
-    "wncaab":       "basketball_wncaab",
-    "pwhl":         "icehockey_pwhl",            # Pro Women's Hockey League (2024)
-    "wicehockey":   "icehockey_pwhl",
-    # ── Soccer — Top Leagues ──────────────────────────────────────────────────
-    "epl":          "soccer_epl",               # England Premier League
-    "soccer":       "soccer_epl",
-    "laliga":       "soccer_spain_la_liga",      # Spain
-    "bundesliga":   "soccer_germany_bundesliga", # Germany
-    "seriea":       "soccer_italy_serie_a",      # Italy
-    "ligue1":       "soccer_france_ligue_one",   # France
-    "mls":          "soccer_usa_mls",            # USA
-    "eredivisie":   "soccer_netherlands_eredivisie",
-    "portugal":     "soccer_portugal_primeira_liga",
-    "ligamx":       "soccer_mexico_ligamx",      # Mexico
-    "argentina":    "soccer_argentina_primera_division",
-    "brazil":       "soccer_brazil_campeonato",
-    "turkey":       "soccer_turkey_super_league",
-    "scotland":     "soccer_spl",               # Scottish Premiership
-    # ── Soccer — Cups & International ────────────────────────────────────────
-    "ucl":          "soccer_uefa_champs_league",
-    "champions":    "soccer_uefa_champs_league",
-    "europa":       "soccer_uefa_europa_league",
-    "conferenceleague": "soccer_uefa_europa_conference_league",
-    "worldcup":     "soccer_fifa_world_cup",
-    "wc":           "soccer_fifa_world_cup",
-    "cwc":          "soccer_fifa_club_world_cup",           # FIFA Club World Cup 2026 (Jun–Jul)
+    # ── US Sports (in season June 2026) ──────────────────────────────────────
+    "mlb":          "baseball_mlb",               # ✅ in season
+    "wnba":         "basketball_wnba",            # ✅ in season
+    "mls":          "soccer_usa_mls",             # ✅ in season
+    "nwsl":         "soccer_usa_nwsl",            # ✅ in season
+    # NBA/NFL/NHL/NCAAB/NCAAF — off-season, re-enable Sep/Oct
+    # ── Soccer — Active Competitions ─────────────────────────────────────────
+    "cwc":          "soccer_fifa_club_world_cup",           # ✅ FIFA CWC 2026 (Jun–Jul)
     "clubworldcup": "soccer_fifa_club_world_cup",
-    "copaamerica":  "soccer_conmebol_copa_america",
-    "conmebol":     "soccer_conmebol_copa_libertadores",
+    "conmebol":     "soccer_conmebol_copa_libertadores",    # ✅ active
     "copalibertadores": "soccer_conmebol_copa_libertadores",
-    "copasudamericana": "soccer_conmebol_copa_sudamericana", # Copa Sudamericana
-    "afcon":        "soccer_africa_cup_of_nations",
-    # ── Women's Soccer ────────────────────────────────────────────────────────
-    "nwsl":         "soccer_usa_nwsl",                      # USA Women's
-    "wwc":          "soccer_fifa_womens_world_cup",
-    "womenswc":     "soccer_fifa_womens_world_cup",
-    "wuefacl":      "soccer_uefa_womens_champs_league",     # Women's UCL
-    "wsl":          "soccer_england_wsl",                   # England Women's Super League
-    "wenglish":     "soccer_england_wsl",
-    "frauenbundesliga": "soccer_germany_frauen_bundesliga", # Germany Women's
-    "wbundesliga":  "soccer_germany_frauen_bundesliga",
-    "ligaf":        "soccer_spain_liga_f",                  # Spain Women's
-    "wspain":       "soccer_spain_liga_f",
-    "d1feminine":   "soccer_france_d1_feminine",            # France Women's
-    "wfrance":      "soccer_france_d1_feminine",
-    "wseriea":      "soccer_italy_serie_a_feminine",        # Italy Women's
-    "witaly":       "soccer_italy_serie_a_feminine",
-    # ── Golf ─────────────────────────────────────────────────────────────────
-    "golf":         "golf_pga_tour",
-    "pga":          "golf_pga_tour",
-    "masters":      "golf_masters_tournament_winner",
-    "pgachamp":     "golf_pga_championship_winner",
-    "usopen_golf":  "golf_us_open_winner",
-    "theopen":      "golf_the_open_championship_winner",
-    "lpga":         "golf_lpga",
+    "copasudamericana": "soccer_conmebol_copa_sudamericana",# ✅ active
+    "argentina":    "soccer_argentina_primera_division",    # ✅ active
+    "brazil":       "soccer_brazil_campeonato",             # ✅ active
+    "ligamx":       "soccer_mexico_ligamx",                 # ✅ active
+    "mls":          "soccer_usa_mls",
+    # European leagues — off-season, re-enable Aug
+    # UCL/Europa — off-season, re-enable Sep
     # ── Combat Sports ────────────────────────────────────────────────────────
-    "ufc":          "mma_mixed_martial_arts",
+    "ufc":          "mma_mixed_martial_arts",      # ✅ year-round
     "mma":          "mma_mixed_martial_arts",
-    "boxing":       "boxing_boxing",
-    # ── Tennis — Grand Slams + Active Tour Events ─────────────────────────────
-    "tennis":       "tennis_atp_queens_club_champ",
-    "atp":          "tennis_atp_queens_club_champ",
-    "queens":       "tennis_atp_queens_club_champ",
-    "halle":        "tennis_atp_halle_open",
-    "wta":          "tennis_wta_german_open",
-    "wtennis":      "tennis_wta_german_open",
-    "germanopen":   "tennis_wta_german_open",
-    "wimbledon":    "tennis_atp_wimbledon",
-    "wwimbledon":   "tennis_wta_wimbledon",
-    "usopen":       "tennis_atp_us_open",
-    "wusopen":      "tennis_wta_us_open",
-    "ausopen":      "tennis_atp_australian_open",
-    "wausopen":     "tennis_wta_aus_open_singles",
-    "frenchopen":   "tennis_atp_french_open",
-    "wfrenchopen":  "tennis_wta_french_open",
-    # ── Aussie Rules + Rugby (Men's + Women's) ───────────────────────────────
-    "afl":          "aussierules_afl",
-    "aflw":         "aussierules_aflw",
-    "rugbywc":      "rugbyunion_world_cup",
-    "wrugbywc":     "rugbyunion_women_world_cup",
-    "nrl":          "rugbyleague_nrl",
-    "stateoforigin": "rugbyleague_nrl_state_of_origin",
+    "boxing":       "boxing_boxing",               # ✅ year-round
+    # ── Tennis — Active Events (June = grass season) ─────────────────────────
+    "queens":       "tennis_atp_queens_club_champ",# ✅ active
+    "halle":        "tennis_atp_halle_open",       # ✅ active
+    "wta":          "tennis_wta_german_open",      # ✅ active
+    "wimbledon":    "tennis_atp_wimbledon",        # ✅ starts late June
+    "wwimbledon":   "tennis_wta_wimbledon",        # ✅ starts late June
+    # ── Aussie Rules / Rugby ─────────────────────────────────────────────────
+    "afl":          "aussierules_afl",             # ✅ in season
+    "nrl":          "rugbyleague_nrl",             # ✅ in season
+    "stateoforigin": "rugbyleague_nrl_state_of_origin", # ✅ active
     # ── Cricket ───────────────────────────────────────────────────────────────
-    "cricket":      "cricket_test_match",
-    "testcricket":  "cricket_test_match",
-    "odi":          "cricket_odi",
-    "t20":          "cricket_international_t20",
-    "ipl":          "cricket_ipl",
-    "wcricket":     "cricket_t20_world_cup_womens",
-    "wt20":         "cricket_t20_world_cup_womens",
-    "icct20":       "cricket_international_t20",
+    "t20":          "cricket_international_t20",   # ✅ active
+    "odi":          "cricket_odi",                 # ✅ active
 }
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
