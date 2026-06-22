@@ -172,10 +172,8 @@ def _get_ratio(r) -> dict:
 def _update_ratio(r, result: str) -> dict:
     if result == "cashed":
         r.hincrby(_RATIO_KEY, "wins",   1)
-    elif result == "dead":
-        r.hincrby(_RATIO_KEY, "losses", 1)
     else:
-        r.hincrby(_RATIO_KEY, "pushes", 1)
+        r.hincrby(_RATIO_KEY, "losses", 1)
     r.persist(_RATIO_KEY)
     return _get_ratio(r)
 
@@ -259,16 +257,11 @@ def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | Non
         stamp  = "W I N N E R"
         color  = 0x1B5E20
         footer = f"🎉 All legs hit · {platform} · Record: {record}"
-    elif result == "dead":
+    else:
         title  = "❌  SLIP DEAD"
         stamp  = "L O S T"
         color  = 0xB71C1C
         footer = f"💔 A leg missed · {platform} · Record: {record}"
-    else:
-        title  = "➖  SLIP PUSH"
-        stamp  = "P U S H"
-        color  = 0x607D8B
-        footer = f"No result · {platform} · Record: {record}"
 
     _post_embed({
         "title":       title,
@@ -640,21 +633,15 @@ def track_slips() -> dict:
                             )
 
             # Settle only when ALL legs have a result (real or timeout-unknown).
-            # unknown = sport has no scores endpoint (WNBA, tennis) — game is over
-            # but we can't verify. Treat conservatively:
-            #   lost + anything  → dead
-            #   all won          → cashed (only if zero unknowns)
-            #   won + unknown    → push  (can't confirm all legs hit)
-            #   all unknown      → push
-            effective    = [r for r in results if r != "unknown"]
-            has_unknown  = len(effective) < len(results)
+            # unknown = can't verify score — treat as lost (conservative, no push).
+            #   all won (no unknowns) → cashed
+            #   anything else         → dead
+            effective = [r for r in results if r != "unknown"]
             if results and len(results) == len(picks):
-                if "lost" in effective:
+                if not results or any(r != "won" for r in results):
                     slip_result = "dead"
-                elif not has_unknown and all(rv == "won" for rv in effective):
-                    slip_result = "cashed"
                 else:
-                    slip_result = "push"
+                    slip_result = "cashed"
 
                 _period_date = f"{slip.get('period','night')}:{slip.get('platform','hardrock')}:{slip.get('created','')[:10]}"
                 result_key = f"game:result:{_period_date}"
