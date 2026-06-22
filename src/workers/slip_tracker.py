@@ -639,13 +639,19 @@ def track_slips() -> dict:
                                 pick.get("selection") or pick.get("player"), sport,
                             )
 
-            # Settle as soon as ALL legs have a confirmed result (or unknown) from the API.
-            # unknown = sport has no scores endpoint; treat as push so the other legs count.
-            effective = [r for r in results if r != "unknown"]
+            # Settle only when ALL legs have a result (real or timeout-unknown).
+            # unknown = sport has no scores endpoint (WNBA, tennis) — game is over
+            # but we can't verify. Treat conservatively:
+            #   lost + anything  → dead
+            #   all won          → cashed (only if zero unknowns)
+            #   won + unknown    → push  (can't confirm all legs hit)
+            #   all unknown      → push
+            effective    = [r for r in results if r != "unknown"]
+            has_unknown  = len(effective) < len(results)
             if results and len(results) == len(picks):
                 if "lost" in effective:
                     slip_result = "dead"
-                elif effective and all(rv == "won" for rv in effective):
+                elif not has_unknown and all(rv == "won" for rv in effective):
                     slip_result = "cashed"
                 else:
                     slip_result = "push"
