@@ -116,18 +116,62 @@ PLAYER_PROP_SPORTS = {
 } | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS
 
 
+# ── Redis helpers for credits-exhausted flag ───────────────────────────────────
+
+_CREDITS_FLAG = "oddsapi:credits_exhausted"
+_CREDITS_FLAG_TTL = 3600  # 1 hour
+
+
+def _redis_client():
+    from src.core.config import REDIS_URL
+    import redis
+    return redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+
+def _credits_exhausted() -> bool:
+    """Return True if the credits-exhausted flag is set in Redis."""
+    try:
+        return bool(_redis_client().get(_CREDITS_FLAG))
+    except Exception:
+        return False
+
+
+def _set_credits_exhausted() -> None:
+    """Set the credits-exhausted flag with a 1h TTL."""
+    try:
+        _redis_client().setex(_CREDITS_FLAG, _CREDITS_FLAG_TTL, "1")
+        logger.warning("Odds API credits exhausted — flag set for %ds, switching to RapidAPI fallback", _CREDITS_FLAG_TTL)
+    except Exception as e:
+        logger.warning("Could not set credits_exhausted flag: %s", e)
+
+
+def _clear_credits_exhausted() -> None:
+    """Clear the credits-exhausted flag (called when Odds API returns 200 again)."""
+    try:
+        _redis_client().delete(_CREDITS_FLAG)
+        logger.info("Odds API credits restored — cleared credits_exhausted flag")
+    except Exception:
+        pass
+
+
 # ── Raw API calls ──────────────────────────────────────────────────────────────
 
 def _get(path: str, params: dict) -> dict | list | None:
     params["apiKey"] = ODDS_API_KEY
     try:
         r = httpx.get(f"{ODDS_API_BASE}{path}", params=params, timeout=20)
+        if r.status_code in (401, 403):
+            _set_credits_exhausted()
+            return None
         r.raise_for_status()
         remaining = r.headers.get("x-requests-remaining", "?")
         logger.info("OddsAPI %s → OK (credits remaining: %s)", path, remaining)
+        _clear_credits_exhausted()
         return r.json()
     except httpx.HTTPStatusError as e:
-        if e.response.status_code in (404, 422):
+        if e.response.status_code in (401, 403):
+            _set_credits_exhausted()
+        elif e.response.status_code in (404, 422):
             logger.warning("OddsAPI %s → %s (off-season/unavailable)", path, e.response.status_code)
         else:
             logger.error("OddsAPI error %s: %s", path, e)
@@ -138,13 +182,27 @@ def _get(path: str, params: dict) -> dict | list | None:
 
 
 def fetch_events(sport_key: str) -> list[dict]:
-    result = _get(f"/sports/{sport_key}/odds", {
-        "regions":    "us",
-        "markets":    ",".join(MARKETS),
-        "oddsFormat": "american",
-        "bookmakers": ",".join(SPORTSBOOKS),
-    })
-    return result or []
+    # Skip Odds API entirely while credits are known to be exhausted
+    if not _credits_exhausted():
+        result = _get(f"/sports/{sport_key}/odds", {
+            "regions":    "us",
+            "markets":    ",".join(MARKETS),
+            "oddsFormat": "american",
+            "bookmakers": ",".join(SPORTSBOOKS),
+        })
+        if result is not None:
+            return result
+
+    # Fallback to RapidAPI
+    try:
+        from src.apis.rapidapi_odds import fetch_events as _rapidapi_fetch_events, is_available
+        if is_available():
+            logger.info("Odds API credits exhausted — using RapidAPI fallback for %s", sport_key)
+            return _rapidapi_fetch_events(sport_key)
+    except Exception as e:
+        logger.warning("RapidAPI fallback failed for %s: %s", sport_key, e)
+
+    return []
 
 
 def fetch_scores(sport_key: str, days_from: int = 1) -> list[dict]:
