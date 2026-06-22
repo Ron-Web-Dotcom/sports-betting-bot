@@ -129,10 +129,10 @@ def send_daily_summary():
 
     # Pull results from Redis slip tracker
     wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
-    total = wins + losses + pushes
+    total = wins + losses
 
     pct_str = f" ({round(wins/total*100)}% hit rate)" if total > 0 else ""
-    record  = f"{wins}W – {losses}L – {pushes}P{pct_str}" if total > 0 else "No settled slips yet"
+    record  = f"{wins}W – {losses}L{pct_str}" if total > 0 else "No settled slips yet"
 
     win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips) or "—"
     loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips)  or "—"
@@ -202,10 +202,10 @@ def send_weekly_summary():
         pass
 
     wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=7)
-    total = wins + losses + pushes
+    total = wins + losses
 
     pct_str = f" ({round(wins/total*100)}% hit rate)" if total > 0 else ""
-    record  = f"{wins}W – {losses}L – {pushes}P{pct_str}" if total > 0 else "No settled slips this week"
+    record  = f"{wins}W – {losses}L{pct_str}" if total > 0 else "No settled slips this week"
 
     win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
     loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
@@ -327,14 +327,14 @@ def enter_sleep_mode():
 
     # Pull today's settled results from Redis slip tracker
     wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
-    total = wins + losses + pushes
+    total = wins + losses
 
     if total == 0:
         record_str = "No settled picks today — results appear as games finish."
         color = 0x1A237E
     else:
         pct = round(wins / total * 100) if total else 0
-        record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
+        record_str = f"**{wins}W – {losses}L** ({pct}% hit rate)"
         color = 0x1A237E
 
     win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
@@ -344,9 +344,9 @@ def enter_sleep_mode():
     if et.weekday() == 0:  # 0 = Monday; 3 AM Monday = Sunday night rollover
         try:
             w_wins, w_losses, w_pushes, w_winners, w_losers = _load_slip_results(days_back=7)
-            w_total  = w_wins + w_losses + w_pushes
+            w_total  = w_wins + w_losses
             w_pct    = f" ({round(w_wins/w_total*100)}% hit rate)" if w_total > 0 else ""
-            w_record = f"{w_wins}W – {w_losses}L – {w_pushes}P{w_pct}" if w_total > 0 else "No settled slips this week"
+            w_record = f"{w_wins}W – {w_losses}L{w_pct}" if w_total > 0 else "No settled slips this week"
             w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners[:5]) or "—"
             w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers[:5])  or "—"
             w_sport: dict = {}
@@ -666,14 +666,14 @@ def yesterday_recap():
     # Pull results from Redis slip tracker (not DB — DB is unused)
     # days_back=2 so morning recap at 6 AM catches slips from yesterday (created the day before)
     wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=2)
-    total = wins + losses + pushes
+    total = wins + losses
 
     if total == 0:
         record_str = "No settled picks yesterday — results appear as games finish."
         color = 0x607D8B
     else:
         pct = round(wins / total * 100) if total else 0
-        record_str = f"**{wins}W – {losses}L – {pushes}P** ({pct}% hit rate)"
+        record_str = f"**{wins}W – {losses}L** ({pct}% hit rate)"
         color = 0x00C851 if wins >= losses else 0xE53935
 
     win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:3]) or "—"

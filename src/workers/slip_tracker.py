@@ -249,10 +249,10 @@ def _ticket_header(slip: dict) -> str:
 
 def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | None = None) -> None:
     platform = _platform_label(slip["platform"])
-    w, l, p  = ratio["wins"], ratio["losses"], ratio.get("pushes", 0)
+    w, l     = ratio["wins"], ratio["losses"]
     total    = w + l
     pct_str  = f"  ·  {round(w / total * 100)}% win rate" if total > 0 else ""
-    record   = f"{w}W – {l}L{' – ' + str(p) + 'P' if p else ''}{pct_str}"
+    record   = f"{w}W – {l}L{pct_str}"
 
     if result == "cashed":
         title  = "✅  SLIP CASHED"
