@@ -562,7 +562,9 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     # Snapshot freshness: captured within last 6 ET hours
     cutoff_lo = now_et - timedelta(hours=6)
 
-    # Game window: ET end-of-tomorrow (so the full day+night slate is always covered)
+    # Game window: include games that started up to 3 hours ago (props still live)
+    # through end of tomorrow so the full day+night slate is always covered.
+    cutoff_started = now_utc - timedelta(hours=3)
     et_eod = now_et_aware.replace(hour=23, minute=59, second=59) + timedelta(days=1)
     cutoff_hi = et_eod.astimezone(timezone.utc).replace(tzinfo=None)
 
@@ -574,8 +576,8 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
             .filter(
                 OddsSnapshot.captured_at >= cutoff_lo,
                 Game.commence_time != None,
-                Game.commence_time >= now_utc,    # not already started (ET-anchored, stored as UTC)
-                Game.commence_time <  cutoff_hi,  # within ET end-of-tomorrow
+                Game.commence_time >= cutoff_started,  # include games started <3h ago
+                Game.commence_time <  cutoff_hi,       # within ET end-of-tomorrow
             )
             .all()
         )
