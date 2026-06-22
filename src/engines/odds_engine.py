@@ -460,14 +460,61 @@ def best_odds(event_norm: dict, market: str, selection: str) -> dict | None:
 
 # ── Full scan ──────────────────────────────────────────────────────────────────
 
+def get_live_active_sport_keys() -> set[str]:
+    """
+    Ask the Odds API which sports currently have active events.
+    Costs 1 credit. Cached in Redis for 6 hours.
+    Returns the set of sport keys that are actually in season RIGHT NOW —
+    no hardcoded dates, works correctly across year boundaries.
+    """
+    import json
+    from src.core.config import REDIS_URL, ODDS_API_KEY, ODDS_API_BASE
+    _CACHE_KEY = "oddsapi:active_sport_keys"
+    _TTL = 6 * 3600  # 6 hours
+
+    try:
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        cached = r.get(_CACHE_KEY)
+        if cached:
+            return set(json.loads(cached))
+    except Exception:
+        r = None
+
+    # Live call — /sports returns only sports with upcoming events
+    try:
+        from src.apis.base import get_json
+        data = get_json(f"{ODDS_API_BASE}/sports", {"apiKey": ODDS_API_KEY, "all": "false"})
+        if not data or not isinstance(data, list):
+            logger.warning("Odds API /sports returned no data — falling back to full SPORTS list")
+            return set(SPORTS.values())
+
+        active = {s["key"] for s in data if not s.get("has_outrights", False)}
+        logger.info("Odds API: %d active in-season sports", len(active))
+
+        if r and active:
+            try:
+                r.setex(_CACHE_KEY, _TTL, json.dumps(list(active)))
+            except Exception:
+                pass
+        return active
+    except Exception as e:
+        logger.warning("get_live_active_sport_keys failed: %s — using full list", e)
+        return set(SPORTS.values())
+
+
 def scan_all_sports() -> dict[str, list[dict]]:
     """
-    Scan ALL sports on Odds API — every sport, every league, men's and women's.
-    No filtering, no gating. Sofascore already told us what's playing at 8 AM;
-    we don't re-check it here. We just pull every line available.
+    Scan only sports the Odds API confirms have active events right now.
+    Uses a live /sports check (cached 6h) so seasons auto-detect without
+    any hardcoded dates — works correctly across year boundaries.
     """
-    sport_keys = set(SPORTS.values())
-    logger.info("OddsAPI scanning %d sport keys...", len(sport_keys))
+    # Only scan sport keys that (a) are in our alias map AND (b) Odds API says are active
+    known_keys   = set(SPORTS.values())
+    active_keys  = get_live_active_sport_keys()
+    sport_keys   = known_keys & active_keys  # intersection — must be in both
+
+    logger.info("OddsAPI scanning %d in-season sport keys (of %d known)...", len(sport_keys), len(known_keys))
     result: dict[str, list[dict]] = {}
     for sport_key in sport_keys:
         events = fetch_events(sport_key)
@@ -475,7 +522,7 @@ def scan_all_sports() -> dict[str, list[dict]]:
             result[sport_key] = [normalise_event(e, sport_key) for e in events]
             logger.info("Odds: %d events for %s", len(events), sport_key)
     if not result:
-        logger.warning("OddsAPI: 0 events across ALL %d sports — check API key quota and sport availability", len(sport_keys))
+        logger.warning("OddsAPI: 0 events — check API key quota and sport availability")
     return result
 
 

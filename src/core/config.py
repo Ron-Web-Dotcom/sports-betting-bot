@@ -95,8 +95,9 @@ PORTFOLIO_BUILD_HOUR        = int(os.getenv("PORTFOLIO_BUILD_HOUR",         "8")
 # ── Pre-game alert windows (minutes before tip) ────────────────────────────────
 PREGAME_ALERT_WINDOWS = [60, 30, 15, 10, 5, 0]
 
-# ── Season calendar — (month_start, day_start, month_end, day_end) ─────────────
-# Sports auto-enable/disable based on today's date. No manual changes needed.
+# ── Season calendar — fallback only, used when Odds API is unreachable ──────────
+# Primary source of truth is the Odds API /sports endpoint (cached 6h in Redis).
+# These dates are approximate and used as a last resort only.
 _SEASON_CALENDAR: dict[str, tuple[int, int, int, int]] = {
     # ── US Major Sports ───────────────────────────────────────────────────────
     "baseball_mlb":                              (3, 20, 10, 31),  # late Mar – Oct
@@ -392,12 +393,15 @@ def _is_in_season(api_key: str) -> bool:
 
 
 def _build_active_sports() -> dict[str, str]:
-    """Return only the alias→api_key pairs whose season is active today."""
-    active_keys = {v for v in _ALL_SPORTS.values() if _is_in_season(v)}
-    return {alias: key for alias, key in _ALL_SPORTS.items() if key in active_keys}
+    """
+    Return full alias→api_key map.
+    The Odds API scan itself filters to only sports with live events (via /sports endpoint).
+    Season calendar is fallback only — Odds API is source of truth.
+    """
+    return dict(_ALL_SPORTS)
 
 
-# ── Sports tracked — auto-filtered to in-season only ──────────────────────────
+# ── Sports tracked — full list, Odds API filters to in-season at scan time ────
 SPORTS = _build_active_sports()
 
 SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
