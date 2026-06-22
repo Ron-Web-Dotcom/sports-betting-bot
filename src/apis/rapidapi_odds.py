@@ -516,7 +516,8 @@ def _fetch_sportsbook_api(sport_key: str) -> list[dict]:
     if not sport_label:
         return []
 
-    params = {"sport": sport_label}
+    # type=matchups returns upcoming game odds; required by the API
+    params = {"type": "matchups", "sport": sport_label}
     data = _get(_SPORTSBOOK_HOST, "/v0/advantages/", params=params)
     if not data:
         logger.warning("Sportsbook API: no data for %s (%s)", sport_key, sport_label)
@@ -525,15 +526,81 @@ def _fetch_sportsbook_api(sport_key: str) -> list[dict]:
     return _parse_sportsbook_response(data, sport_key)
 
 
+_ODDSPAPI_SPORTS_CACHE_KEY = "rapidapi:oddspapi:sports"
+_ODDSPAPI_SPORTS_CACHE_TTL = 6 * 3600  # 6 hours
+
+
+def _get_oddspapi_sport_id(sport_key: str) -> str | None:
+    """
+    Resolve sport_key → OddsPapi sport_id.
+    Tries live /sports/ discovery first (cached 6h), falls back to static map.
+    """
+    # 1. Check dynamic cache
+    try:
+        r = _redis()
+        raw = r.get(_ODDSPAPI_SPORTS_CACHE_KEY)
+        if raw:
+            dynamic_map: dict = json.loads(raw)
+            if sport_key in dynamic_map:
+                return dynamic_map[sport_key]
+    except Exception:
+        pass
+
+    # 2. Try to discover from /sports/ endpoint
+    try:
+        sports_data = _get(_ODDSPAPI_HOST, "/sports/")
+        if sports_data:
+            rows = sports_data if isinstance(sports_data, list) else (
+                sports_data.get("data") or sports_data.get("sports") or sports_data.get("results") or []
+            )
+            # Build name→id map from API response
+            discovered: dict[str, str] = {}
+            for s in rows:
+                sid   = str(s.get("id") or s.get("sport_id") or "")
+                sname = (s.get("name") or s.get("sport") or s.get("league") or "").lower()
+                sslug = (s.get("slug") or s.get("key") or "").lower()
+                if sid:
+                    discovered[sname] = sid
+                    if sslug:
+                        discovered[sslug] = sid
+
+            # Reverse-match our sport_key to a name in the discovered map
+            sport_label = sport_key.replace("soccer_", "").replace("_", " ")
+            matched_id = None
+            for name, sid in discovered.items():
+                if sport_label in name or name in sport_label:
+                    matched_id = sid
+                    break
+
+            # Cache the raw discovered map for next call
+            if discovered:
+                try:
+                    r = _redis()
+                    r.setex(_ODDSPAPI_SPORTS_CACHE_KEY, _ODDSPAPI_SPORTS_CACHE_TTL, json.dumps(discovered))
+                except Exception:
+                    pass
+
+            if matched_id:
+                return matched_id
+    except Exception as e:
+        logger.debug("OddsPapi /sports/ discovery failed: %s", e)
+
+    # 3. Fall back to static map
+    return _ODDSPAPI_SPORT_MAP.get(sport_key)
+
+
 def _fetch_oddspapi(sport_key: str) -> list[dict]:
     """Fetch from OddsPapi (soccer)."""
-    sport_id = _ODDSPAPI_SPORT_MAP.get(sport_key)
+    sport_id = _get_oddspapi_sport_id(sport_key)
     if not sport_id:
         logger.debug("OddsPapi: no sport_id mapping for %s", sport_key)
         return []
 
     params = {"sport_id": sport_id}
     data = _get(_ODDSPAPI_HOST, "/fixtures/", params=params)
+    if not data:
+        # Some leagues use /odds/ endpoint instead
+        data = _get(_ODDSPAPI_HOST, "/odds/", params=params)
     if not data:
         logger.warning("OddsPapi: no data for %s (sport_id=%s)", sport_key, sport_id)
         return []
