@@ -191,7 +191,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
         _rr = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         _idx = _rr.get("sofascore:today_index")
         if _idx:
-            _today_teams = set(json.loads(_idx).keys())
+            _today_teams = set(_jc.loads(_idx).keys())
     except Exception:
         pass
 

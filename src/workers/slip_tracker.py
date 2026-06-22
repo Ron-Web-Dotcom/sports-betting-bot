@@ -451,7 +451,7 @@ def _check_pick_result(pick: dict) -> str | None:
 
                 elif market == "totals":
                     total = sum(float(s.get("score", 0) or 0) for s in score_list)
-                    line = pick.get("line") or pick.get("best_odds")
+                    line = pick.get("line") or pick.get("line_value") or pick.get("total_line")
                     direction = (pick.get("direction") or pick.get("selection") or "").lower()
                     if not line:
                         return None
@@ -596,13 +596,14 @@ def track_slips() -> dict:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    elif ct and (now - ct).total_seconds() > 14400:
-                        # 4+ hours past close_time with no settled result —
-                        # Kalshi is slow to settle. Mark unknown so slip can resolve.
+                    elif not ct or (now - ct).total_seconds() > 14400:
+                        # No parseable time OR 4+ hours past close_time with no result —
+                        # mark unknown so the slip can resolve rather than deadlocking.
                         results.append("unknown")
                         logger.info(
-                            "Slip %s: Kalshi market %s unsettled after 4h — marking unknown",
+                            "Slip %s: Kalshi market %s unsettled%s — marking unknown",
                             slip.get("id"), pick.get("market_id", "?"),
+                            " (no close_time)" if not ct else " after 4h",
                         )
                 else:
                     if not ct:
