@@ -277,7 +277,7 @@ def send_hardrock_entry(games: list[dict]):
 
 
 def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
-    """Shared embed builder — identical layout for Kalshi and Polymarket, different branding."""
+    """Embed builder for Kalshi prediction market entries."""
     import hashlib, zoneinfo
     from datetime import datetime
 
@@ -287,10 +287,9 @@ def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
         "hockey": "🏒  HOCKEY", "tennis": "🎾  TENNIS",
         "mma": "🥊  MMA", "golf": "⛳  GOLF",
     }
-    _COLORS  = {"kalshi": 0x1B5E20, "polymarket": 0x1B5E20}
+    _COLORS  = {"kalshi": 0x1B5E20}
     _FOOTERS = {
-        "kalshi":     "Kalshi · Place manually · Prediction markets — not a sportsbook · Bet responsibly",
-        "polymarket": "Kalshi · Place manually · Prediction markets — not a sportsbook · Bet responsibly",
+        "kalshi": "Kalshi · Place manually · Prediction markets — not a sportsbook · Bet responsibly",
     }
 
     m          = markets[0]
@@ -530,19 +529,6 @@ def send_watchlist_update(watchlist: list[dict]):
         logger.info("Watchlist posted: %d props on radar", len(watchlist))
     except Exception as e:
         logger.error("Failed to send watchlist: %s", e)
-
-
-def send_polymarket_entry(markets: list[dict]):
-    """Post Polymarket prediction market entry — shared slip template, purple branding."""
-    from src.discord_bot.bot import _post
-    import asyncio
-    if not markets:
-        return
-    try:
-        asyncio.run(_post({"embeds": [_prediction_market_embed("polymarket", markets)]}))
-        logger.info("Polymarket entry posted")
-    except Exception as e:
-        logger.error("Failed to send Polymarket entry: %s", e)
 
 
 def send_line_shop_alert(opportunities: list[dict]):

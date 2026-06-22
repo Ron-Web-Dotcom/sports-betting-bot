@@ -107,7 +107,7 @@ def save_slip(period: str, platform: str, picks: list[dict]) -> str:
     duplicate tracking alerts from multiple restarts.
 
     period:   "day" | "night"
-    platform: "hardrock" | "kalshi" | "polymarket"
+    platform: "hardrock" | "kalshi"
     picks:    list of pick dicts from the entry generator
     """
     import time
@@ -190,7 +190,7 @@ def _post_embed(embed: dict) -> None:
 
 
 def _platform_label(platform: str) -> str:
-    return {"hardrock": "HardRock", "kalshi": "Kalshi", "polymarket": "Polymarket"}.get(platform, platform.title())
+    return {"hardrock": "HardRock", "kalshi": "Kalshi"}.get(platform, platform.title())
 
 
 def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:

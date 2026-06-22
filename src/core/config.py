@@ -219,8 +219,6 @@ PROXY_BYPASS_HOSTS = {
     "api.the-odds-api.com",
     "external-api.kalshi.com",
     "api.openai.com",
-    "gamma-api.polymarket.com",
-    "clob.polymarket.com",
     "api.sleeper.app",
     # site.api.espn.com removed — ESPN blocks VPS datacenter IPs; route through Decodo residential proxy
     "api.underdogfantasy.com",   # works direct — blocks proxy IPs

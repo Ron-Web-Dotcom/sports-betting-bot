@@ -619,8 +619,6 @@ def health_check():
         odds_props = json.loads(odds_raw) if odds_raw else []
         kalshi_raw = r.get("kalshi:markets")
         kalshi_props = json.loads(kalshi_raw) if kalshi_raw else []
-        poly_raw = r.get("polymarket:markets")
-        poly_props = json.loads(poly_raw) if poly_raw else []
         # Count active picks from slip tracker
         slips_raw = r.hgetall("slips:active")
         active_slips = [v for v in slips_raw.values() if '"status": "active"' in v] if slips_raw else []

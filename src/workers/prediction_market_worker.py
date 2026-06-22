@@ -1,16 +1,15 @@
 """
-Prediction Market Worker — Kalshi vs Polymarket entry generator.
+Prediction Market Worker — Kalshi entry generator.
 
 Mirrors the HardRock entry workflow but for prediction markets:
-  - Scans Kalshi + Polymarket for ALL live/upcoming sports markets
-  - For each game, picks whichever platform has the better odds (lower price = better value)
-  - Posts a clean Discord entry: platform, game, YES/NO odds, recommendation
+  - Scans Kalshi for ALL live/upcoming sports markets
+  - Posts a clean Discord entry: game, YES/NO odds, recommendation
   - Runs at same times as HardRock entries (day: 10:30 AM, night: 4:30 PM ET)
   - Also polls every 3 min for in-game price moves on active entries
 
 Two entries in Discord every day:
   1. HardRock entry  — standard sportsbook (ML/spread/total)
-  2. Kalshi/Poly entry — prediction markets, best odds across both platforms
+  2. Kalshi entry    — prediction markets
 """
 import json
 import logging
@@ -66,24 +65,6 @@ def _american(p) -> str:
     if p >= 0.5:
         return f"{int(-100 * p / (1 - p))}"
     return f"+{int(100 * (1 - p) / p)}"
-
-
-def _better_platform(km: dict, pm: dict) -> tuple[str, dict]:
-    """
-    Return which platform offers better value (lower YES price = you pay less
-    for the same $1 payout = better odds for the bettor).
-    Falls back to whichever has non-zero data.
-    """
-    ky = float(km.get("yes_price") or 0)
-    py = float(pm.get("yes_price") or 0)
-    if not ky:
-        return "polymarket", pm
-    if not py:
-        return "kalshi", km
-    # Lower price = better value (you're getting better odds)
-    if ky <= py:
-        return "kalshi", km
-    return "polymarket", pm
 
 
 # ── Build the entry ────────────────────────────────────────────────────────────
@@ -161,7 +142,7 @@ def _fetch_todays_games() -> list[dict]:
         return []
 
 
-def _build_entry(kalshi_markets: list[dict], poly_markets: list[dict], max_picks: int = 1) -> list[dict]:
+def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
     """
     Score today's Kalshi markets across ALL market types:
     game winners, player props, game props (totals, BTTS, spreads, team totals).
@@ -382,8 +363,8 @@ Only pick if confidence >= 0.60 and ev_pct >= 0.03. Return {"index": null} if no
 
 # ── Discord embed ──────────────────────────────────────────────────────────────
 
-_PLATFORM_EMOJI  = {"kalshi": "🔵", "polymarket": "🟣"}
-_PLATFORM_LABEL  = {"kalshi": "Kalshi", "polymarket": "Polymarket"}
+_PLATFORM_EMOJI  = {"kalshi": "🔵"}
+_PLATFORM_LABEL  = {"kalshi": "Kalshi"}
 
 
 def _post_prediction_entry(period: str, picks: list[dict]) -> None:
@@ -564,7 +545,7 @@ def _generate_entry(period: str) -> dict:
             logger.info("Kalshi %s entry already posted today — skipping", period)
             return {"skipped": "already_posted", "period": period}
 
-        picks = _build_entry([], [], max_picks=1)
+        picks = _build_entry([], max_picks=1)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks", period)
             try:

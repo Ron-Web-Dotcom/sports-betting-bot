@@ -218,7 +218,6 @@ def scan_player_props():
     Sources:
       Odds API   — ML, spreads, totals, player props (primary — all sports)
       Kalshi     — prediction market contracts
-      Polymarket — prediction markets
       PrizePicks — DISABLED
       Underdog   — DISABLED
 
