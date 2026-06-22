@@ -365,6 +365,8 @@ Only pick if confidence >= 0.60 and ev_pct >= 0.03. Return {"index": null} if no
         "answer":     answer,
         "sport_key":  pick.get("sport_key", ""),
         "market_id":  pick.get("market_id", ""),
+        "home_team":  pick.get("home_team", ""),
+        "away_team":  pick.get("away_team", ""),
         "yes_price":  yes_prob,
         "no_price":   no_prob,
         "true_prob":  true_prob,

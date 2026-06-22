@@ -291,14 +291,43 @@ def _check_kalshi_result(pick: dict) -> str | None:
     """Check Kalshi market result via the API using stored market_id."""
     market_id = pick.get("market_id", "")
     if not market_id:
-        logger.warning("Kalshi result check: no market_id in pick %s", pick.get("question", "?"))
+        # No market_id = came from Odds API fallback, not a real Kalshi market.
+        # Fall through to score-based settlement using home/away team names.
+        home = (pick.get("home_team") or "").lower()
+        away = (pick.get("away_team") or "").lower()
+        sport = pick.get("sport_key", "")
+        if not (home or away) or not sport:
+            logger.warning("Kalshi result check: no market_id and no team info in pick '%s'", pick.get("question", "?"))
+            return None
+        try:
+            from src.engines.odds_engine import fetch_scores
+            scores = fetch_scores(sport, days_from=3)
+            answer = (pick.get("answer") or pick.get("side") or "yes").lower()
+            for item in scores:
+                if not item.get("completed"):
+                    continue
+                ih = (item.get("home_team") or "").lower()
+                ia = (item.get("away_team") or "").lower()
+                if not ((home and (home in ih or ih in home)) or (away and (away in ia or ia in away))):
+                    continue
+                score_list = item.get("scores") or []
+                if not score_list:
+                    continue
+                sorted_s = sorted(score_list, key=lambda s: float(s.get("score", 0) or 0), reverse=True)
+                if len(sorted_s) < 2 or sorted_s[0]["score"] == sorted_s[1]["score"]:
+                    return "push"
+                winner = (sorted_s[0].get("name") or "").lower()
+                if answer == "yes":
+                    return "won" if (home and (home in winner or winner in home)) else "lost"
+                else:
+                    return "won" if not (home and (home in winner or winner in home)) else "lost"
+        except Exception as e:
+            logger.warning("Kalshi fallback score check failed: %s", e)
         return None
     try:
         from src.apis.kalshi import _get
-        # Try settled markets endpoint first
         data = _get(f"/markets/{market_id}")
         if not data:
-            # Fallback: search settled markets
             settled = _get("/markets", {"status": "settled", "limit": 200})
             if settled:
                 markets = settled.get("markets", []) if isinstance(settled, dict) else []
