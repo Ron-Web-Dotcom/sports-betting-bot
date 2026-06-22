@@ -110,11 +110,12 @@ def send_daily_summary():
         pass
 
     # Guard: only post once per calendar day
+    _r = None
+    _day_key = f"daily_summary_sent:{now_et.strftime('%Y-%m-%d')}"
     try:
         from src.core.config import REDIS_URL
         import redis as _redis
         _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        _day_key = f"daily_summary_sent:{now_et.strftime('%Y-%m-%d')}"
         if _r.get(_day_key):
             logger.info("send_daily_summary: already sent today")
             return {"skipped": "already_sent_today"}
@@ -166,7 +167,8 @@ def send_daily_summary():
 
     # Mark as sent so retries at 11 PM / 12:30 AM are no-ops
     try:
-        _r.setex(_day_key, 86400, "1")
+        if _r:
+            _r.setex(_day_key, 86400, "1")
     except Exception:
         pass
 
@@ -190,11 +192,12 @@ def send_weekly_summary():
         return {"skipped": "not_sunday"}
 
     # Guard: only post once per week
+    _r = None
+    _week_key = f"weekly_summary_sent:{now_et.strftime('%Y-W%W')}"
     try:
         from src.core.config import REDIS_URL
         import redis as _redis
         _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        _week_key = f"weekly_summary_sent:{now_et.strftime('%Y-W%W')}"
         if _r.get(_week_key):
             logger.info("send_weekly_summary: already sent this week")
             return {"skipped": "already_sent_this_week"}
@@ -258,7 +261,8 @@ def send_weekly_summary():
     _run_async(_post({"embeds": [embed]}))
 
     try:
-        _r.setex(_week_key, 7 * 86400, "1")
+        if _r:
+            _r.setex(_week_key, 7 * 86400, "1")
     except Exception:
         pass
 
@@ -645,7 +649,7 @@ def health_check():
         import asyncio
         asyncio.run(_post({"embeds": [embed]}))
         logger.info("Health check posted at %s", time_str)
-        return {"status": "ok", "props": len(odds_props) + len(kalshi_props) + len(poly_props)}
+        return {"status": "ok", "props": len(odds_props) + len(kalshi_props)}
 
     except Exception as e:
         logger.error("Health check failed: %s", e)

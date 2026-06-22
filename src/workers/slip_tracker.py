@@ -542,8 +542,12 @@ def track_slips() -> dict:
                 if not ct:
                     continue
                 mins = (ct - now).total_seconds() / 60
+                _home = pick.get("home_team", "")
+                _away = pick.get("away_team", "")
                 gid  = (pick.get("event_id") or pick.get("game_key") or
-                        f"{pick.get('home_team','')}:{pick.get('away_team','')}")
+                        pick.get("market_id") or
+                        (f"{_home}:{_away}" if _home or _away else
+                         (pick.get("question") or pick.get("title") or "unknown")))
                 _game_name = f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
                 name = (pick.get("question") or pick.get("title") or pick.get("player") or
                         (_game_name if _game_name.strip(" @") else ""))
