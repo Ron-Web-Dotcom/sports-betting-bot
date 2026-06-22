@@ -573,7 +573,7 @@ def _build_hardrock_candidates(
 
     _today_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York")).date()
 
-    for game_id, snap_list in list(snapshots.items())[:25]:
+    for game_id, snap_list in list(snapshots.items())[:50]:
         if not snap_list:
             continue
 
@@ -593,10 +593,12 @@ def _build_hardrock_candidates(
             if _ct_et.date() != _today_et:
                 continue
             _now_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York"))
-            # Day entry: all games not yet started (props valid regardless of start time)
-            # Night entry: only games not yet started at entry time (excludes finished day games)
-            if _ct_et <= _now_et:
-                continue  # game already started — skip for both periods
+            # Allow games that started within the last 3 hours — ML/spread lines
+            # are still posted pre-game and props are live early in a game.
+            # Exclude games finished more than 3 hours ago to avoid stale data.
+            _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
+            if _mins_since_start > 180:
+                continue  # game started 3+ hours ago — likely finished, skip
             _is_night = _ct_et.hour >= 18
             if period == "day"   and _is_night:     continue
             if period == "night" and not _is_night: continue
@@ -1463,29 +1465,13 @@ def _generate_hardrock_entry(period: str) -> dict:
                     logger.warning("Perplexity last resort failed: %s", _lr_err)
 
             if len(entry) < 1:
+                logger.info("HardRock %s: no qualifying picks after all research (best_conf=%.0f%%)", period, best_conf * 100)
+                # Release dedup lock so the next runner tick can retry
                 try:
-                    from src.workers.alert_worker import _run_async
-                    from src.discord_bot.bot import _post
-                    period_emoji = "☀️" if period == "day" else "🌙"
-                    period_label = "DAY ENTRY" if period == "day" else "NIGHT ENTRY"
-                    if best_conf == 0:
-                        _no_pick_reason = "No odds data available yet — odds scan may still be loading."
-                    elif best_conf < 70:
-                        _no_pick_reason = f"Best confidence found: **{best_conf}%** — market has no clear edge today."
-                    else:
-                        _no_pick_reason = f"Best confidence found: **{best_conf}%** — just below 77% floor."
-                    _run_async(_post({"embeds": [{
-                        "title": f"🎟️  HARDROCK SLIP  ·  {period_emoji} {period_label}",
-                        "description": (
-                            f"No qualifying picks after all research including web search.\n"
-                            f"{_no_pick_reason}\n"
-                            f"_Protecting bankroll — no edge, no bet._"
-                        ),
-                        "color": 0x546E7A,
-                        "footer": {"text": "HardRock Bet  ·  Bet responsibly"},
-                    }]}))
-                except Exception as _e:
-                    logger.warning("Could not post no-picks alert: %s", _e)
+                    if _r_dedup and _dedup_key:
+                        _r_dedup.delete(_dedup_key)
+                except Exception:
+                    pass
                 return {"picks": 0, "period": period, "posted": False}
 
         _post_hardrock_embed(period, entry)
