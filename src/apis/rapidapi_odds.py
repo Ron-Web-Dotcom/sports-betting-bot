@@ -45,22 +45,80 @@ _LIVESCORE_HOST   = "free-livescore-api.p.rapidapi.com"
 _RAPIDAPI_BASE    = "https://{host}"
 
 # ── Sport routing ──────────────────────────────────────────────────────────────
-# US sports → Sportsbook API
+# Sportsbook API → US + major sports
 _SPORTSBOOK_SPORT_MAP: dict[str, str] = {
-    "americanfootball_nfl":   "NFL",
-    "basketball_nba":         "NBA",
-    "baseball_mlb":           "MLB",
-    "basketball_wnba":        "WNBA",
-    "soccer_usa_mls":         "MLS",
-    "icehockey_nhl":          "NHL",
-    "aussierules_afl":        "AFL",
-    "golf_pga_tour":          "Golf",
-    "golf_lpga":              "Golf",
-    "golf_masters_tournament_winner":      "Golf",
-    "golf_pga_championship_winner":        "Golf",
-    "golf_us_open_winner":                 "Golf",
-    "golf_the_open_championship_winner":   "Golf",
-    "golf_dp_world_tour":                  "Golf",
+    # US Major
+    "americanfootball_nfl":              "NFL",
+    "americanfootball_ncaaf":            "NCAAF",
+    "basketball_nba":                    "NBA",
+    "basketball_wnba":                   "WNBA",
+    "basketball_ncaab":                  "NCAAB",
+    "basketball_wncaab":                 "NCAAB",
+    "baseball_mlb":                      "MLB",
+    "icehockey_nhl":                     "NHL",
+    "icehockey_pwhl":                    "PWHL",
+    # Soccer via Sportsbook API (fallback for those not in OddsPapi)
+    "soccer_usa_mls":                    "MLS",
+    "soccer_usa_nwsl":                   "NWSL",
+    "soccer_fifa_club_world_cup":        "FIFA Club World Cup",
+    "soccer_epl":                        "English Premier League",
+    "soccer_germany_bundesliga":         "German Bundesliga",
+    "soccer_spain_la_liga":              "Spanish La Liga",
+    "soccer_italy_serie_a":              "Italian Serie A",
+    "soccer_france_ligue_one":           "French Ligue 1",
+    # Combat
+    "mma_mixed_martial_arts":            "MMA",
+    "boxing_boxing":                     "Boxing",
+    # Golf
+    "golf_pga_tour":                     "Golf",
+    "golf_lpga":                         "Golf",
+    "golf_masters_tournament_winner":    "Golf",
+    "golf_pga_championship_winner":      "Golf",
+    "golf_us_open_winner":               "Golf",
+    "golf_the_open_championship_winner": "Golf",
+    "golf_dp_world_tour":                "Golf",
+    # Aussie Rules
+    "aussierules_afl":                   "AFL",
+    "aussierules_aflw":                  "AFL",
+    # Rugby
+    "rugbyleague_nrl":                   "NRL",
+    "rugbyleague_nrl_state_of_origin":   "NRL",
+    "rugbyunion_super_rugby":            "Rugby Union",
+    "rugbyunion_premiership":            "Rugby Union",
+    "rugbyunion_top14":                  "Rugby Union",
+    "rugbyunion_united_rugby_championship": "Rugby Union",
+    "rugbyunion_world_cup":              "Rugby Union",
+    # Tennis
+    "tennis_atp_wimbledon":              "Tennis",
+    "tennis_wta_wimbledon":              "Tennis",
+    "tennis_atp_us_open":                "Tennis",
+    "tennis_wta_us_open":                "Tennis",
+    "tennis_atp_australian_open":        "Tennis",
+    "tennis_wta_aus_open_singles":       "Tennis",
+    "tennis_atp_french_open":            "Tennis",
+    "tennis_wta_french_open":            "Tennis",
+    "tennis_atp_queens_club_champ":      "Tennis",
+    "tennis_atp_halle_open":             "Tennis",
+    "tennis_wta_german_open":            "Tennis",
+    "tennis_atp_toronto":                "Tennis",
+    "tennis_wta_toronto":                "Tennis",
+    "tennis_atp_cincinnati":             "Tennis",
+    "tennis_wta_cincinnati":             "Tennis",
+    "tennis_atp_madrid":                 "Tennis",
+    "tennis_atp_rome":                   "Tennis",
+    "tennis_atp_miami":                  "Tennis",
+    "tennis_atp_indian_wells":           "Tennis",
+    # Cricket
+    "cricket_international_t20":         "Cricket",
+    "cricket_odi":                       "Cricket",
+    "cricket_test_match":                "Cricket",
+    "cricket_ipl":                       "Cricket",
+    "cricket_t20_blast":                 "Cricket",
+    "cricket_t20_world_cup_womens":      "Cricket",
+    # Motor Racing
+    "motorsport_formula_1":              "Formula 1",
+    "motorsport_indycar":                "IndyCar",
+    "motorsport_nascar_cup_series":      "NASCAR",
 }
 
 # Soccer → OddsPapi (sport_id values known from their /sports endpoint)
@@ -433,11 +491,14 @@ def fetch_events(sport_key: str) -> list[dict]:
     events: list[dict] = []
 
     if sport_key.startswith("soccer_"):
+        # Try OddsPapi first for soccer (wider coverage), fall back to Sportsbook API
         events = _fetch_oddspapi(sport_key)
+        if not events and sport_key in _SPORTSBOOK_SPORT_MAP:
+            events = _fetch_sportsbook_api(sport_key)
     elif sport_key in _SPORTSBOOK_SPORT_MAP:
         events = _fetch_sportsbook_api(sport_key)
     else:
-        logger.debug("RapidAPI: no route for sport_key=%s", sport_key)
+        logger.debug("RapidAPI: no route for sport_key=%s — skipping", sport_key)
         return []
 
     if events:
