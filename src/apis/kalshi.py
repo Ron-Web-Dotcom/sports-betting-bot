@@ -193,31 +193,34 @@ _KALSHI_FUTURES = [
 
 
 def _kalshi_is_game_day(close_time: str) -> bool:
-    """Return True only if market closes within 24 hours — today's games only."""
+    """Return True if market closes within 36 hours (or has no close_time — assume live)."""
     if not close_time:
-        return False  # no date = skip
+        return True  # no close_time = treat as current/live
     try:
         from datetime import datetime, timezone, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        return timedelta(0) <= (dt - now) <= timedelta(hours=12)
+        return timedelta(-1) <= (dt - now) <= timedelta(hours=36)
     except Exception:
-        return False
+        return True  # unparseable = include rather than drop
 
 
 def get_sports_markets() -> list[dict]:
     """
-    Fetch active SINGLE-GAME sports markets from Kalshi (closes within 48 h).
+    Fetch active SINGLE-GAME sports markets from Kalshi (closes within 36 h).
     Excludes tournament futures and politics.
     """
-    data = _get("/markets", {"limit": 200, "status": "open"})
-    if not data:
-        return []
-
-    markets_raw = data.get("markets", []) if isinstance(data, dict) else []
-    if not markets_raw:
-        data2 = _get("/markets", {"limit": 200})
-        markets_raw = (data2 or {}).get("markets", []) if isinstance(data2, dict) else []
+    markets_raw: list[dict] = []
+    for params in [
+        {"limit": 200, "status": "open", "category": "Sports"},
+        {"limit": 200, "status": "open"},
+        {"limit": 200},
+    ]:
+        data = _get("/markets", params)
+        if data:
+            markets_raw = data.get("markets", []) if isinstance(data, dict) else []
+            if markets_raw:
+                break
 
     out = []
     for m in markets_raw:
@@ -321,16 +324,26 @@ def get_sports_events(limit: int = 100) -> list[dict]:
     """
     Fetch today's sports events from Kalshi with ALL their sub-markets
     (player props, game props, spreads, totals, BTTS, team totals, etc).
-    Returns flat list of all markets across all events closing within 24 h.
+    Returns flat list of all markets across all events closing within 36 h.
     """
-    # Try with nested markets first; fall back without if param unsupported
-    data = _get("/events", {"limit": limit, "status": "open", "with_nested_markets": "true"})
-    if not data or not (data.get("events") if isinstance(data, dict) else None):
-        data = _get("/events", {"limit": limit, "status": "open"})
-    if not data:
-        return []
+    events_raw: list[dict] = []
 
-    events_raw = data.get("events", []) if isinstance(data, dict) else []
+    # Query with Sports category filter first — most targeted
+    for params in [
+        {"limit": limit, "status": "open", "category": "Sports", "with_nested_markets": "true"},
+        {"limit": limit, "status": "open", "category": "Sports"},
+        {"limit": limit, "status": "open", "with_nested_markets": "true"},
+        {"limit": limit, "status": "open"},
+    ]:
+        data = _get("/events", params)
+        if data and isinstance(data, dict):
+            events_raw = data.get("events", [])
+            if events_raw:
+                logger.info("Kalshi /events: %d events (params=%s)", len(events_raw), params)
+                break
+
+    if not events_raw:
+        return []
     out = []
     for ev in events_raw:
         ev_title    = (ev.get("title") or "").lower()
