@@ -205,24 +205,23 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
     if kalshi_full:
         # Use Kalshi's own markets — filter to markets closing TODAY in ET
         # AND cross-reference with Sofascore to confirm game is today
+        from dateutil.parser import parse as _dp
+        from datetime import datetime as _dt2, timezone as _tz, timedelta as _td
+        _now_utc = _dt2.now(_tz.utc)
+
         for m in kalshi_full[:200]:
             yes_prob = m.get("yes_price", 0)
             no_prob  = round(1 - yes_prob, 4)
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
-            # Drop markets that closed more than 1 day ago or close more than 14 days out
-            _ct = m.get("close_time", "")
-            if _ct:
+            # game_time = actual game start (expected_expiration_time from Kalshi)
+            # Already filtered to today in get_sports_events(), but double-check here
+            _gt = m.get("game_time") or m.get("close_time", "")
+            if _gt:
                 try:
-                    from dateutil.parser import parse as _dp
-                    from datetime import timedelta as _td
-                    _ct_utc = _dp(_ct)
-                    from datetime import datetime as _dt2, timezone as _tz
-                    _now_utc = _dt2.now(_tz.utc)
-                    if _ct_utc < _now_utc - _td(days=1):
-                        continue  # already closed
-                    if _ct_utc > _now_utc + _td(days=14):
-                        continue  # too far out — likely futures
+                    _gt_utc = _dp(_gt)
+                    if _gt_utc < _now_utc - _td(hours=4):
+                        continue  # game already finished
                 except Exception:
                     pass
             candidates.append({
@@ -235,7 +234,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 "yes_american": m.get("yes_american", 0),
                 "no_american":  m.get("no_american", 0),
                 "volume":       m.get("volume", 0),
-                "close_time":   m.get("close_time", ""),
+                "close_time":   m.get("game_time") or m.get("close_time", ""),
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)  # highest liquidity first
     else:

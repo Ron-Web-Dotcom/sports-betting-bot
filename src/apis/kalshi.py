@@ -410,6 +410,27 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
+        # Filter by expected_expiration_time (actual game time) — today's games only
+        # Allow games that started up to 3h ago through end of today ET
+        exp_raw = m.get("expected_expiration_time") or m.get("expiration_time") or ""
+        if exp_raw:
+            try:
+                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                import zoneinfo as _zi
+                _ET = _zi.ZoneInfo("America/New_York")
+                _exp_utc = _dt.fromisoformat(exp_raw.replace("Z", "+00:00"))
+                _now_utc = _dt.now(_tz.utc)
+                _exp_et  = _exp_utc.astimezone(_ET)
+                _now_et  = _now_utc.astimezone(_ET)
+                # Include if game is today ET (allow -3h for recently started, +24h for tonight)
+                _today_et = _now_et.date()
+                if not (_exp_et.date() == _today_et or
+                        (_exp_et.date() == (_today_et) and _exp_utc >= _now_utc - _td(hours=3))):
+                    if _exp_et.date() != _today_et:
+                        continue
+            except Exception:
+                pass  # if unparseable, include it
+
         yes_bid = float(m.get("yes_bid_dollars") or m.get("yes_bid") or 0)
         yes_ask = float(m.get("yes_ask_dollars") or m.get("yes_ask") or 0)
         no_bid  = float(m.get("no_bid_dollars")  or m.get("no_bid")  or 0)
@@ -441,9 +462,10 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             "no_price":     round(no_mid,  4),
             "yes_american": _prob_to_american(yes_mid),
             "no_american":  _prob_to_american(no_mid),
-            "volume":       vol,
-            "close_time":   m.get("close_time", ""),
-            "source":       "kalshi",
+            "volume":            vol,
+            "close_time":        m.get("close_time", ""),
+            "game_time":         m.get("expected_expiration_time") or m.get("expiration_time") or "",
+            "source":            "kalshi",
         })
 
     out.sort(key=lambda x: x["volume"], reverse=True)
