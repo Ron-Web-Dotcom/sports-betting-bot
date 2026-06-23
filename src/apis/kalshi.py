@@ -332,28 +332,65 @@ def get_event_markets(event_ticker: str) -> list[dict]:
 
 def get_sports_events(limit: int = 500) -> list[dict]:
     """
-    Fetch active sports markets from Kalshi using /markets endpoint with pagination.
-    Covers MLB, soccer (FIFA Club World Cup, MLS, etc.), player props, game props.
+    Fetch active sports markets from Kalshi.
+    Queries known sports series tickers directly (most reliable) then falls
+    back to paginated /markets scan. Covers MLB, WNBA, FIFA CWC, MLS, NFL, NBA, NHL, tennis.
     Returns flat list of markets sorted by volume.
     """
-    all_markets: list[dict] = []
-    cursor = None
+    # Known Kalshi sports series tickers — query each directly for best results
+    _SERIES = [
+        "KXMLBGAME",   # MLB game winners
+        "KXMLBTOTAL",  # MLB run totals
+        "KXWCGAME",    # FIFA Club World Cup game winners
+        "KXWCTOTAL",   # FIFA Club World Cup goal totals
+        "KXWNBAGAME",  # WNBA game winners
+        "KXWNBATOTAL", # WNBA totals
+        "KXMLSGAME",   # MLS game winners
+        "KXMLSTOTAL",  # MLS totals
+        "KXNFLGAME",   # NFL game winners (future)
+        "KXNFLTOTAL",  # NFL totals (future)
+        "KXNBAGAME",   # NBA game winners (future)
+        "KXNBATOTAL",  # NBA totals (future)
+        "KXNHLGAME",   # NHL game winners (future)
+        "KXNHLTOTAL",  # NHL totals (future)
+        "KXTENNIS",    # Tennis (Wimbledon, US Open etc.)
+        "KXGOLF",      # Golf tournaments
+        "KXUFC",       # UFC/MMA
+    ]
 
-    # Paginate through /markets until we have enough or run out
-    for _ in range(10):
-        params: dict = {"limit": 100, "status": "open"}
-        if cursor:
-            params["cursor"] = cursor
-        data = _get("/markets", params)
-        if not data or not isinstance(data, dict):
-            break
-        batch = data.get("markets", [])
-        if not batch:
-            break
-        all_markets.extend(batch)
-        cursor = data.get("cursor")
-        if not cursor or len(all_markets) >= limit:
-            break
+    all_markets: list[dict] = []
+    seen_tickers: set[str] = set()
+
+    # 1. Direct series queries — most reliable, hits the right markets immediately
+    for series in _SERIES:
+        data = _get("/markets", {"limit": 100, "status": "open", "series_ticker": series})
+        if data and isinstance(data, dict):
+            for m in data.get("markets", []):
+                t = m.get("ticker", "")
+                if t and t not in seen_tickers:
+                    seen_tickers.add(t)
+                    all_markets.append(m)
+
+    logger.info("Kalshi series fetch: %d markets from %d series", len(all_markets), len(_SERIES))
+
+    # 2. Fallback: paginated scan catches anything not in known series
+    if len(all_markets) < 20:
+        cursor = None
+        for _ in range(5):
+            params: dict = {"limit": 100, "status": "open"}
+            if cursor:
+                params["cursor"] = cursor
+            data = _get("/markets", params)
+            if not data or not isinstance(data, dict):
+                break
+            for m in data.get("markets", []):
+                t = m.get("ticker", "")
+                if t and t not in seen_tickers:
+                    seen_tickers.add(t)
+                    all_markets.append(m)
+            cursor = data.get("cursor")
+            if not cursor:
+                break
 
     logger.info("Kalshi /markets: %d total fetched", len(all_markets))
 
