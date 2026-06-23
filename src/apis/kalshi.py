@@ -320,79 +320,75 @@ def get_event_markets(event_ticker: str) -> list[dict]:
     return out
 
 
-def get_sports_events(limit: int = 100) -> list[dict]:
+def get_sports_events(limit: int = 500) -> list[dict]:
     """
-    Fetch today's sports events from Kalshi with ALL their sub-markets
-    (player props, game props, spreads, totals, BTTS, team totals, etc).
-    Returns flat list of all markets across all events closing within 36 h.
+    Fetch active sports markets from Kalshi using /markets endpoint with pagination.
+    Covers MLB, soccer (FIFA Club World Cup, MLS, etc.), player props, game props.
+    Returns flat list of markets sorted by volume.
     """
-    events_raw: list[dict] = []
+    all_markets: list[dict] = []
+    cursor = None
 
-    # Query with Sports category filter first — most targeted
-    for params in [
-        {"limit": limit, "status": "open", "category": "Sports", "with_nested_markets": "true"},
-        {"limit": limit, "status": "open", "category": "Sports"},
-        {"limit": limit, "status": "open", "with_nested_markets": "true"},
-        {"limit": limit, "status": "open"},
-    ]:
-        data = _get("/events", params)
-        if data and isinstance(data, dict):
-            events_raw = data.get("events", [])
-            if events_raw:
-                logger.info("Kalshi /events: %d events (params=%s)", len(events_raw), params)
-                break
+    # Paginate through /markets until we have enough or run out
+    for _ in range(10):
+        params: dict = {"limit": 100, "status": "open"}
+        if cursor:
+            params["cursor"] = cursor
+        data = _get("/markets", params)
+        if not data or not isinstance(data, dict):
+            break
+        batch = data.get("markets", [])
+        if not batch:
+            break
+        all_markets.extend(batch)
+        cursor = data.get("cursor")
+        if not cursor or len(all_markets) >= limit:
+            break
 
-    if not events_raw:
-        return []
+    logger.info("Kalshi /markets: %d total fetched", len(all_markets))
+
     out = []
-    for ev in events_raw:
-        ev_title    = (ev.get("title") or "").lower()
-        ev_category = (ev.get("category") or "").lower()
-        ev_tags     = [t.lower() for t in (ev.get("tags") or [])]
+    for m in all_markets:
+        title = (m.get("title") or "").lower()
 
-        # Sports only
+        # Sports keyword filter
         is_sports = (
-            "sports" in ev_category
-            or any(kw in ev_title for kw in _SPORTS_KEYWORDS)
-            or any(kw in " ".join(ev_tags) for kw in _SPORTS_KEYWORDS)
+            any(kw in title for kw in _SPORTS_KEYWORDS)
+            or (m.get("category") or "").lower() == "sports"
         )
         if not is_sports:
             continue
 
-        # Today-only: event must close within 24 h
-        close = ev.get("close_time", "")
-        if not _kalshi_is_game_day(close):
+        # Block long-term futures
+        if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
-        # Block futures
-        if any(pat in ev_title for pat in _KALSHI_FUTURES):
+        yes_bid = (m.get("yes_bid") or 0) / 100
+        yes_ask = (m.get("yes_ask") or 0) / 100
+        no_bid  = (m.get("no_bid")  or 0) / 100
+        no_ask  = (m.get("no_ask")  or 0) / 100
+        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
+        if not yes_mid:
             continue
 
-        markets = ev.get("markets") or []
-        for m in markets:
-            yes_bid = (m.get("yes_bid") or 0) / 100
-            yes_ask = (m.get("yes_ask") or 0) / 100
-            no_bid  = (m.get("no_bid")  or 0) / 100
-            no_ask  = (m.get("no_ask")  or 0) / 100
-            yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
-            no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
-            if not yes_mid:
-                continue
-            out.append({
-                "market_id":    m.get("ticker", ""),
-                "event_ticker": ev.get("event_ticker", ""),
-                "event_title":  ev.get("title", ""),
-                "title":        m.get("title", ""),
-                "category":     ev_category,
-                "tags":         ev_tags,
-                "yes_price":    round(yes_mid, 4),
-                "no_price":     round(no_mid,  4),
+        out.append({
+            "market_id":    m.get("ticker", ""),
+            "event_ticker": m.get("event_ticker", ""),
+            "event_title":  m.get("title", ""),
+            "title":        m.get("title", ""),
+            "category":     (m.get("category") or "").lower(),
+            "tags":         [t.lower() for t in (m.get("tags") or [])],
+            "yes_price":    round(yes_mid, 4),
+            "no_price":     round(no_mid,  4),
                 "yes_american": _prob_to_american(yes_mid),
-                "no_american":  _prob_to_american(no_mid),
-                "volume":       m.get("volume", 0),
-                "close_time":   m.get("close_time", "") or close,
-                "source":       "kalshi",
-            })
+            "yes_american": _prob_to_american(yes_mid),
+            "no_american":  _prob_to_american(no_mid),
+            "volume":       m.get("volume", 0),
+            "close_time":   m.get("close_time", ""),
+            "source":       "kalshi",
+        })
 
-    logger.info("Kalshi events: %d sub-markets across today's sports events", len(out))
+    out.sort(key=lambda x: x["volume"], reverse=True)
+    logger.info("Kalshi: %d sports markets fetched (from %d total)", len(out), len(all_markets))
     return out

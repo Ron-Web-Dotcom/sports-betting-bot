@@ -205,26 +205,26 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
     if kalshi_full:
         # Use Kalshi's own markets — filter to markets closing TODAY in ET
         # AND cross-reference with Sofascore to confirm game is today
-        for m in kalshi_full[:100]:
+        for m in kalshi_full[:200]:
             yes_prob = m.get("yes_price", 0)
             no_prob  = round(1 - yes_prob, 4)
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
-            # Drop markets whose close_time is not today ET
+            # Drop markets that closed more than 1 day ago or close more than 14 days out
             _ct = m.get("close_time", "")
             if _ct:
                 try:
                     from dateutil.parser import parse as _dp
-                    _ct_et = _dp(_ct).astimezone(_ET).date()
-                    if _ct_et != _today:
-                        continue
+                    from datetime import timedelta as _td
+                    _ct_utc = _dp(_ct)
+                    from datetime import datetime as _dt2, timezone as _tz
+                    _now_utc = _dt2.now(_tz.utc)
+                    if _ct_utc < _now_utc - _td(days=1):
+                        continue  # already closed
+                    if _ct_utc > _now_utc + _td(days=14):
+                        continue  # too far out — likely futures
                 except Exception:
-                    pass  # keep if unparseable
-            # Drop if neither team plays today per Sofascore
-            _title = m.get("title", "")
-            if _title and not _team_in_title(_title):
-                logger.info("Kalshi: skipping '%s' — not in today's schedule", _title[:60])
-                continue
+                    pass
             candidates.append({
                 "source":       "kalshi",
                 "market_id":    m.get("market_id", ""),
