@@ -139,14 +139,15 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
         if target_tags and not (target_tags & set(tags)) and category not in target_tags:
             continue
 
-        yes_bid  = m.get("yes_bid",  0) / 100  # Kalshi prices are in cents (0-100)
-        yes_ask  = m.get("yes_ask",  0) / 100
-        no_bid   = m.get("no_bid",   0) / 100
-        no_ask   = m.get("no_ask",   0) / 100
-
-        # Convert to American odds for consistency
-        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
-        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
+        yes_bid = float(m.get("yes_bid_dollars") or m.get("yes_bid") or 0)
+        yes_ask = float(m.get("yes_ask_dollars") or m.get("yes_ask") or 0)
+        no_bid  = float(m.get("no_bid_dollars")  or m.get("no_bid")  or 0)
+        no_ask  = float(m.get("no_ask_dollars")  or m.get("no_ask")  or 0)
+        last    = float(m.get("last_price_dollars") or m.get("last_price") or 0)
+        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid or last
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid or (1 - yes_mid if yes_mid else 0)
+        if yes_mid > 1: yes_mid /= 100
+        if no_mid  > 1: no_mid  /= 100
 
         out.append({
             "market_id":    m.get("ticker", ""),
@@ -372,14 +373,25 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
-        yes_bid = (m.get("yes_bid") or 0) / 100
-        yes_ask = (m.get("yes_ask") or 0) / 100
-        no_bid  = (m.get("no_bid")  or 0) / 100
-        no_ask  = (m.get("no_ask")  or 0) / 100
-        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
-        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
+        yes_bid = float(m.get("yes_bid_dollars") or m.get("yes_bid") or 0)
+        yes_ask = float(m.get("yes_ask_dollars") or m.get("yes_ask") or 0)
+        no_bid  = float(m.get("no_bid_dollars")  or m.get("no_bid")  or 0)
+        no_ask  = float(m.get("no_ask_dollars")  or m.get("no_ask")  or 0)
+        last    = float(m.get("last_price_dollars") or m.get("last_price") or 0)
+
+        yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid or last
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid  or (1 - yes_mid if yes_mid else 0)
+
+        # If prices are in cents (0-100) scale, normalise to 0-1
+        if yes_mid > 1:
+            yes_mid /= 100
+        if no_mid > 1:
+            no_mid /= 100
+
         if not yes_mid:
             continue
+
+        vol = float(m.get("volume_24h_fp") or m.get("volume_fp") or m.get("volume") or 0)
 
         out.append({
             "market_id":    m.get("ticker", ""),
@@ -392,7 +404,7 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             "no_price":     round(no_mid,  4),
             "yes_american": _prob_to_american(yes_mid),
             "no_american":  _prob_to_american(no_mid),
-            "volume":       m.get("volume", 0),
+            "volume":       vol,
             "close_time":   m.get("close_time", ""),
             "source":       "kalshi",
         })
