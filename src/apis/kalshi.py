@@ -410,18 +410,26 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
-        # Filter by expected_expiration_time (actual game time) — rolling 24h window
-        # Include games that started up to 3h ago through next 24h
+        # Filter by expected_expiration_time — active window: 5 AM to 3 AM ET
+        # Include games from 3h ago through next 3 AM ET cutoff
         exp_raw = m.get("expected_expiration_time") or m.get("expiration_time") or ""
         if exp_raw:
             try:
                 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                import zoneinfo as _zi
+                _ET      = _zi.ZoneInfo("America/New_York")
                 _exp_utc = _dt.fromisoformat(exp_raw.replace("Z", "+00:00"))
                 _now_utc = _dt.now(_tz.utc)
+                _now_et  = _now_utc.astimezone(_ET)
+                # Next 3 AM ET cutoff
+                _cutoff_et = _now_et.replace(hour=3, minute=0, second=0, microsecond=0)
+                if _cutoff_et <= _now_et:
+                    _cutoff_et = _cutoff_et + _td(days=1)  # tomorrow 3 AM
+                _cutoff_utc = _cutoff_et.astimezone(_tz.utc)
                 if _exp_utc < _now_utc - _td(hours=3):
                     continue  # game ended more than 3h ago
-                if _exp_utc > _now_utc + _td(hours=24):
-                    continue  # tomorrow's game — skip
+                if _exp_utc > _cutoff_utc:
+                    continue  # past tonight's 3 AM cutoff
             except Exception:
                 pass  # include if unparseable
 
