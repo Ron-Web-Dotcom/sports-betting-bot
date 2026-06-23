@@ -168,27 +168,36 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
 
 
 _SPORTS_KEYWORDS = [
-    "nba", "nfl", "mlb", "nhl", "ufc", "mma",
-    "champions league", "premier league", "mls",
+    "nba", "nfl", "mlb", "nhl", "ufc", "mma", "wnba",
+    "champions league", "premier league", "mls", "liga", "serie a",
     "wimbledon", "us open", "french open", "masters", "pga",
-    "formula 1", "f1", "ncaa",
+    "formula 1", "f1", "ncaa", "fifa", "world cup", "copa",
     # single-game terms
     "game ", "match", "points", "score", "innings", "quarter",
+    "goals", "goal", "runs", "sets", "aces",
+    # US teams
     "heat", "celtics", "lakers", "warriors", "knicks", "nuggets",
     "yankees", "dodgers", "mets", "red sox", "cubs", "astros",
+    "orioles", "baltimore", "san diego", "kansas city", "detroit",
+    "tampa bay", "atlanta", "los angeles",
     "oilers", "panthers", "rangers", "avalanche", "lightning",
+    # World soccer teams/tournaments
+    "england", "portugal", "brazil", "france", "germany", "spain",
+    "argentina", "morocco", "algeria", "colombia", "croatia",
+    "both teams to score", "btts",
     "basketball", "baseball", "hockey", "soccer", "football",
-    "total ", "over ", "under ",
+    "tennis", "golf", "racing",
+    "total ", "over ", "under ", "wins by",
 ]
 
-# Futures / politics patterns — always block
+# Futures / politics patterns — always block (only long-term non-game markets)
 _KALSHI_FUTURES = [
-    "win the", "win the 2", "world cup", "fifa", "championship", "champion",
-    "stanley cup", "super bowl", "world series", "nba finals", "march madness",
-    "advance to", "qualify for", "make the playoffs", "make playoffs",
-    "win series", "win title", "presidential", "election", "president",
+    "presidential", "election", "president",
     "primary", "governor", "senate", "congress", "bitcoin", "crypto",
-    "by end of", "before ", "next year", "in 202",
+    "before 20", "next year", "erupt before", "land on mars",
+    "will humans colonize", "visit mars",
+    "make the playoffs", "make playoffs", "win the championship",
+    "win the title", "win the league", "win the serie",
 ]
 
 
@@ -381,7 +390,6 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             "tags":         [t.lower() for t in (m.get("tags") or [])],
             "yes_price":    round(yes_mid, 4),
             "no_price":     round(no_mid,  4),
-                "yes_american": _prob_to_american(yes_mid),
             "yes_american": _prob_to_american(yes_mid),
             "no_american":  _prob_to_american(no_mid),
             "volume":       m.get("volume", 0),
