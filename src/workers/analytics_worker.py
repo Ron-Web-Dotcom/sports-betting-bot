@@ -491,6 +491,46 @@ def snapshot_portfolio():
     return stats
 
 
+def check_odds_api_restored():
+    """
+    Runs on the 10th of each month at 7 AM ET.
+    Tests whether Odds API credits have been restored — posts a Discord alert if so.
+    """
+    from src.engines.odds_engine import _get, _clear_credits_exhausted
+    import zoneinfo
+    from datetime import datetime
+
+    ET  = zoneinfo.ZoneInfo("America/New_York")
+    now = datetime.now(ET)
+
+    # Try a lightweight /sports call (1 credit) to confirm API is back
+    try:
+        import httpx
+        from src.core.config import ODDS_API_KEY, ODDS_API_BASE
+        r = httpx.get(f"{ODDS_API_BASE}/sports", params={"apiKey": ODDS_API_KEY, "all": "false"}, timeout=10)
+        if r.status_code == 200:
+            _clear_credits_exhausted()
+            remaining = r.headers.get("x-requests-remaining", "?")
+            msg = (
+                f"✅ **Odds API credits restored!**\n"
+                f"Credits remaining: **{remaining}**\n"
+                f"Odds scanning resumes automatically — picks will post again today."
+            )
+            from src.discord_bot.bot import _post
+            _post(msg)
+            logger.info("Odds API restored: %s credits remaining", remaining)
+            return {"status": "restored", "credits_remaining": remaining}
+        elif r.status_code in (401, 403):
+            logger.info("check_odds_api_restored: still exhausted (month=%d day=%d)", now.month, now.day)
+            return {"status": "still_exhausted"}
+        else:
+            logger.warning("check_odds_api_restored: unexpected status %s", r.status_code)
+            return {"status": "unknown", "http": r.status_code}
+    except Exception as e:
+        logger.warning("check_odds_api_restored failed: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
 def cleanup_old_slips():
     """
     Runs nightly at 2:52 AM ET — removes slips older than 2 days from Redis.

@@ -140,7 +140,7 @@ def _set_credits_exhausted() -> None:
     """Set the credits-exhausted flag with a 1h TTL."""
     try:
         _redis_client().setex(_CREDITS_FLAG, _CREDITS_FLAG_TTL, "1")
-        logger.warning("Odds API credits exhausted — flag set for %ds, switching to RapidAPI fallback", _CREDITS_FLAG_TTL)
+        logger.warning("Odds API credits exhausted — flag set for %ds, scans paused until credits reset", _CREDITS_FLAG_TTL)
     except Exception as e:
         logger.warning("Could not set credits_exhausted flag: %s", e)
 
@@ -182,27 +182,15 @@ def _get(path: str, params: dict) -> dict | list | None:
 
 
 def fetch_events(sport_key: str) -> list[dict]:
-    # Skip Odds API entirely while credits are known to be exhausted
-    if not _credits_exhausted():
-        result = _get(f"/sports/{sport_key}/odds", {
-            "regions":    "us",
-            "markets":    ",".join(MARKETS),
-            "oddsFormat": "american",
-            "bookmakers": ",".join(SPORTSBOOKS),
-        })
-        if result is not None:
-            return result
-
-    # Fallback to RapidAPI
-    try:
-        from src.apis.rapidapi_odds import fetch_events as _rapidapi_fetch_events, is_available
-        if is_available():
-            logger.info("Odds API credits exhausted — using RapidAPI fallback for %s", sport_key)
-            return _rapidapi_fetch_events(sport_key)
-    except Exception as e:
-        logger.warning("RapidAPI fallback failed for %s: %s", sport_key, e)
-
-    return []
+    if _credits_exhausted():
+        return []
+    result = _get(f"/sports/{sport_key}/odds", {
+        "regions":    "us",
+        "markets":    ",".join(MARKETS),
+        "oddsFormat": "american",
+        "bookmakers": ",".join(SPORTSBOOKS),
+    })
+    return result if result is not None else []
 
 
 def fetch_scores(sport_key: str, days_from: int = 1) -> list[dict]:

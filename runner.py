@@ -57,6 +57,7 @@ def _import_tasks():
         send_weekly_summary, send_weekly_fresh_start, run_self_improvement,
         snapshot_portfolio, send_monthly_summary, yesterday_recap,
         cleanup_old_snapshots, flush_memory, cleanup_old_slips,
+        check_odds_api_restored,
     )
     return {
         "scan_and_save_odds":                       scan_and_save_odds,
@@ -83,6 +84,7 @@ def _import_tasks():
         "cleanup_old_snapshots":                    cleanup_old_snapshots,
         "flush_memory":                             flush_memory,
         "cleanup_old_slips":                        cleanup_old_slips,
+        "check_odds_api_restored":                  check_odds_api_restored,
     }
 
 
@@ -104,6 +106,7 @@ CRON_TASKS = [
     # day_of_week: 0=Monday … 6=Sunday  (Python weekday())
     (0,  5,  "snapshot_portfolio",      None, None),
     (0,  1,  "send_monthly_summary",    None, 1),     # 1st of month
+    (7,  0,  "check_odds_api_restored", None, 10),   # 10th of month — confirms Odds API credits reset
     (2,  0,  "run_self_improvement",    None, None),
     (2,  52, "cleanup_old_slips",        None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),
