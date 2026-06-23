@@ -410,26 +410,20 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         if any(pat in title for pat in _KALSHI_FUTURES):
             continue
 
-        # Filter by expected_expiration_time (actual game time) — today's games only
-        # Allow games that started up to 3h ago through end of today ET
+        # Filter by expected_expiration_time (actual game time) — rolling 24h window
+        # Include games that started up to 3h ago through next 24h
         exp_raw = m.get("expected_expiration_time") or m.get("expiration_time") or ""
         if exp_raw:
             try:
                 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-                import zoneinfo as _zi
-                _ET = _zi.ZoneInfo("America/New_York")
                 _exp_utc = _dt.fromisoformat(exp_raw.replace("Z", "+00:00"))
                 _now_utc = _dt.now(_tz.utc)
-                _exp_et  = _exp_utc.astimezone(_ET)
-                _now_et  = _now_utc.astimezone(_ET)
-                # Include if game is today ET (allow -3h for recently started, +24h for tonight)
-                _today_et = _now_et.date()
-                if not (_exp_et.date() == _today_et or
-                        (_exp_et.date() == (_today_et) and _exp_utc >= _now_utc - _td(hours=3))):
-                    if _exp_et.date() != _today_et:
-                        continue
+                if _exp_utc < _now_utc - _td(hours=3):
+                    continue  # game ended more than 3h ago
+                if _exp_utc > _now_utc + _td(hours=24):
+                    continue  # tomorrow's game — skip
             except Exception:
-                pass  # if unparseable, include it
+                pass  # include if unparseable
 
         yes_bid = float(m.get("yes_bid_dollars") or m.get("yes_bid") or 0)
         yes_ask = float(m.get("yes_ask_dollars") or m.get("yes_ask") or 0)
