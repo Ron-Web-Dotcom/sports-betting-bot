@@ -453,11 +453,14 @@ def get_sports_events(limit: int = 500) -> list[dict]:
 
         vol = float(m.get("volume_24h_fp") or m.get("volume_fp") or m.get("volume") or 0)
 
+        subtitle = (m.get("subtitle") or "").strip()
         out.append({
             "market_id":    m.get("ticker", ""),
             "event_ticker": m.get("event_ticker", ""),
-            "event_title":  m.get("title", ""),
+            # subtitle = "Team A vs Team B" on most Kalshi sports markets
+            "event_title":  subtitle or m.get("title", ""),
             "title":        m.get("title", ""),
+            "subtitle":     subtitle,
             "category":     (m.get("category") or "").lower(),
             "tags":         [t.lower() for t in (m.get("tags") or [])],
             "yes_price":    round(yes_mid, 4),

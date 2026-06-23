@@ -228,12 +228,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 "source":       "kalshi",
                 "market_id":    m.get("market_id", ""),
                 "title":        m.get("title", ""),
-                "event_title":  m.get("event_title", m.get("title", "")),
+                "subtitle":     m.get("subtitle", ""),
+                "event_title":  m.get("subtitle") or m.get("event_title", m.get("title", "")),
+                "event_ticker": m.get("event_ticker", ""),
                 "yes_prob":     yes_prob,
                 "no_prob":      no_prob,
                 "yes_american": m.get("yes_american", 0),
                 "no_american":  m.get("no_american", 0),
                 "volume":       m.get("volume", 0),
+                "game_time":    m.get("game_time", ""),
                 "close_time":   m.get("game_time") or m.get("close_time", ""),
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)  # highest liquidity first
@@ -262,14 +265,18 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
 
     system = """You are an elite sports analyst and prediction market researcher specializing in Kalshi.
 
-You will be given a list of Kalshi YES/NO contracts covering ALL market types:
-- Game winners (Will Team X win?)
-- Player props (Will [Player] score over X points/goals?)
-- Game props (Will total goals be over X? Will both teams score? Will Team X cover -1.5?)
-- Team totals, spreads, BTTS, alternate lines
+Each candidate includes:
+- "market": the YES/NO question
+- "game": the specific matchup (e.g. "Jordan vs Algeria") — USE THIS to identify the sport and teams
+- "ticker": Kalshi event ticker (e.g. KXWCGAME = FIFA Club World Cup, KXMLBGAME = MLB, KXWNBAGAME = WNBA)
+- "game_time_et": when the game starts in ET
 
-For each contract research deeply:
-- Recent form, stats, injuries, matchup edges
+CRITICAL: Base your reasoning on the ACTUAL game in the "game" field and "ticker" prefix.
+Do NOT invent or substitute different teams/sports. If "game" is "Jordan vs Algeria", that IS the game.
+Soccer markets use goals. Basketball markets use points. "Goals" markets are ALWAYS soccer.
+
+For each contract research:
+- Recent form, stats, injuries, matchup edges for the ACTUAL listed teams
 - Whether the YES probability is mis-priced vs true probability
 - High volume = sharp money — respect it
 
@@ -283,7 +290,7 @@ Return ONLY valid JSON:
   "true_prob": <float 0.0-1.0 — your true probability of YES>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
-  "reasoning": "<3-4 sentences: what you researched, what edge you found, why the market is wrong>"
+  "reasoning": "<3-4 sentences: cite the actual teams from 'game', recent form, and why the market is mis-priced>"
 }
 
 Only pick if confidence >= 0.60 and ev_pct >= 0.03. Return {"index": null} if nothing qualifies."""
@@ -292,11 +299,22 @@ Only pick if confidence >= 0.60 and ev_pct >= 0.03. Return {"index": null} if no
     import zoneinfo
     today_str = datetime.now(zoneinfo.ZoneInfo("America/New_York")).strftime("%A %B %-d, %Y")
 
+    import zoneinfo as _zii
+    _ET2 = _zii.ZoneInfo("America/New_York")
+    def _fmt_gt(gt: str) -> str:
+        try:
+            from dateutil.parser import parse as _dp2
+            return _dp2(gt).astimezone(_ET2).strftime("%-I:%M %p ET")
+        except Exception:
+            return gt[:16] if gt else ""
+
     candidate_list = [
         {
             "index":        i,
             "market":       c.get("title", ""),
-            "event":        c.get("event_title", ""),
+            "game":         c.get("subtitle") or c.get("event_title", ""),
+            "ticker":       c.get("event_ticker", ""),
+            "game_time_et": _fmt_gt(c.get("game_time", "")),
             "yes_prob_%":   f"{round(c['yes_prob']*100)}%",
             "yes_american": f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
             "volume":       c.get("volume", 0),
@@ -339,23 +357,25 @@ Only pick if confidence >= 0.60 and ev_pct >= 0.03. Return {"index": null} if no
     team = pick.get("home_team", "") or question.split("Will ")[-1].split(" win")[0] if "Will" in question else question[:40]
 
     return [{
-        "title":      pick.get("event_title", pick.get("title", question)),
-        "team":       team,
-        "question":   question,
-        "answer":     answer,
-        "sport_key":  pick.get("sport_key", ""),
-        "market_id":  pick.get("market_id", ""),
-        "home_team":  pick.get("home_team", ""),
-        "away_team":  pick.get("away_team", ""),
-        "yes_price":  yes_prob,
-        "no_price":   no_prob,
-        "true_prob":  true_prob,
-        "side":       answer.lower(),
-        "confidence": confidence,
-        "ev_pct":     ev_pct,
-        "reasoning":  result.get("reasoning", ""),
-        "home_odds":  pick.get("yes_american", 0),
-        "away_odds":  pick.get("no_american", 0),
+        "title":        pick.get("event_title", pick.get("title", question)),
+        "subtitle":     pick.get("subtitle", ""),
+        "event_ticker": pick.get("event_ticker", ""),
+        "team":         team,
+        "question":     question,
+        "answer":       answer,
+        "sport_key":    pick.get("sport_key", ""),
+        "market_id":    pick.get("market_id", ""),
+        "home_team":    pick.get("home_team", ""),
+        "away_team":    pick.get("away_team", ""),
+        "yes_price":    yes_prob,
+        "no_price":     no_prob,
+        "true_prob":    true_prob,
+        "side":         answer.lower(),
+        "confidence":   confidence,
+        "ev_pct":       ev_pct,
+        "reasoning":    result.get("reasoning", ""),
+        "home_odds":    pick.get("yes_american", 0),
+        "away_odds":    pick.get("no_american", 0),
         "commence_time": pick.get("close_time", ""),
     }]
 
@@ -396,7 +416,19 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
 
     pick      = picks[0]
     question  = pick.get("question", f"Will {pick.get('team', '')} win tonight?")
-    sport     = (pick.get("sport_key") or "").split("_")[-1].upper() or "SPORTS"
+    # Prefer subtitle (team matchup) for sport label; fall back to ticker prefix or sport_key
+    _subtitle   = pick.get("subtitle", "") or pick.get("event_title", "")
+    _eticker    = (pick.get("event_ticker") or pick.get("market_id") or "").upper()
+    _ticker_map = {
+        "KXWCGAME": "FIFA CWC", "KXWCTOTAL": "FIFA CWC",
+        "KXMLBGAME": "MLB", "KXMLBTOTAL": "MLB",
+        "KXWNBAGAME": "WNBA", "KXWNBATOTAL": "WNBA",
+        "KXMLSGAME": "MLS", "KXMLSTOTAL": "MLS",
+        "KXNFLGAME": "NFL", "KXNBAGAME": "NBA", "KXNHLTOTAL": "NHL",
+    }
+    sport = next((v for k, v in _ticker_map.items() if _eticker.startswith(k)), None) \
+            or (pick.get("sport_key") or "").split("_")[-1].upper() or "KALSHI"
+    matchup_label = _subtitle if _subtitle and _subtitle != question else sport
     answer    = (pick.get("answer") or pick.get("side") or "YES").upper()
     yes_pct   = round(pick["yes_price"] * 100)
     no_pct    = round(pick["no_price"]  * 100)
@@ -451,7 +483,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value":  f"🔵 Kalshi  ·  Place manually  ·  {game_time or sport}",
+                "value":  f"🔵 Kalshi  ·  {matchup_label}  ·  Place manually  ·  {game_time or sport}",
                 "inline": False,
             },
         ],
