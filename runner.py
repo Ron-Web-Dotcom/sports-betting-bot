@@ -117,11 +117,11 @@ CRON_TASKS = [
     (6,  0,  "yesterday_recap",         None, None),  # every day
     (8,  0,  "scan_todays_games",                        None, None),  # full Sofascore scan — day + night split
     (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
-    (10, 35, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry
+    (13, 30, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry — 1:30 PM (markets open by then)
     (15, 0,  "scan_todays_games",                         None, None),  # 3 PM update: check postponements/time changes
     (15, 0,  "scan_and_save_odds",                        None, None),  # refresh night game odds at 3 PM
     (16, 30, "generate_hardrock_night_entry",             None, None),  # HardRock night entry
-    (16, 35, "generate_prediction_market_night_entry",    None, None),  # Kalshi night entry
+    (17, 30, "generate_prediction_market_night_entry",    None, None),  # Kalshi night entry — 5:30 PM (evening markets open)
 ]
 
 
@@ -160,9 +160,9 @@ def _run_bg(fn, name: str):
 # Redis dedup prevents double-posting within the same window.
 CRON_WINDOWS = {
     "generate_hardrock_day_entry":           60,  # 10:30–11:30 AM
-    "generate_prediction_market_day_entry":  60,  # 10:35–11:35 AM
+    "generate_prediction_market_day_entry":  90,  # 1:30–3:00 PM
     "generate_hardrock_night_entry":         60,  # 4:30–5:30 PM
-    "generate_prediction_market_night_entry":60,  # 4:35–5:35 PM
+    "generate_prediction_market_night_entry":90,  # 5:30–7:00 PM
 }
 
 
@@ -184,10 +184,10 @@ CATCHUP_TASKS = [
     # (hour, minute, catch_up_window_minutes, task_name)
     (8,  0,  120, "scan_todays_games"),
     (10, 30, 180, "generate_hardrock_day_entry"),
-    (10, 35, 180, "generate_prediction_market_day_entry"),
+    (13, 30, 180, "generate_prediction_market_day_entry"),
     (15, 0,  90,  "scan_todays_games"),
     (16, 30, 180, "generate_hardrock_night_entry"),
-    (16, 35, 180, "generate_prediction_market_night_entry"),
+    (17, 30, 180, "generate_prediction_market_night_entry"),
 ]
 
 
