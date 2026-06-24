@@ -214,16 +214,24 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
             no_prob  = round(1 - yes_prob, 4)
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
-            # game_time = actual game start (expected_expiration_time from Kalshi)
-            # Already filtered to today in get_sports_events(), but double-check here
-            # game_time = close_time = actual game start (ET)
-            # expiration_time = when market settles (~2-3h after game ends)
-            # Use expiration_time to detect finished games; fall back to game_time
-            _gt = m.get("expiration_time") or m.get("game_time", "")
-            if _gt:
+
+            # close_time ≈ game end (Kalshi keeps in-play betting open through the game)
+            # estimated kickoff = close_time - 2.5h
+            # Skip if kickoff has already passed — market is mid-game or done
+            _close_raw = m.get("game_time", "")   # game_time = close_time in ET after our fix
+            _exp_raw   = m.get("expiration_time", "")
+            if _close_raw:
                 try:
-                    _gt_utc = _dp(_gt)
-                    if _gt_utc < _now_utc - _td(hours=1):
+                    _close_utc = _dp(_close_raw)
+                    _est_kickoff = _close_utc - _td(hours=2, minutes=30)
+                    if _est_kickoff < _now_utc:
+                        continue  # game already started — skip
+                except Exception:
+                    pass
+            elif _exp_raw:
+                try:
+                    _exp_utc = _dp(_exp_raw)
+                    if _exp_utc < _now_utc - _td(hours=1):
                         continue  # market already settled
                 except Exception:
                     pass
@@ -487,7 +495,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value":  f"🔵 Kalshi  ·  {matchup_label}  ·  Place manually  ·  {game_time or sport}",
+                "value":  f"🔵 Kalshi  ·  {matchup_label}  ·  Bet before **{game_time or sport}**",
                 "inline": False,
             },
         ],
