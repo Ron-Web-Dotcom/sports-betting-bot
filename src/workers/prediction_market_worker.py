@@ -480,8 +480,16 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         "KXMLSGAME": "MLS", "KXMLSTOTAL": "MLS",
         "KXNFLGAME": "NFL", "KXNBAGAME": "NBA", "KXNHLTOTAL": "NHL",
     }
+    _sport_emoji_map = {
+        "FIFA CWC": "⚽", "MLS": "⚽",
+        "MLB": "⚾",
+        "NBA": "🏀", "WNBA": "🏀",
+        "NFL": "🏈",
+        "NHL": "🏒",
+    }
     sport = next((v for k, v in _ticker_map.items() if _eticker.startswith(k)), None) \
             or (pick.get("sport_key") or "").split("_")[-1].upper() or "KALSHI"
+    sport_emoji   = _sport_emoji_map.get(sport, "🎯")
     matchup_label = _subtitle if _subtitle and _subtitle != question else sport
     answer    = (pick.get("answer") or pick.get("side") or "YES").upper()
     yes_pct   = round(pick["yes_price"] * 100)
@@ -502,7 +510,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         game_time = ""
 
     embed = {
-        "title": f"🔵  KALSHI SLIP  ·  {period_emoji} {period_label}",
+        "title": f"🔵  KALSHI SLIP  ·  {sport_emoji} {sport}  ·  {period_emoji} {period_label}",
         "description": (
             f"```\n"
             f"  Ticket #{ticket_id}          {date_str}\n"
@@ -537,7 +545,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value":  f"🔵 Kalshi  ·  {matchup_label}  ·  Bet before **{game_time or sport}**",
+                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}  ·  {matchup_label}  ·  Bet before **{game_time or sport}**",
                 "inline": False,
             },
         ],
