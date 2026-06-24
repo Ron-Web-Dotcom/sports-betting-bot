@@ -253,8 +253,13 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 _close_raw = m.get("game_time", "")
                 if _close_raw:
                     try:
-                        _close_utc = _dp(_close_raw)
-                        if _close_utc - _td(hours=2, minutes=30) < _now_utc:
+                        from datetime import timezone as _tz2
+                        _close_dt = _dp(_close_raw)
+                        if _close_dt.tzinfo is None:
+                            from zoneinfo import ZoneInfo as _ZI3
+                            _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
+                        _close_utc2 = _close_dt.astimezone(_tz2.utc)
+                        if _close_utc2 - _td(hours=2, minutes=30) < _now_utc:
                             continue  # estimated kickoff passed
                     except Exception:
                         pass
