@@ -260,7 +260,16 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                         pass
 
             # Use Sofascore kickoff as commence_time; fall back to Kalshi close_time
-            _commence = kickoff or m.get("game_time", "")
+            # Normalize to naive ET ISO string so slip_tracker always gets consistent format
+            _raw_commence = kickoff or m.get("game_time", "")
+            try:
+                from zoneinfo import ZoneInfo as _ZI2
+                _ct = _dp(_raw_commence)
+                if _ct.tzinfo is None:
+                    _ct = _ct.replace(tzinfo=_ZI2("America/New_York"))
+                _commence = _ct.astimezone(_ZI2("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
+            except Exception:
+                _commence = _raw_commence
 
             candidates.append({
                 "source":        "kalshi",
