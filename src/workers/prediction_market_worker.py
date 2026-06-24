@@ -233,48 +233,39 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
             kickoff   = sf_game.get("commence_time", "") if sf_game else ""
             sport_key = sf_game.get("sport_key", "") if sf_game else ""
 
-            # Determine kickoff in UTC to filter past games
-            _kickoff_utc = None
-            if kickoff:
+            # Skip if the Kalshi market is already closed — user can't bet anymore.
+            # close_time (stored as game_time in ET) is when Kalshi stops accepting bets.
+            # This is the only filter needed: if close_time has passed → skip.
+            _close_raw = m.get("game_time", "")
+            if _close_raw:
                 try:
-                    _kickoff_utc = _dp(kickoff)
-                    if _kickoff_utc.tzinfo is None:
-                        from zoneinfo import ZoneInfo as _ZI
-                        _kickoff_utc = _kickoff_utc.replace(tzinfo=_ZI("America/New_York"))
+                    from datetime import timezone as _tz2
+                    _close_dt = _dp(_close_raw)
+                    if _close_dt.tzinfo is None:
+                        from zoneinfo import ZoneInfo as _ZI3
+                        _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
+                    if _close_dt.astimezone(_tz2.utc) < _now_utc:
+                        continue  # market closed, can't bet
                 except Exception:
                     pass
 
-            if _kickoff_utc:
-                # Skip if game has already kicked off (using exact Sofascore time)
-                if _kickoff_utc < _now_utc:
-                    continue
-            else:
-                # No Sofascore match — fall back to close_time - 2.5h estimate
-                _close_raw = m.get("game_time", "")
-                if _close_raw:
-                    try:
-                        from datetime import timezone as _tz2
-                        _close_dt = _dp(_close_raw)
-                        if _close_dt.tzinfo is None:
-                            from zoneinfo import ZoneInfo as _ZI3
-                            _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
-                        _close_utc2 = _close_dt.astimezone(_tz2.utc)
-                        if _close_utc2 - _td(hours=2, minutes=30) < _now_utc:
-                            continue  # estimated kickoff passed
-                    except Exception:
-                        pass
+            # Normalize times to naive ET ISO strings
+            def _to_naive_et(raw: str) -> str:
+                if not raw:
+                    return ""
+                try:
+                    from zoneinfo import ZoneInfo as _ZI2
+                    _ct = _dp(raw)
+                    if _ct.tzinfo is None:
+                        _ct = _ct.replace(tzinfo=_ZI2("America/New_York"))
+                    return _ct.astimezone(_ZI2("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    return raw
 
-            # Use Sofascore kickoff as commence_time; fall back to Kalshi close_time
-            # Normalize to naive ET ISO string so slip_tracker always gets consistent format
-            _raw_commence = kickoff or m.get("game_time", "")
-            try:
-                from zoneinfo import ZoneInfo as _ZI2
-                _ct = _dp(_raw_commence)
-                if _ct.tzinfo is None:
-                    _ct = _ct.replace(tzinfo=_ZI2("America/New_York"))
-                _commence = _ct.astimezone(_ZI2("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
-            except Exception:
-                _commence = _raw_commence
+            # commence_time = exact kickoff (Sofascore) used by slip_tracker for live alerts
+            # game_time     = Kalshi close_time (when betting closes) shown in "Bet before" footer
+            _commence   = _to_naive_et(kickoff) if kickoff else ""
+            _close_disp = _to_naive_et(m.get("game_time", ""))
 
             candidates.append({
                 "source":        "kalshi",
@@ -289,9 +280,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 "yes_american":  m.get("yes_american", 0),
                 "no_american":   m.get("no_american", 0),
                 "volume":        m.get("volume", 0),
-                "game_time":     _commence,
+                "game_time":     _close_disp,   # "Bet before X" in footer
                 "expiration_time": m.get("expiration_time", ""),
-                "close_time":    _commence,
+                "close_time":    _close_disp,
+                "commence_time": _commence,     # actual kickoff for live/soon alerts
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     else:
@@ -430,7 +422,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
         "reasoning":    result.get("reasoning", ""),
         "home_odds":    pick.get("yes_american", 0),
         "away_odds":    pick.get("no_american", 0),
-        "commence_time": pick.get("close_time", ""),
+        "commence_time": pick.get("commence_time", "") or pick.get("close_time", ""),
     }]
 
 
