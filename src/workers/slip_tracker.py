@@ -92,7 +92,15 @@ def purge_ghost_slips() -> int:
             removed += 1
             logger.info("Purged ghost slip: %s", sid)
         elif sid.split(":")[-1] != today:
-            # Only keep today's slips — yesterday's should never fire results today
+            # Keep yesterday's slip if still active — late-ending games (past midnight ET)
+            # need one more settlement pass before being purged
+            try:
+                slip_data = json.loads(raw)
+                if slip_data.get("status") == "active":
+                    logger.info("Keeping yesterday's active slip for late settlement: %s", sid)
+                    continue
+            except Exception:
+                pass
             r.hdel(_SLIP_KEY, sid)
             removed += 1
             logger.info("Purged yesterday's slip: %s", sid)

@@ -280,7 +280,10 @@ def send_monthly_summary():
     from src.core.timezone import et_naive
 
     now = et_naive()
-    monthly = get_monthly_summary(year=now.year, month=now.month)
+    # Runs on the 1st of the month — summarize the PREVIOUS month
+    prev_month = now.month - 1 if now.month > 1 else 12
+    prev_year  = now.year if now.month > 1 else now.year - 1
+    monthly = get_monthly_summary(year=prev_year, month=prev_month)
 
     roi_str   = f"{monthly['total_roi']:.1%}"
     pnl_sign  = "+" if monthly['total_profit'] >= 0 else ""
@@ -517,7 +520,8 @@ def check_odds_api_restored():
                 f"Odds scanning resumes automatically — picks will post again today."
             )
             from src.discord_bot.bot import _post
-            _post(msg)
+            from src.workers.alert_worker import _run_async
+            _run_async(_post({"embeds": [{"title": "✅ Odds API Restored", "description": msg, "color": 0x1B5E20}]}))
             logger.info("Odds API restored: %s credits remaining", remaining)
             return {"status": "restored", "credits_remaining": remaining}
         elif r.status_code in (401, 403):
