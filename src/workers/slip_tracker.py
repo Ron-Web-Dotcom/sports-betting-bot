@@ -563,12 +563,12 @@ def track_slips() -> dict:
                 tag  = f"`[{plat}]`"
 
                 soon_key = f"game:soon:{gid}"
-                if 0 <= mins <= 10 and not _alerted(r, soon_key):
+                if 0 <= mins <= 30 and not _alerted(r, soon_key):
                     all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                     _mark_alerted(r, soon_key)
 
                 live_key = f"game:live:{gid}"
-                if -5 <= mins <= 2 and not _alerted(r, live_key):
+                if -180 <= mins <= 5 and not _alerted(r, live_key):
                     all_live.append(f"🔴 **{name}**  {tag}")
                     _mark_alerted(r, live_key)
 
@@ -577,7 +577,7 @@ def track_slips() -> dict:
                 "title":       "🔔  GAMES STARTING NOW",
                 "description": "\n".join(all_soon),
                 "color":       0xF9A825,
-                "footer":      {"text": "⏱️ Last chance — tip-off in under 10 min"},
+                "footer":      {"text": "⏱️ Last chance — tip-off in under 30 min"},
             })
             alerts_fired += 1
         if all_live:
