@@ -1225,6 +1225,15 @@ def _generate_hardrock_entry(period: str) -> dict:
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
 
+    # Skip entirely if Odds API credits are exhausted — no data to work with
+    try:
+        from src.engines.odds_engine import _credits_exhausted
+        if _credits_exhausted():
+            logger.info("HardRock %s entry: Odds API credits exhausted — skipping until July 10", period)
+            return {"skipped": "odds_api_exhausted", "period": period}
+    except Exception:
+        pass
+
     # Dedup: only post once per period per day
     _r_dedup = None
     _dedup_key = None
