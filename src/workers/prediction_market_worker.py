@@ -181,30 +181,41 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
     from datetime import datetime as _dt, timedelta as _td
     _ET      = _zi.ZoneInfo("America/New_York")
     _now_et  = _dt.now(_ET)
-    _today   = _now_et.date()
 
-    # Load Sofascore today index to verify teams are actually playing TODAY
-    _today_teams: set[str] = set()
+    # Load Sofascore today's games — source of truth for what's actually playing today
+    _sf_games: list[dict] = []
     try:
         import redis as _rc
         from src.core.config import REDIS_URL
         _rr = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        _idx = _rr.get("sofascore:today_index")
-        if _idx:
-            _today_teams = set(_jc.loads(_idx).keys())
+        for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
+            _sfraw = _rr.get(_sfkey)
+            if _sfraw:
+                _sf_games.extend(_jc.loads(_sfraw))
     except Exception:
         pass
 
-    def _team_in_title(title: str) -> bool:
-        if not _today_teams:
-            return True  # can't verify — allow through
-        tl = title.lower()
-        return any(team in tl for team in _today_teams)
+    def _match_sofascore(subtitle: str) -> dict | None:
+        """Find the Sofascore game matching a Kalshi market subtitle like 'Panama vs Croatia'."""
+        if not subtitle or not _sf_games:
+            return None
+        sl = subtitle.lower()
+        best, best_score = None, 0
+        for g in _sf_games:
+            home = (g.get("home_team") or "").lower()
+            away = (g.get("away_team") or "").lower()
+            if not home or not away:
+                continue
+            score = sum([
+                home in sl or any(w in sl for w in home.split()),
+                away in sl or any(w in sl for w in away.split()),
+            ])
+            if score > best_score:
+                best_score, best = score, g
+        return best if best_score >= 1 else None
 
     candidates: list[dict] = []
     if kalshi_full:
-        # Use Kalshi's own markets — filter to markets closing TODAY in ET
-        # AND cross-reference with Sofascore to confirm game is today
         from dateutil.parser import parse as _dp
         from datetime import datetime as _dt2, timezone as _tz, timedelta as _td
         _now_utc = _dt2.now(_tz.utc)
@@ -215,43 +226,60 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
 
-            # close_time ≈ game end (Kalshi keeps in-play betting open through the game)
-            # estimated kickoff = close_time - 2.5h
-            # Skip if kickoff has already passed — market is mid-game or done
-            _close_raw = m.get("game_time", "")   # game_time = close_time in ET after our fix
-            _exp_raw   = m.get("expiration_time", "")
-            if _close_raw:
+            subtitle = m.get("subtitle", "")
+
+            # Try to match to a Sofascore game for exact kickoff time
+            sf_game   = _match_sofascore(subtitle)
+            kickoff   = sf_game.get("commence_time", "") if sf_game else ""
+            sport_key = sf_game.get("sport_key", "") if sf_game else ""
+
+            # Determine kickoff in UTC to filter past games
+            _kickoff_utc = None
+            if kickoff:
                 try:
-                    _close_utc = _dp(_close_raw)
-                    _est_kickoff = _close_utc - _td(hours=2, minutes=30)
-                    if _est_kickoff < _now_utc:
-                        continue  # game already started — skip
+                    _kickoff_utc = _dp(kickoff)
+                    if _kickoff_utc.tzinfo is None:
+                        from zoneinfo import ZoneInfo as _ZI
+                        _kickoff_utc = _kickoff_utc.replace(tzinfo=_ZI("America/New_York"))
                 except Exception:
                     pass
-            elif _exp_raw:
-                try:
-                    _exp_utc = _dp(_exp_raw)
-                    if _exp_utc < _now_utc - _td(hours=1):
-                        continue  # market already settled
-                except Exception:
-                    pass
+
+            if _kickoff_utc:
+                # Skip if game has already kicked off (using exact Sofascore time)
+                if _kickoff_utc < _now_utc:
+                    continue
+            else:
+                # No Sofascore match — fall back to close_time - 2.5h estimate
+                _close_raw = m.get("game_time", "")
+                if _close_raw:
+                    try:
+                        _close_utc = _dp(_close_raw)
+                        if _close_utc - _td(hours=2, minutes=30) < _now_utc:
+                            continue  # estimated kickoff passed
+                    except Exception:
+                        pass
+
+            # Use Sofascore kickoff as commence_time; fall back to Kalshi close_time
+            _commence = kickoff or m.get("game_time", "")
+
             candidates.append({
-                "source":       "kalshi",
-                "market_id":    m.get("market_id", ""),
-                "title":        m.get("title", ""),
-                "subtitle":     m.get("subtitle", ""),
-                "event_title":  m.get("subtitle") or m.get("event_title", m.get("title", "")),
-                "event_ticker": m.get("event_ticker", ""),
-                "yes_prob":     yes_prob,
-                "no_prob":      no_prob,
-                "yes_american": m.get("yes_american", 0),
-                "no_american":  m.get("no_american", 0),
-                "volume":       m.get("volume", 0),
-                "game_time":      m.get("game_time", ""),      # actual game start (ET)
-                "expiration_time": m.get("expiration_time", ""), # settlement time (ET)
-                "close_time":     m.get("game_time", ""),        # alias for slip tracker
+                "source":        "kalshi",
+                "market_id":     m.get("market_id", ""),
+                "title":         m.get("title", ""),
+                "subtitle":      subtitle,
+                "event_title":   subtitle or m.get("event_title", m.get("title", "")),
+                "event_ticker":  m.get("event_ticker", ""),
+                "sport_key":     sport_key,
+                "yes_prob":      yes_prob,
+                "no_prob":       no_prob,
+                "yes_american":  m.get("yes_american", 0),
+                "no_american":   m.get("no_american", 0),
+                "volume":        m.get("volume", 0),
+                "game_time":     _commence,
+                "expiration_time": m.get("expiration_time", ""),
+                "close_time":    _commence,
             })
-        candidates.sort(key=lambda x: x["volume"], reverse=True)  # highest liquidity first
+        candidates.sort(key=lambda x: x["volume"], reverse=True)
     else:
         # Odds API fallback — game winners only
         for g in games:
