@@ -454,6 +454,25 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         vol = float(m.get("volume_24h_fp") or m.get("volume_fp") or m.get("volume") or 0)
 
         subtitle = (m.get("subtitle") or "").strip()
+
+        # Convert game_time and close_time from UTC → ET ISO string
+        def _to_et(raw: str) -> str:
+            if not raw:
+                return ""
+            try:
+                from datetime import datetime as _dt2, timezone as _tz2
+                import zoneinfo as _zi2
+                _ET2 = _zi2.ZoneInfo("America/New_York")
+                _dt_utc = _dt2.fromisoformat(raw.replace("Z", "+00:00"))
+                if _dt_utc.tzinfo is None:
+                    _dt_utc = _dt_utc.replace(tzinfo=_tz2.utc)
+                return _dt_utc.astimezone(_ET2).isoformat()
+            except Exception:
+                return raw
+
+        _game_time_raw  = m.get("expected_expiration_time") or m.get("expiration_time") or ""
+        _close_time_raw = m.get("close_time", "")
+
         out.append({
             "market_id":    m.get("ticker", ""),
             "event_ticker": m.get("event_ticker", ""),
@@ -468,8 +487,8 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             "yes_american": _prob_to_american(yes_mid),
             "no_american":  _prob_to_american(no_mid),
             "volume":            vol,
-            "close_time":        m.get("close_time", ""),
-            "game_time":         m.get("expected_expiration_time") or m.get("expiration_time") or "",
+            "close_time":        _to_et(_close_time_raw),
+            "game_time":         _to_et(_game_time_raw),
             "source":            "kalshi",
         })
 
