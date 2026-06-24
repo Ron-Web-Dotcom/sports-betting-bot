@@ -470,7 +470,7 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             except Exception:
                 return raw
 
-        _game_time_raw  = m.get("expected_expiration_time") or m.get("expiration_time") or ""
+        _expiration_raw = m.get("expected_expiration_time") or m.get("expiration_time") or ""
         _close_time_raw = m.get("close_time", "")
 
         out.append({
@@ -487,8 +487,10 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             "yes_american": _prob_to_american(yes_mid),
             "no_american":  _prob_to_american(no_mid),
             "volume":            vol,
-            "close_time":        _to_et(_close_time_raw),
-            "game_time":         _to_et(_game_time_raw),
+            # close_time = when Kalshi stops accepting bets = actual game start time
+            # expected_expiration_time = when market settles (~2-3h AFTER game ends) — kept for filtering only
+            "game_time":         _to_et(_close_time_raw),
+            "expiration_time":   _to_et(_expiration_raw),
             "source":            "kalshi",
         })
 

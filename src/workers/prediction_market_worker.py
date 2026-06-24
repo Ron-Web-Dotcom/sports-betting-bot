@@ -216,12 +216,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 continue
             # game_time = actual game start (expected_expiration_time from Kalshi)
             # Already filtered to today in get_sports_events(), but double-check here
-            _gt = m.get("game_time") or m.get("close_time", "")
+            # game_time = close_time = actual game start (ET)
+            # expiration_time = when market settles (~2-3h after game ends)
+            # Use expiration_time to detect finished games; fall back to game_time
+            _gt = m.get("expiration_time") or m.get("game_time", "")
             if _gt:
                 try:
                     _gt_utc = _dp(_gt)
-                    if _gt_utc < _now_utc - _td(hours=4):
-                        continue  # game already finished
+                    if _gt_utc < _now_utc - _td(hours=1):
+                        continue  # market already settled
                 except Exception:
                     pass
             candidates.append({
@@ -236,8 +239,9 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 "yes_american": m.get("yes_american", 0),
                 "no_american":  m.get("no_american", 0),
                 "volume":       m.get("volume", 0),
-                "game_time":    m.get("game_time", ""),
-                "close_time":   m.get("game_time") or m.get("close_time", ""),
+                "game_time":      m.get("game_time", ""),      # actual game start (ET)
+                "expiration_time": m.get("expiration_time", ""), # settlement time (ET)
+                "close_time":     m.get("game_time", ""),        # alias for slip tracker
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)  # highest liquidity first
     else:
