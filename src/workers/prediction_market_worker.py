@@ -342,7 +342,7 @@ Return ONLY valid JSON:
   "reasoning": "<3-4 sentences: cite the actual teams from 'game', recent form, and why the market is mis-priced>"
 }
 
-Only pick if confidence >= 0.80 and ev_pct >= 0.03. Return {"index": null} if nothing qualifies."""
+Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if nothing qualifies."""
 
     from datetime import datetime
     import zoneinfo
@@ -393,7 +393,7 @@ Only pick if confidence >= 0.80 and ev_pct >= 0.03. Return {"index": null} if no
     ev_pct     = float(result.get("ev_pct") or 0)
     answer     = result.get("answer", "YES").upper()
 
-    if idx >= len(candidates) or confidence < 0.80 or ev_pct < 0.03:
+    if idx >= len(candidates) or confidence < 0.77 or ev_pct < 0.03:
         return []
 
     pick      = candidates[idx]
