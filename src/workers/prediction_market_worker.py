@@ -249,8 +249,20 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     candidates: list[dict] = []
     if kalshi_full:
         from dateutil.parser import parse as _dp
-        from datetime import datetime as _dt2, timezone as _tz, timedelta as _td
+        from datetime import datetime as _dt2, timezone as _tz
+        from zoneinfo import ZoneInfo as _ZI3
         _now_utc = _dt2.now(_tz.utc)
+
+        def _to_naive_et(raw: str) -> str:
+            if not raw:
+                return ""
+            try:
+                _ct = _dp(raw)
+                if _ct.tzinfo is None:
+                    _ct = _ct.replace(tzinfo=_ZI3("America/New_York"))
+                return _ct.astimezone(_ZI3("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
+            except Exception:
+                return raw
 
         for m in kalshi_full[:200]:
             yes_prob = m.get("yes_price", 0)
@@ -260,7 +272,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
             subtitle = m.get("subtitle", "")
 
-            # Night entry: skip any market from a game already in the day slip
+            # Night entry: skip any game already used in the day slip
             if period == "night" and (_blocked_subtitles or _blocked_tickers):
                 _msub = subtitle.lower().strip()
                 _mtkr = (m.get("event_ticker") or "").upper()
@@ -269,69 +281,40 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 if _mtkr and any(_mtkr.startswith(bt) or bt.startswith(_mtkr) for bt in _blocked_tickers):
                     continue
 
-            # Sofascore match — exact kickoff + sport_key
-            sf_game   = _match_sofascore(subtitle)
-            sport_key = sf_game.get("sport_key", "") if sf_game else ""
+            # ── Sofascore: source of truth for game timing ─────────────────
+            sf_game    = _match_sofascore(subtitle)
+            sport_key  = sf_game.get("sport_key",    "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
-            # For Kalshi pre-game markets, close_time = game start time.
-            # Kalshi closes betting exactly at kickoff — "Bet before 4 PM" means
-            # the game starts at 4 PM. No estimation needed.
-            # Rule: skip if close_time has already passed (game already started).
-            from datetime import timezone as _tz2
-            from zoneinfo import ZoneInfo as _ZI3
-
-            _close_raw = m.get("game_time", "")
-            _close_utc = None
-            if _close_raw:
+            # Skip if Sofascore confirms the game already started
+            if sf_kickoff:
                 try:
-                    _cdt = _dp(_close_raw)
-                    if _cdt.tzinfo is None:
-                        _cdt = _cdt.replace(tzinfo=_ZI3("America/New_York"))
-                    _close_utc = _cdt.astimezone(_tz2.utc)
+                    _kdt = _dp(sf_kickoff)
+                    if _kdt.tzinfo is None:
+                        _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
+                    if _kdt.astimezone(_tz.utc) < _now_utc:
+                        continue  # game already kicked off per Sofascore
                 except Exception:
                     pass
 
-            if _close_utc is None:
-                continue  # no close_time = can't determine game time, skip
-
-            if _close_utc < _now_utc:
-                continue  # game already started — skip
-
-            # Normalize close_time to naive ET ISO string for display and alerts
-            def _to_naive_et(raw: str) -> str:
-                if not raw:
-                    return ""
-                try:
-                    from zoneinfo import ZoneInfo as _ZI2
-                    _ct = _dp(raw)
-                    if _ct.tzinfo is None:
-                        _ct = _ct.replace(tzinfo=_ZI2("America/New_York"))
-                    return _ct.astimezone(_ZI2("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
-                except Exception:
-                    return raw
-            _close_disp = _to_naive_et(m.get("game_time", ""))
-            # Sofascore exact kickoff = source of truth for alerts
-            # Falls back to close_time when Sofascore can't match
-            _kickoff_disp = _to_naive_et(sf_kickoff) if sf_kickoff else _close_disp
+            # commence_time = Sofascore exact kickoff (ET) — drives all alerts
+            _kickoff_et = _to_naive_et(sf_kickoff)
 
             candidates.append({
-                "source":          "kalshi",
-                "market_id":       m.get("market_id", ""),
-                "title":           m.get("title", ""),
-                "subtitle":        subtitle,
-                "event_title":     subtitle or m.get("event_title", m.get("title", "")),
-                "event_ticker":    m.get("event_ticker", ""),
-                "sport_key":       sport_key,
-                "yes_prob":        yes_prob,
-                "no_prob":         no_prob,
-                "yes_american":    m.get("yes_american", 0),
-                "no_american":     m.get("no_american", 0),
-                "volume":          m.get("volume", 0),
-                "game_time":       _close_disp,    # "Bet before X" in footer
+                "source":        "kalshi",
+                "market_id":     m.get("market_id", ""),
+                "title":         m.get("title", ""),
+                "subtitle":      subtitle,
+                "event_title":   subtitle or m.get("event_title", m.get("title", "")),
+                "event_ticker":  m.get("event_ticker", ""),
+                "sport_key":     sport_key,
+                "yes_prob":      yes_prob,
+                "no_prob":       no_prob,
+                "yes_american":  m.get("yes_american", 0),
+                "no_american":   m.get("no_american", 0),
+                "volume":        m.get("volume", 0),
+                "commence_time": _kickoff_et,   # Sofascore kickoff → alerts fire here
                 "expiration_time": m.get("expiration_time", ""),
-                "close_time":      _close_disp,
-                "commence_time":   _kickoff_disp,  # exact kickoff for alerts
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     else:
@@ -396,11 +379,16 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
     import zoneinfo as _zii
     _ET2 = _zii.ZoneInfo("America/New_York")
     def _fmt_gt(gt: str) -> str:
+        if not gt:
+            return ""
         try:
             from dateutil.parser import parse as _dp2
-            return _dp2(gt).astimezone(_ET2).strftime("%-I:%M %p ET")
+            _d = _dp2(gt)
+            if _d.tzinfo is None:
+                _d = _d.replace(tzinfo=_ET2)  # naive = ET
+            return _d.astimezone(_ET2).strftime("%-I:%M %p ET")
         except Exception:
-            return gt[:16] if gt else ""
+            return gt[:16]
 
     candidate_list = [
         {
@@ -408,7 +396,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
             "market":       c.get("title", ""),
             "game":         c.get("subtitle") or c.get("event_title", ""),
             "ticker":       c.get("event_ticker", ""),
-            "game_time_et": _fmt_gt(c.get("game_time", "")),
+            "game_time_et": _fmt_gt(c.get("commence_time", "")),
             "yes_prob_%":   f"{round(c['yes_prob']*100)}%",
             "yes_american": f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
             "volume":       c.get("volume", 0),
@@ -548,7 +536,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
         "reasoning":    result.get("reasoning", ""),
         "home_odds":    pick.get("yes_american", 0),
         "away_odds":    pick.get("no_american", 0),
-        "commence_time": pick.get("commence_time", "") or pick.get("close_time", ""),
+        "commence_time": pick.get("commence_time", ""),
     }]
 
 
@@ -658,9 +646,15 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
 
     try:
         from dateutil.parser import parse as _p
-        import zoneinfo as _zi
-        _ET = _zi.ZoneInfo("America/New_York")
-        game_time = _p(pick["commence_time"]).astimezone(_ET).strftime("%-I:%M %p ET") if pick.get("commence_time") else ""
+        from zoneinfo import ZoneInfo as _ZI4
+        _ET4 = _ZI4("America/New_York")
+        if pick.get("commence_time"):
+            _ct4 = _p(pick["commence_time"])
+            if _ct4.tzinfo is None:
+                _ct4 = _ct4.replace(tzinfo=_ET4)  # naive = ET, never assume UTC
+            game_time = _ct4.astimezone(_ET4).strftime("%-I:%M %p ET")
+        else:
+            game_time = ""
     except Exception:
         game_time = ""
 
@@ -700,7 +694,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}  ·  {matchup_label}  ·  Bet before **{game_time or sport}**",
+                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}  ·  {matchup_label}" + (f"  ·  🕐 **{game_time}**" if game_time else ""),
                 "inline": False,
             },
         ],

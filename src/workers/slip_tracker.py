@@ -598,24 +598,21 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Kalshi settles after the market closes (close_time ≈ game end).
-                    # Start checking as soon as close_time passes — fires within 3 min of game end.
-                    close_ct = _parse_time(
-                        pick.get("close_time") or pick.get("game_time") or pick.get("commence_time", "")
-                    )
-                    if close_ct and now < close_ct:
-                        continue  # game not over yet, market still open
+                    # Sofascore kickoff (commence_time) is source of truth for timing.
+                    # Don't poll Kalshi until the game has actually started.
+                    if ct and now < ct:
+                        continue  # game hasn't kicked off yet
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    elif close_ct and (now - close_ct).total_seconds() > 14400:
-                        # 4h after market closed with no result — mark unknown to unblock slip
+                    elif ct and (now - ct).total_seconds() > 14400:
+                        # 4h after kickoff with no result — mark unknown to unblock slip
                         results.append("unknown")
                         logger.info(
-                            "Slip %s: Kalshi market %s unsettled after 4h — marking unknown",
+                            "Slip %s: Kalshi market %s unsettled 4h after kickoff — marking unknown",
                             slip.get("id"), pick.get("market_id", "?"),
                         )
-                    # else: market just closed, keep polling every 3 min
+                    # else: game in progress, keep polling every 3 min
                 else:
                     if not ct:
                         continue
