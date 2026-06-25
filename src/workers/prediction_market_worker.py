@@ -142,7 +142,7 @@ def _fetch_todays_games() -> list[dict]:
         return []
 
 
-def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
+def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "day") -> list[dict]:
     """
     Score today's Kalshi markets across ALL market types:
     game winners, player props, game props (totals, BTTS, spreads, team totals).
@@ -214,6 +214,31 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 best_score, best = score, g
         return best if best_score >= 1 else None
 
+    # Night entry: exclude any game/event already used in the day entry
+    _blocked_subtitles: set[str] = set()
+    _blocked_tickers:   set[str] = set()
+    if period == "night":
+        try:
+            import json as _jb
+            from src.core.config import REDIS_URL as _RURL2
+            import redis as _rb
+            from src.core.timezone import et_naive as _et_n
+            _rb2   = _rb.from_url(_RURL2, decode_responses=True, socket_connect_timeout=2)
+            _today_b = _et_n().strftime("%Y-%m-%d")
+            _day_raw = _rb2.hget("slips:active", f"day:kalshi:{_today_b}")
+            if _day_raw:
+                _day_slip = _jb.loads(_day_raw)
+                for _dp_pick in _day_slip.get("picks", []):
+                    _sub = (_dp_pick.get("subtitle") or "").lower().strip()
+                    _tkr = (_dp_pick.get("event_ticker") or "").upper()
+                    if _sub:
+                        _blocked_subtitles.add(_sub)
+                    if _tkr:
+                        _blocked_tickers.add(_tkr)
+            logger.info("Night entry: blocking %d subtitle(s) from day slip", len(_blocked_subtitles))
+        except Exception:
+            pass
+
     candidates: list[dict] = []
     if kalshi_full:
         from dateutil.parser import parse as _dp
@@ -227,6 +252,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
                 continue
 
             subtitle = m.get("subtitle", "")
+
+            # Night entry: skip any market from a game already in the day slip
+            if period == "night" and (_blocked_subtitles or _blocked_tickers):
+                _msub = subtitle.lower().strip()
+                _mtkr = (m.get("event_ticker") or "").upper()
+                if _msub and _msub in _blocked_subtitles:
+                    continue
+                if _mtkr and any(_mtkr.startswith(bt) or bt.startswith(_mtkr) for bt in _blocked_tickers):
+                    continue
 
             # Try to match to a Sofascore game for exact kickoff time
             sf_game   = _match_sofascore(subtitle)
@@ -759,7 +793,7 @@ def _generate_entry(period: str) -> dict:
             logger.info("Kalshi %s entry already posted today — skipping", period)
             return {"skipped": "already_posted", "period": period}
 
-        picks = _build_entry([], max_picks=1)
+        picks = _build_entry([], max_picks=1, period=period)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks — staying silent", period)
             # Release lock so a retry can attempt a different market
