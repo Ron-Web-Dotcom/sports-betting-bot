@@ -169,25 +169,32 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
 
 
 _SPORTS_KEYWORDS = [
-    "nba", "nfl", "mlb", "nhl", "ufc", "mma", "wnba",
+    # Men's leagues
+    "nba", "nfl", "mlb", "nhl", "ufc", "mma",
     "champions league", "premier league", "mls", "liga", "serie a",
-    "wimbledon", "us open", "french open", "masters", "pga",
-    "formula 1", "f1", "ncaa", "fifa", "world cup", "copa",
+    "wimbledon", "us open", "french open", "masters", "pga", "atp",
+    "formula 1", "f1", "ncaa", "fifa", "world cup", "copa", "bundesliga",
+    # Women's leagues
+    "wnba", "nwsl", "pwhl", "lpga", "wta",
+    "women's", "womens", "ncaaw",
     # single-game terms
     "game ", "match", "points", "score", "innings", "quarter",
     "goals", "goal", "runs", "sets", "aces",
-    # US teams
+    # US teams (men's)
     "heat", "celtics", "lakers", "warriors", "knicks", "nuggets",
     "yankees", "dodgers", "mets", "red sox", "cubs", "astros",
     "orioles", "baltimore", "san diego", "kansas city", "detroit",
     "tampa bay", "atlanta", "los angeles",
     "oilers", "panthers", "rangers", "avalanche", "lightning",
+    # WNBA teams
+    "fever", "liberty", "aces", "sun", "lynx", "sky", "storm", "mystics",
+    "wings", "dream", "sparks", "mercury",
     # World soccer teams/tournaments
     "england", "portugal", "brazil", "france", "germany", "spain",
     "argentina", "morocco", "algeria", "colombia", "croatia",
     "both teams to score", "btts",
     "basketball", "baseball", "hockey", "soccer", "football",
-    "tennis", "golf", "racing",
+    "tennis", "golf", "racing", "boxing", "nascar",
     "total ", "over ", "under ", "wins by",
 ]
 
@@ -339,23 +346,54 @@ def get_sports_events(limit: int = 500) -> list[dict]:
     """
     # Known Kalshi sports series tickers — query each directly for best results
     _SERIES = [
-        "KXMLBGAME",   # MLB game winners
-        "KXMLBTOTAL",  # MLB run totals
-        "KXWCGAME",    # FIFA Club World Cup game winners
-        "KXWCTOTAL",   # FIFA Club World Cup goal totals
-        "KXWNBAGAME",  # WNBA game winners
-        "KXWNBATOTAL", # WNBA totals
-        "KXMLSGAME",   # MLS game winners
-        "KXMLSTOTAL",  # MLS totals
-        "KXNFLGAME",   # NFL game winners (future)
-        "KXNFLTOTAL",  # NFL totals (future)
-        "KXNBAGAME",   # NBA game winners (future)
-        "KXNBATOTAL",  # NBA totals (future)
-        "KXNHLGAME",   # NHL game winners (future)
-        "KXNHLTOTAL",  # NHL totals (future)
-        "KXTENNIS",    # Tennis (Wimbledon, US Open etc.)
-        "KXGOLF",      # Golf tournaments
-        "KXUFC",       # UFC/MMA
+        # ── Baseball ──────────────────────────────────────────────
+        "KXMLBGAME",    # MLB game winners
+        "KXMLBTOTAL",   # MLB run totals
+        # ── Soccer (Men's) ────────────────────────────────────────
+        "KXWCGAME",     # FIFA Club World Cup game winners
+        "KXWCTOTAL",    # FIFA Club World Cup goal totals
+        "KXMLSGAME",    # MLS game winners
+        "KXMLSTOTAL",   # MLS totals
+        "KXEPLGAME",    # English Premier League
+        "KXUEFAGAME",   # UEFA Champions League
+        "KXUEFATOTAL",  # UEFA totals
+        "KXLALIGAGAME", # La Liga
+        "KXBUNDESLIGAGAME", # Bundesliga
+        "KXSERIEAGAME", # Serie A
+        # ── Soccer (Women's) ──────────────────────────────────────
+        "KXNWSLGAME",   # NWSL game winners
+        "KXNWSLTOTAL",  # NWSL totals
+        "KXWWCGAME",    # FIFA Women's World Cup
+        # ── Basketball (Men's) ────────────────────────────────────
+        "KXNBAGAME",    # NBA game winners
+        "KXNBATOTAL",   # NBA totals
+        "KXNCAABGAME",  # NCAA Men's Basketball
+        # ── Basketball (Women's) ──────────────────────────────────
+        "KXWNBAGAME",   # WNBA game winners
+        "KXWNBATOTAL",  # WNBA totals
+        "KXNCAAWGAME",  # NCAA Women's Basketball
+        # ── American Football ─────────────────────────────────────
+        "KXNFLGAME",    # NFL game winners
+        "KXNFLTOTAL",   # NFL totals
+        "KXNCAAFGAME",  # College Football
+        # ── Hockey ────────────────────────────────────────────────
+        "KXNHLGAME",    # NHL game winners
+        "KXNHLTOTAL",   # NHL totals
+        "KXPWHLGAME",   # PWHL (women's hockey)
+        # ── Tennis (Men's & Women's) ──────────────────────────────
+        "KXTENNIS",     # Tennis general
+        "KXATPGAME",    # ATP (men's tennis)
+        "KXWTGAME",     # WTA (women's tennis)
+        # ── Golf (Men's & Women's) ────────────────────────────────
+        "KXGOLF",       # Golf general
+        "KXPGAGAME",    # PGA Tour
+        "KXLPGAGAME",   # LPGA Tour (women's golf)
+        # ── Combat Sports ─────────────────────────────────────────
+        "KXUFC",        # UFC/MMA
+        "KXBOXGAME",    # Boxing
+        # ── Racing ────────────────────────────────────────────────
+        "KXF1GAME",     # Formula 1
+        "KXNASCARGAME", # NASCAR
     ]
 
     all_markets: list[dict] = []
