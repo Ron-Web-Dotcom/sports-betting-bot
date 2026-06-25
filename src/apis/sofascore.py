@@ -180,13 +180,20 @@ def _normalise_event(e: dict, sport_key: str) -> dict:
     away = e.get("awayTeam", {})
     score = e.get("homeScore", {}), e.get("awayScore", {})
     status = e.get("status", {})
+    # Capture team country — used to match Kalshi country-name subtitles
+    # e.g. Kalshi "Germany vs Ecuador" → Sofascore "Bayern Munich" (country: Germany)
+    home_country = (home.get("country") or {}).get("name", "") or \
+                   (home.get("teamColors") or {}).get("primary", "")
+    away_country = (away.get("country") or {}).get("name", "") or ""
     return {
         "id":             str(e.get("id", "")),
         "sport":          sport_key,
         "home_team":      home.get("name", ""),
         "home_team_id":   str(home.get("id", "")),
+        "home_country":   home_country,
         "away_team":      away.get("name", ""),
         "away_team_id":   str(away.get("id", "")),
+        "away_country":   away_country,
         "home_score":     score[0].get("current"),
         "away_score":     score[1].get("current"),
         "status":         status.get("description", ""),

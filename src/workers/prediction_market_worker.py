@@ -196,20 +196,27 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         pass
 
     def _match_sofascore(subtitle: str) -> dict | None:
-        """Find the Sofascore game matching a Kalshi market subtitle like 'Panama vs Croatia'."""
+        """Find the Sofascore game matching a Kalshi subtitle.
+        Matches on team name OR country (for club tournaments like FIFA CWC where
+        Kalshi shows country names but Sofascore has actual club names).
+        """
         if not subtitle or not _sf_games:
             return None
         sl = subtitle.lower()
         best, best_score = None, 0
         for g in _sf_games:
-            home = (g.get("home_team") or "").lower()
-            away = (g.get("away_team") or "").lower()
+            home         = (g.get("home_team")    or "").lower()
+            away         = (g.get("away_team")    or "").lower()
+            home_country = (g.get("home_country") or "").lower()
+            away_country = (g.get("away_country") or "").lower()
             if not home or not away:
                 continue
-            score = sum([
-                home in sl or any(w in sl for w in home.split()),
-                away in sl or any(w in sl for w in away.split()),
-            ])
+            # Match on team name OR country name
+            home_match = home in sl or any(w in sl for w in home.split()) or \
+                         (home_country and (home_country in sl or any(w in sl for w in home_country.split())))
+            away_match = away in sl or any(w in sl for w in away.split()) or \
+                         (away_country and (away_country in sl or any(w in sl for w in away_country.split())))
+            score = sum([home_match, away_match])
             if score > best_score:
                 best_score, best = score, g
         return best if best_score >= 1 else None
@@ -262,9 +269,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 if _mtkr and any(_mtkr.startswith(bt) or bt.startswith(_mtkr) for bt in _blocked_tickers):
                     continue
 
-            # Sofascore match — used for sport_key label only (name mismatch on club tournaments)
+            # Sofascore match — exact kickoff + sport_key
             sf_game   = _match_sofascore(subtitle)
             sport_key = sf_game.get("sport_key", "") if sf_game else ""
+            sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
             # For Kalshi pre-game markets, close_time = game start time.
             # Kalshi closes betting exactly at kickoff — "Bet before 4 PM" means
@@ -302,8 +310,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     return _ct.astimezone(_ZI2("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     return raw
-            # close_time = game start = "Bet before X" = when alerts fire
             _close_disp = _to_naive_et(m.get("game_time", ""))
+            # Sofascore exact kickoff = source of truth for alerts
+            # Falls back to close_time when Sofascore can't match
+            _kickoff_disp = _to_naive_et(sf_kickoff) if sf_kickoff else _close_disp
 
             candidates.append({
                 "source":          "kalshi",
@@ -318,10 +328,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "yes_american":    m.get("yes_american", 0),
                 "no_american":     m.get("no_american", 0),
                 "volume":          m.get("volume", 0),
-                "game_time":       _close_disp,  # "Bet before X" in footer
+                "game_time":       _close_disp,    # "Bet before X" in footer
                 "expiration_time": m.get("expiration_time", ""),
                 "close_time":      _close_disp,
-                "commence_time":   _close_disp,  # same — kickoff = close_time for pre-game markets
+                "commence_time":   _kickoff_disp,  # exact kickoff for alerts
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     else:
