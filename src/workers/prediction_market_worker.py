@@ -480,18 +480,55 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     _subtitle   = pick.get("subtitle", "") or pick.get("event_title", "")
     _eticker    = (pick.get("event_ticker") or pick.get("market_id") or "").upper()
     _ticker_map = {
+        # Soccer
         "KXWCGAME": "FIFA CWC", "KXWCTOTAL": "FIFA CWC",
-        "KXMLBGAME": "MLB", "KXMLBTOTAL": "MLB",
-        "KXWNBAGAME": "WNBA", "KXWNBATOTAL": "WNBA",
-        "KXMLSGAME": "MLS", "KXMLSTOTAL": "MLS",
-        "KXNFLGAME": "NFL", "KXNBAGAME": "NBA", "KXNHLTOTAL": "NHL",
+        "KXMLSGAME": "MLS",     "KXMLSTOTAL": "MLS",
+        "KXNWSLGAME": "NWSL",   "KXNWSLTOTAL": "NWSL",
+        "KXEPlgame": "EPL",     "KXEPLTOTAL": "EPL",
+        "KXUEFAGAME": "UEFA",   "KXUEFATOTAL": "UEFA",
+        # Baseball
+        "KXMLBGAME": "MLB",     "KXMLBTOTAL": "MLB",
+        # Basketball
+        "KXNBAGAME": "NBA",     "KXNBATOTAL": "NBA",
+        "KXWNBAGAME": "WNBA",   "KXWNBATOTAL": "WNBA",
+        "KXNCAABGAME": "NCAAB",
+        # American Football
+        "KXNFLGAME": "NFL",     "KXNFLTOTAL": "NFL",
+        "KXNCAAFGAME": "NCAAF",
+        # Hockey
+        "KXNHLGAME": "NHL",     "KXNHLTOTAL": "NHL",
+        "KXPWHLGAME": "PWHL",
+        # Tennis
+        "KXATPGAME": "ATP",     "KXWTGAME": "WTA",
+        # Golf
+        "KXPGAGAME": "PGA",     "KXLPGAGAME": "LPGA",
+        # MMA / Boxing
+        "KXUFCGAME": "UFC",     "KXBOXGAME": "BOXING",
+        # Racing
+        "KXNASCARGAME": "NASCAR", "KXF1GAME": "F1",
     }
     _sport_emoji_map = {
-        "FIFA CWC": "⚽", "MLS": "⚽",
+        # Soccer
+        "FIFA CWC": "⚽", "MLS": "⚽", "NWSL": "⚽", "UEFA": "⚽",
+        "EPL": "⚽", "LALIGA": "⚽", "BUNDESLIGA": "⚽", "SERIEA": "⚽",
+        # Baseball
         "MLB": "⚾",
-        "NBA": "🏀", "WNBA": "🏀",
-        "NFL": "🏈",
-        "NHL": "🏒",
+        # Basketball
+        "NBA": "🏀", "WNBA": "🏀", "NCAAB": "🏀",
+        # American Football
+        "NFL": "🏈", "NCAAF": "🏈",
+        # Hockey
+        "NHL": "🏒", "PWHL": "🏒",
+        # Tennis
+        "ATP": "🎾", "WTA": "🎾",
+        # Golf
+        "PGA": "⛳", "LPGA": "⛳",
+        # MMA / Boxing
+        "UFC": "🥊", "MMA": "🥊", "BOXING": "🥊",
+        # Racing
+        "NASCAR": "🏁", "F1": "🏎️",
+        # Other
+        "KALSHI": "🎯",
     }
     sport = next((v for k, v in _ticker_map.items() if _eticker.startswith(k)), None) \
             or (pick.get("sport_key") or "").split("_")[-1].upper() or "KALSHI"
