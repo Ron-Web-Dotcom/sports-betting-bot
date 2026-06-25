@@ -262,21 +262,17 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 if _mtkr and any(_mtkr.startswith(bt) or bt.startswith(_mtkr) for bt in _blocked_tickers):
                     continue
 
-            # Try to match to a Sofascore game for exact kickoff time
+            # Sofascore match — used for sport_key label only (name mismatch on club tournaments)
             sf_game   = _match_sofascore(subtitle)
-            kickoff   = sf_game.get("commence_time", "") if sf_game else ""
             sport_key = sf_game.get("sport_key", "") if sf_game else ""
 
-            # Rule: game must start AFTER this ticket was posted.
-            # Primary: Sofascore exact kickoff.
-            # Fallback: close_time - 2.5h estimate (FIFA CWC uses country names on Kalshi
-            # but club names on Sofascore — they never match, so we always fall back here).
+            # For Kalshi pre-game markets, close_time = game start time.
+            # Kalshi closes betting exactly at kickoff — "Bet before 4 PM" means
+            # the game starts at 4 PM. No estimation needed.
+            # Rule: skip if close_time has already passed (game already started).
             from datetime import timezone as _tz2
             from zoneinfo import ZoneInfo as _ZI3
-            _kickoff_utc  = None
-            _estimated_ko = False  # True when kickoff is estimated, not exact
 
-            # Parse close_time first — needed for both filter and estimate
             _close_raw = m.get("game_time", "")
             _close_utc = None
             if _close_raw:
@@ -288,28 +284,13 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 except Exception:
                     pass
 
-            if kickoff:
-                try:
-                    _kdt = _dp(kickoff)
-                    if _kdt.tzinfo is None:
-                        _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
-                    _kickoff_utc = _kdt.astimezone(_tz2.utc)
-                except Exception:
-                    pass
+            if _close_utc is None:
+                continue  # no close_time = can't determine game time, skip
 
-            if _kickoff_utc is None and _close_utc is not None:
-                # Estimate kickoff as close_time - 2.5h (works for soccer, MLB, NBA)
-                _kickoff_utc  = _close_utc - _td(hours=2, minutes=30)
-                _estimated_ko = True
-
-            # Skip if market is closed OR estimated kickoff already passed
-            if _close_utc is not None and _close_utc < _now_utc:
-                continue  # market already closed — can't bet
-
-            if _kickoff_utc is not None and _kickoff_utc < _now_utc:
+            if _close_utc < _now_utc:
                 continue  # game already started — skip
 
-            # Normalize times to naive ET ISO strings
+            # Normalize close_time to naive ET ISO string for display and alerts
             def _to_naive_et(raw: str) -> str:
                 if not raw:
                     return ""
@@ -321,38 +302,26 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     return _ct.astimezone(_ZI2("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     return raw
-
-            # commence_time = exact kickoff (Sofascore) used by slip_tracker for live alerts
-            # game_time     = Kalshi close_time (when betting closes) shown in "Bet before" footer
-            _commence   = _to_naive_et(kickoff) if kickoff else ""
+            # close_time = game start = "Bet before X" = when alerts fire
             _close_disp = _to_naive_et(m.get("game_time", ""))
 
-            # commence_time for slip_tracker alerts:
-            # Exact Sofascore kickoff > estimated (close_time - 2.5h) > empty
-            if _commence:
-                _alert_time = _commence
-            elif _kickoff_utc and _estimated_ko:
-                _alert_time = _to_naive_et(_kickoff_utc.isoformat())
-            else:
-                _alert_time = ""
-
             candidates.append({
-                "source":        "kalshi",
-                "market_id":     m.get("market_id", ""),
-                "title":         m.get("title", ""),
-                "subtitle":      subtitle,
-                "event_title":   subtitle or m.get("event_title", m.get("title", "")),
-                "event_ticker":  m.get("event_ticker", ""),
-                "sport_key":     sport_key,
-                "yes_prob":      yes_prob,
-                "no_prob":       no_prob,
-                "yes_american":  m.get("yes_american", 0),
-                "no_american":   m.get("no_american", 0),
-                "volume":        m.get("volume", 0),
-                "game_time":     _close_disp,    # "Bet before X" in footer
+                "source":          "kalshi",
+                "market_id":       m.get("market_id", ""),
+                "title":           m.get("title", ""),
+                "subtitle":        subtitle,
+                "event_title":     subtitle or m.get("event_title", m.get("title", "")),
+                "event_ticker":    m.get("event_ticker", ""),
+                "sport_key":       sport_key,
+                "yes_prob":        yes_prob,
+                "no_prob":         no_prob,
+                "yes_american":    m.get("yes_american", 0),
+                "no_american":     m.get("no_american", 0),
+                "volume":          m.get("volume", 0),
+                "game_time":       _close_disp,  # "Bet before X" in footer
                 "expiration_time": m.get("expiration_time", ""),
-                "close_time":    _close_disp,
-                "commence_time": _alert_time,    # kickoff for starting soon / live alerts
+                "close_time":      _close_disp,
+                "commence_time":   _close_disp,  # same — kickoff = close_time for pre-game markets
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     else:
