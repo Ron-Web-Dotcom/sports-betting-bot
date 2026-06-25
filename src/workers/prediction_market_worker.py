@@ -233,21 +233,35 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1) -> list[dict]:
             kickoff   = sf_game.get("commence_time", "") if sf_game else ""
             sport_key = sf_game.get("sport_key", "") if sf_game else ""
 
-            # Skip if the Kalshi market is already closed — user can't bet anymore.
-            # close_time (stored as game_time in ET) is when Kalshi stops accepting bets.
-            # This is the only filter needed: if close_time has passed → skip.
-            _close_raw = m.get("game_time", "")
-            if _close_raw:
+            # Rule: game must start AFTER this ticket was posted.
+            # Primary: Sofascore exact kickoff. Fallback: Kalshi close_time.
+            from datetime import timezone as _tz2
+            from zoneinfo import ZoneInfo as _ZI3
+            _kickoff_utc = None
+            if kickoff:
                 try:
-                    from datetime import timezone as _tz2
-                    _close_dt = _dp(_close_raw)
-                    if _close_dt.tzinfo is None:
-                        from zoneinfo import ZoneInfo as _ZI3
-                        _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
-                    if _close_dt.astimezone(_tz2.utc) < _now_utc:
-                        continue  # market closed, can't bet
+                    _kdt = _dp(kickoff)
+                    if _kdt.tzinfo is None:
+                        _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
+                    _kickoff_utc = _kdt.astimezone(_tz2.utc)
                 except Exception:
                     pass
+
+            if _kickoff_utc is not None:
+                if _kickoff_utc < _now_utc:
+                    continue  # game already kicked off — skip
+            else:
+                # No Sofascore match — fall back to Kalshi close_time
+                _close_raw = m.get("game_time", "")
+                if _close_raw:
+                    try:
+                        _cdt = _dp(_close_raw)
+                        if _cdt.tzinfo is None:
+                            _cdt = _cdt.replace(tzinfo=_ZI3("America/New_York"))
+                        if _cdt.astimezone(_tz2.utc) < _now_utc:
+                            continue  # market closed, skip
+                    except Exception:
+                        pass
 
             # Normalize times to naive ET ISO strings
             def _to_naive_et(raw: str) -> str:
