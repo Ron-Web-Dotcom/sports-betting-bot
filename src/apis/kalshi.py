@@ -196,6 +196,16 @@ _SPORTS_KEYWORDS = [
     "basketball", "baseball", "hockey", "soccer", "football",
     "tennis", "golf", "racing", "boxing", "nascar",
     "total ", "over ", "under ", "wins by",
+    # Player/team props
+    "hits", "home run", "strikeout", "rbi", "stolen base",
+    "points", "rebounds", "assists", "blocks", "steals", "threes",
+    "passing yards", "rushing yards", "receiving yards", "touchdowns",
+    "saves", "shots on goal", "goalkeeper",
+    "aces", "double faults", "break points",
+    "birdies", "bogeys", "eagles",
+    "knockdown", "round ", "decision", "ko", "tko", "submission",
+    "laps led", "fastest lap", "pole position",
+    "player ", "will ", "score more than", "record ",
 ]
 
 # Futures / politics patterns — always block (only long-term non-game markets)
@@ -347,53 +357,91 @@ def get_sports_events(limit: int = 500) -> list[dict]:
     # Known Kalshi sports series tickers — query each directly for best results
     _SERIES = [
         # ── Baseball ──────────────────────────────────────────────
-        "KXMLBGAME",    # MLB game winners
-        "KXMLBTOTAL",   # MLB run totals
+        "KXMLBGAME",      # MLB game winners
+        "KXMLBTOTAL",     # MLB run totals
+        "KXMLBHITS",      # MLB player hits props
+        "KXMLBHR",        # MLB home runs props
+        "KXMLBRBI",       # MLB RBI props
+        "KXMLBSO",        # MLB strikeouts props (pitcher)
+        "KXMLBTEAM",      # MLB team props
         # ── Soccer (Men's) ────────────────────────────────────────
-        "KXWCGAME",     # FIFA Club World Cup game winners
-        "KXWCTOTAL",    # FIFA Club World Cup goal totals
-        "KXMLSGAME",    # MLS game winners
-        "KXMLSTOTAL",   # MLS totals
-        "KXEPLGAME",    # English Premier League
-        "KXUEFAGAME",   # UEFA Champions League
-        "KXUEFATOTAL",  # UEFA totals
-        "KXLALIGAGAME", # La Liga
+        "KXWCGAME",       # FIFA Club World Cup game winners
+        "KXWCTOTAL",      # FIFA Club World Cup goal totals
+        "KXWCGOAL",       # FIFA CWC goalscorer props
+        "KXWCTEAM",       # FIFA CWC team props
+        "KXMLSGAME",      # MLS game winners
+        "KXMLSTOTAL",     # MLS totals
+        "KXMLSGOAL",      # MLS goalscorer props
+        "KXEPLGAME",      # English Premier League
+        "KXEPLTOTAL",     # EPL totals
+        "KXEPLGOAL",      # EPL goalscorer props
+        "KXUEFAGAME",     # UEFA Champions League
+        "KXUEFATOTAL",    # UEFA totals
+        "KXUEFAGOAL",     # UEFA goalscorer props
+        "KXLALIGAGAME",   # La Liga
         "KXBUNDESLIGAGAME", # Bundesliga
-        "KXSERIEAGAME", # Serie A
+        "KXSERIEAGAME",   # Serie A
         # ── Soccer (Women's) ──────────────────────────────────────
-        "KXNWSLGAME",   # NWSL game winners
-        "KXNWSLTOTAL",  # NWSL totals
-        "KXWWCGAME",    # FIFA Women's World Cup
+        "KXNWSLGAME",     # NWSL game winners
+        "KXNWSLTOTAL",    # NWSL totals
+        "KXNWSLGOAL",     # NWSL goalscorer props
+        "KXWWCGAME",      # FIFA Women's World Cup
+        "KXWWCTOTAL",     # FIFA Women's WC totals
         # ── Basketball (Men's) ────────────────────────────────────
-        "KXNBAGAME",    # NBA game winners
-        "KXNBATOTAL",   # NBA totals
-        "KXNCAABGAME",  # NCAA Men's Basketball
+        "KXNBAGAME",      # NBA game winners
+        "KXNBATOTAL",     # NBA totals
+        "KXNBAPOINTS",    # NBA player points props
+        "KXNBAREBOUNDS",  # NBA player rebounds props
+        "KXNBAASSISTS",   # NBA player assists props
+        "KXNBATEAM",      # NBA team props
+        "KXNCAABGAME",    # NCAA Men's Basketball
         # ── Basketball (Women's) ──────────────────────────────────
-        "KXWNBAGAME",   # WNBA game winners
-        "KXWNBATOTAL",  # WNBA totals
-        "KXNCAAWGAME",  # NCAA Women's Basketball
+        "KXWNBAGAME",     # WNBA game winners
+        "KXWNBATOTAL",    # WNBA totals
+        "KXWNBAPOINTS",   # WNBA player points props
+        "KXWNBAREBOUNDS", # WNBA player rebounds props
+        "KXWNBAASSISTS",  # WNBA player assists props
+        "KXWNBATEAM",     # WNBA team props
+        "KXNCAAWGAME",    # NCAA Women's Basketball
         # ── American Football ─────────────────────────────────────
-        "KXNFLGAME",    # NFL game winners
-        "KXNFLTOTAL",   # NFL totals
-        "KXNCAAFGAME",  # College Football
+        "KXNFLGAME",      # NFL game winners
+        "KXNFLTOTAL",     # NFL totals
+        "KXNFLPASS",      # NFL passing yards props
+        "KXNFLRUSH",      # NFL rushing yards props
+        "KXNFLREC",       # NFL receiving yards props
+        "KXNFLTD",        # NFL touchdown props
+        "KXNFLTEAM",      # NFL team props
+        "KXNCAAFGAME",    # College Football
         # ── Hockey ────────────────────────────────────────────────
-        "KXNHLGAME",    # NHL game winners
-        "KXNHLTOTAL",   # NHL totals
-        "KXPWHLGAME",   # PWHL (women's hockey)
+        "KXNHLGAME",      # NHL game winners
+        "KXNHLTOTAL",     # NHL totals
+        "KXNHLGOAL",      # NHL goalscorer props
+        "KXNHLSAVES",     # NHL goalie saves props
+        "KXNHLTEAM",      # NHL team props
+        "KXPWHLGAME",     # PWHL (women's hockey)
+        "KXPWHLTOTAL",    # PWHL totals
         # ── Tennis (Men's & Women's) ──────────────────────────────
-        "KXTENNIS",     # Tennis general
-        "KXATPGAME",    # ATP (men's tennis)
-        "KXWTGAME",     # WTA (women's tennis)
+        "KXTENNIS",       # Tennis general
+        "KXATPGAME",      # ATP (men's tennis)
+        "KXATPSETS",      # ATP sets props
+        "KXWTGAME",       # WTA (women's tennis)
+        "KXWTSETS",       # WTA sets props
         # ── Golf (Men's & Women's) ────────────────────────────────
-        "KXGOLF",       # Golf general
-        "KXPGAGAME",    # PGA Tour
-        "KXLPGAGAME",   # LPGA Tour (women's golf)
+        "KXGOLF",         # Golf general
+        "KXPGAGAME",      # PGA Tour
+        "KXPGACUTS",      # PGA cut props
+        "KXLPGAGAME",     # LPGA Tour (women's golf)
+        "KXLPGACUTS",     # LPGA cut props
         # ── Combat Sports ─────────────────────────────────────────
-        "KXUFC",        # UFC/MMA
-        "KXBOXGAME",    # Boxing
+        "KXUFC",          # UFC/MMA
+        "KXUFCMETHOD",    # UFC method of victory props
+        "KXBOXGAME",      # Boxing
+        "KXBOXMETHOD",    # Boxing method of victory props
         # ── Racing ────────────────────────────────────────────────
-        "KXF1GAME",     # Formula 1
-        "KXNASCARGAME", # NASCAR
+        "KXF1GAME",       # Formula 1
+        "KXF1DRIVER",     # F1 driver props
+        "KXNASCARGAME",   # NASCAR
+        "KXNASCARDRIVER", # NASCAR driver props
     ]
 
     all_markets: list[dict] = []
