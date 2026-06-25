@@ -404,6 +404,84 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
     ev_pct     = float(result.get("ev_pct") or 0)
     answer     = result.get("answer", "YES").upper()
 
+    # ── Perplexity last resort ─────────────────────────────────────────────────
+    # Fires when AI picked a candidate but it's just under the floors (0.70-0.77 conf or 0.02-0.03 ev).
+    # Web search injects fresh game intel → AI re-scores with real-world context.
+    # Rate-limited to 2 calls/day shared with HardRock.
+    _near_miss = (
+        idx < len(candidates)
+        and (0.70 <= confidence < 0.77 or (confidence >= 0.77 and 0.02 <= ev_pct < 0.03))
+    )
+    if _near_miss:
+        _perplexity_allowed = False
+        try:
+            from src.core.config import REDIS_URL, PERPLEXITY_API_KEY
+            import redis as _rc2
+            from src.core.timezone import et_naive as _et_naive2
+            if PERPLEXITY_API_KEY:
+                _r2 = _rc2.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+                _date_key2 = f"perplexity:calls:{_et_naive2().strftime('%Y-%m-%d')}"
+                if int(_r2.get(_date_key2) or 0) < 2:
+                    _perplexity_allowed = True
+        except Exception:
+            pass
+
+        if _perplexity_allowed:
+            try:
+                from src.apis.websearch import search_game_news, search_player_news
+                _pick_c   = candidates[idx]
+                _subtitle = _pick_c.get("subtitle", "") or _pick_c.get("event_title", "")
+                _title    = _pick_c.get("title", "")
+                _sport    = _pick_c.get("sport_key", "")
+                _home     = _pick_c.get("home_team", "")
+                _away     = _pick_c.get("away_team", "")
+
+                # Choose search type: player prop vs game market
+                _is_player_prop = any(kw in _title.lower() for kw in
+                    ("points", "rebounds", "assists", "hits", "strikeouts", "goals", "saves",
+                     "yards", "touchdowns", "sets", "aces", "birdies"))
+                if _is_player_prop:
+                    _web = search_player_news(_subtitle or _title, _title, _sport)
+                else:
+                    _web = search_game_news(_home or _subtitle, _away or "", _sport, today_str)
+
+                if _web:
+                    logger.info("Kalshi Perplexity last resort: web search for '%s'", _subtitle or _title)
+
+                    # Re-score with web context injected into the prompt
+                    _enriched_prompt = (
+                        f"Today is {today_str}. Fresh web intel on this Kalshi contract:\n\n"
+                        f"**Market:** {_title}\n"
+                        f"**Game:** {_subtitle}\n"
+                        f"**Current YES price:** {round(_pick_c['yes_prob'] * 100)}%\n\n"
+                        f"**Web research findings:**\n{_web}\n\n"
+                        f"Re-evaluate this single contract with the above findings. "
+                        f"Return the same JSON format as before."
+                    )
+                    _result2 = _call_json(_enriched_prompt, system)
+                    if _result2 and _result2.get("index") is not None:
+                        _c2 = float(_result2.get("confidence") or 0)
+                        _e2 = float(_result2.get("ev_pct") or 0)
+                        if _c2 >= 0.77 and _e2 >= 0.03:
+                            result     = _result2
+                            result["index"] = idx   # keep same candidate
+                            confidence = _c2
+                            ev_pct     = _e2
+                            answer     = (_result2.get("answer") or answer).upper()
+                            logger.info("Kalshi Perplexity: qualified at conf=%.0f%% ev=%.1f%%",
+                                        _c2 * 100, _e2 * 100)
+                            try:
+                                _r2.incr(_date_key2)
+                                _r2.expire(_date_key2, 86400)
+                            except Exception:
+                                pass
+                        else:
+                            logger.info("Kalshi Perplexity: still below floor (conf=%.0f%% ev=%.1f%%) — skipping",
+                                        _c2 * 100, _e2 * 100)
+            except Exception as _pe:
+                logger.warning("Kalshi Perplexity last resort failed: %s", _pe)
+    # ── End last resort ────────────────────────────────────────────────────────
+
     if idx >= len(candidates) or confidence < 0.77 or ev_pct < 0.03:
         return []
 
