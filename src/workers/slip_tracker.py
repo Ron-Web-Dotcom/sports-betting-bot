@@ -598,21 +598,34 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Sofascore kickoff (commence_time) is source of truth for timing.
-                    # Don't poll Kalshi until the game has actually started.
-                    if ct and now < ct:
-                        continue  # game hasn't kicked off yet
+                    # Ask Sofascore if the game is finished — no time math needed.
+                    sf_id = pick.get("sofascore_id", "")
+                    if sf_id:
+                        try:
+                            from src.apis.sofascore import _get as _sf_get
+                            _ev = (_sf_get(f"/event/{sf_id}") or {}).get("event", {})
+                            _sf_status = (_ev.get("status") or {}).get("type", "")
+                            if _sf_status != "finished":
+                                continue  # Sofascore says game not done yet
+                        except Exception:
+                            # Sofascore unavailable — fall back to kickoff time guard
+                            if ct and now < ct:
+                                continue
+                    else:
+                        # No Sofascore ID — use kickoff time as fallback guard
+                        if ct and now < ct:
+                            continue
+
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
                     elif ct and (now - ct).total_seconds() > 14400:
-                        # 4h after kickoff with no result — mark unknown to unblock slip
+                        # 4h after kickoff with no Kalshi result — mark unknown
                         results.append("unknown")
                         logger.info(
                             "Slip %s: Kalshi market %s unsettled 4h after kickoff — marking unknown",
                             slip.get("id"), pick.get("market_id", "?"),
                         )
-                    # else: game in progress, keep polling every 3 min
                 else:
                     if not ct:
                         continue

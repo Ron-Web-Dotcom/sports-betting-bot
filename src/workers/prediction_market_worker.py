@@ -308,12 +308,13 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "event_title":   subtitle or m.get("event_title", m.get("title", "")),
                 "event_ticker":  m.get("event_ticker", ""),
                 "sport_key":     sport_key,
+                "sofascore_id":  sf_game.get("id", "") if sf_game else "",
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
                 "yes_american":  m.get("yes_american", 0),
                 "no_american":   m.get("no_american", 0),
                 "volume":        m.get("volume", 0),
-                "commence_time": _kickoff_et,   # Sofascore kickoff → alerts fire here
+                "commence_time": _kickoff_et,
                 "expiration_time": m.get("expiration_time", ""),
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
@@ -536,6 +537,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
         "reasoning":    result.get("reasoning", ""),
         "home_odds":    pick.get("yes_american", 0),
         "away_odds":    pick.get("no_american", 0),
+        "sofascore_id":  pick.get("sofascore_id", ""),
         "commence_time": pick.get("commence_time", ""),
     }]
 
