@@ -188,10 +188,21 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         import redis as _rc
         from src.core.config import REDIS_URL
         _rr = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
-            _sfraw = _rr.get(_sfkey)
-            if _sfraw:
-                _sf_games.extend(_jc.loads(_sfraw))
+        # today_index has every game across all sports (populated by scan_todays_games at 8 AM)
+        _idx_raw = _rr.get("sofascore:today_index")
+        if _idx_raw:
+            _seen_ids: set[str] = set()
+            for _ev in _jc.loads(_idx_raw).values():
+                _eid = _ev.get("id", "")
+                if _eid not in _seen_ids:
+                    _seen_ids.add(_eid)
+                    _sf_games.append(_ev)
+        else:
+            # fallback to day/night split if index not built yet
+            for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
+                _sfraw = _rr.get(_sfkey)
+                if _sfraw:
+                    _sf_games.extend(_jc.loads(_sfraw))
     except Exception:
         pass
 
@@ -283,31 +294,6 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
             # ── Sofascore: source of truth for game timing ─────────────────
             sf_game = _match_sofascore(subtitle)
-
-            # If no match in today's cache, try scanning all Sofascore sport slugs for this game
-            if not sf_game and subtitle:
-                try:
-                    from src.apis.sofascore import _get as _sf_get2, _normalise_event as _sf_norm
-                    _today_str = _now_et.strftime("%Y-%m-%d")
-                    for _slug in ("football", "basketball", "baseball", "ice-hockey",
-                                  "american-football", "tennis", "mma", "golf"):
-                        _sf_resp = _sf_get2(f"/sport/{_slug}/scheduled-events/{_today_str}")
-                        if not _sf_resp:
-                            continue
-                        for _raw_ev in (_sf_resp if isinstance(_sf_resp, list) else _sf_resp.get("events", [])):
-                            _ne = _sf_norm(_raw_ev, _slug)
-                            _home = (_ne.get("home_team") or "").lower()
-                            _away = (_ne.get("away_team") or "").lower()
-                            _sl   = subtitle.lower()
-                            if (_home and _home in _sl) or (_away and _away in _sl):
-                                sf_game = _ne
-                                # Add to cache so tracker can use it
-                                _sf_games.append(_ne)
-                                break
-                        if sf_game:
-                            break
-                except Exception:
-                    pass
 
             sport_key  = sf_game.get("sport_key",    "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
