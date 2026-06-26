@@ -598,21 +598,22 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Sofascore tells us when the game ends (status_type == "finished").
-                    # Only then hit Kalshi for the result — fires instantly when game ends.
+                    # Sofascore says finished → hit Kalshi once → fire result instantly.
                     sf_id = pick.get("sofascore_id", "")
                     if sf_id:
                         try:
                             from src.apis.sofascore import _get as _sf_get
-                            _ev = (_sf_get(f"/event/{sf_id}") or {}).get("event", {})
-                            _sf_status = (_ev.get("status") or {}).get("type", "")
+                            _sf_data = _sf_get(f"/event/{sf_id}")
+                            if not _sf_data:
+                                continue  # Sofascore unreachable — try again next tick
+                            _sf_status = (_sf_data.get("event", {}).get("status") or {}).get("type", "")
                             if _sf_status != "finished":
                                 continue  # game still in progress
                         except Exception:
-                            continue  # Sofascore error — try again next tick
+                            continue  # error — try again next tick
                     else:
-                        # No sofascore_id (older slip) — fall back to 4h after kickoff
-                        if not ct or (now - ct).total_seconds() < 14400:
+                        # Older slip without sofascore_id — guard by kickoff time only
+                        if not ct or now < ct:
                             continue
 
                     res = _check_pick_result(pick)
