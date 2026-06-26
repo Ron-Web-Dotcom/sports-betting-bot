@@ -250,6 +250,51 @@ def _epoch_to_iso(ts: int | None) -> str:
         return ""
 
 
+# ── Odds ──────────────────────────────────────────────────────────────────────
+
+def get_event_odds(event_id: str) -> dict:
+    """
+    Return pre-match 1X2 odds for a given Sofascore event.
+    Sofascore aggregates odds from bookmakers (Bet365 = bookmaker 1).
+    Returns implied probabilities + American odds for home/draw/away.
+    """
+    data = _get(f"/event/{event_id}/odds/1/all")
+    if not data:
+        return {}
+    try:
+        markets = data.get("markets", []) if isinstance(data, dict) else []
+        for market in markets:
+            if market.get("marketName", "").lower() in ("1x2", "match winner", "moneyline"):
+                choices = market.get("choices", [])
+                result = {}
+                for c in choices:
+                    name = c.get("name", "").upper()
+                    odd  = float(c.get("odd") or c.get("fractionalValue") or 0)
+                    if not odd:
+                        continue
+                    # Convert decimal to American
+                    if odd >= 2.0:
+                        american = f"+{int((odd - 1) * 100)}"
+                    else:
+                        american = str(int(-100 / (odd - 1)))
+                    implied = round(1 / odd, 4)
+                    if name in ("1", "HOME"):
+                        result["home_odds"]    = american
+                        result["home_implied"] = implied
+                    elif name in ("X", "DRAW"):
+                        result["draw_odds"]    = american
+                        result["draw_implied"] = implied
+                    elif name in ("2", "AWAY"):
+                        result["away_odds"]    = american
+                        result["away_implied"] = implied
+                if result:
+                    result["source"] = "sofascore"
+                    return result
+    except Exception as e:
+        logger.warning("get_event_odds(%s) parse error: %s", event_id, e)
+    return {}
+
+
 # ── Head-to-head ──────────────────────────────────────────────────────────────
 
 def get_h2h(event_id: str) -> list[dict]:

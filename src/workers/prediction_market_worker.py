@@ -300,6 +300,16 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             # commence_time = Sofascore exact kickoff (ET) — drives all alerts
             _kickoff_et = _to_naive_et(sf_kickoff)
 
+            # Sofascore odds — cross-reference against Kalshi price for edge detection
+            _sf_odds: dict = {}
+            _sf_id = sf_game.get("id", "") if sf_game else ""
+            if _sf_id:
+                try:
+                    from src.apis.sofascore import get_event_odds as _get_sf_odds
+                    _sf_odds = _get_sf_odds(_sf_id) or {}
+                except Exception:
+                    pass
+
             candidates.append({
                 "source":        "kalshi",
                 "market_id":     m.get("market_id", ""),
@@ -308,7 +318,12 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "event_title":   subtitle or m.get("event_title", m.get("title", "")),
                 "event_ticker":  m.get("event_ticker", ""),
                 "sport_key":     sport_key,
-                "sofascore_id":  sf_game.get("id", "") if sf_game else "",
+                "sofascore_id":  _sf_id,
+                "sf_home_odds":  _sf_odds.get("home_odds", ""),
+                "sf_draw_odds":  _sf_odds.get("draw_odds", ""),
+                "sf_away_odds":  _sf_odds.get("away_odds", ""),
+                "sf_home_impl":  _sf_odds.get("home_implied", 0),
+                "sf_away_impl":  _sf_odds.get("away_implied", 0),
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
                 "yes_american":  m.get("yes_american", 0),
@@ -348,6 +363,11 @@ Each candidate includes:
 - "game": the specific matchup (e.g. "Jordan vs Algeria") — USE THIS to identify the sport and teams
 - "ticker": Kalshi event ticker (e.g. KXWCGAME = FIFA Club World Cup, KXMLBGAME = MLB, KXWNBAGAME = WNBA)
 - "game_time_et": when the game starts in ET
+- "kalshi_yes_%": what Kalshi is pricing YES at
+- "sf_home_odds" / "sf_away_odds": real sportsbook odds from Sofascore (American format) — when present, USE THESE to cross-check the Kalshi price
+- "sf_home_implied%" / "sf_away_implied%": sportsbook implied probability — compare to kalshi_yes_% to find mispricing
+
+EDGE DETECTION: When Sofascore odds are available, calculate the gap between the sportsbook implied probability and the Kalshi yes_%. A large gap = mispriced market = strong edge. Example: sf_home_implied=65% but kalshi_yes_=52% → Kalshi is underpricing the home win by 13 points → strong YES edge.
 
 CRITICAL: Base your reasoning on the ACTUAL game in the "game" field and "ticker" prefix.
 Do NOT invent or substitute different teams/sports. If "game" is "Jordan vs Algeria", that IS the game.
@@ -355,7 +375,7 @@ Soccer markets use goals. Basketball markets use points. "Goals" markets are ALW
 
 For each contract research:
 - Recent form, stats, injuries, matchup edges for the ACTUAL listed teams
-- Whether the YES probability is mis-priced vs true probability
+- Whether the YES probability is mis-priced vs true probability — use Sofascore odds as your anchor when available
 - High volume = sharp money — respect it
 
 Pick the SINGLE best contract where YES has the highest confidence edge.
@@ -392,16 +412,22 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
             return gt[:16]
 
     candidate_list = [
-        {
-            "index":        i,
-            "market":       c.get("title", ""),
-            "game":         c.get("subtitle") or c.get("event_title", ""),
-            "ticker":       c.get("event_ticker", ""),
-            "game_time_et": _fmt_gt(c.get("commence_time", "")),
-            "yes_prob_%":   f"{round(c['yes_prob']*100)}%",
-            "yes_american": f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
-            "volume":       c.get("volume", 0),
-        }
+        {k: v for k, v in {
+            "index":            i,
+            "market":           c.get("title", ""),
+            "game":             c.get("subtitle") or c.get("event_title", ""),
+            "ticker":           c.get("event_ticker", ""),
+            "game_time_et":     _fmt_gt(c.get("commence_time", "")),
+            "kalshi_yes_%":     f"{round(c['yes_prob']*100)}%",
+            "kalshi_yes_odds":  f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
+            "volume":           c.get("volume", 0),
+            # Sofascore bookmaker odds — use to spot Kalshi mispricing
+            "sf_home_odds":     c.get("sf_home_odds") or None,
+            "sf_draw_odds":     c.get("sf_draw_odds") or None,
+            "sf_away_odds":     c.get("sf_away_odds") or None,
+            "sf_home_implied%": f"{round(c['sf_home_impl']*100)}%" if c.get("sf_home_impl") else None,
+            "sf_away_implied%": f"{round(c['sf_away_impl']*100)}%" if c.get("sf_away_impl") else None,
+        }.items() if v is not None}
         for i, c in enumerate(candidates[:80])
     ]
 
