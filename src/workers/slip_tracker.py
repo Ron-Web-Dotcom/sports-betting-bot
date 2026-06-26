@@ -571,8 +571,8 @@ def track_slips() -> dict:
                     sf_status   = (ev.get("status") or {}).get("type", "")
                     start_ts    = ev.get("startTimestamp")
                     if start_ts:
-                        from datetime import datetime as _dt2, timezone as _utc
-                        start_et  = _dt2.fromtimestamp(start_ts, tz=_utc.utc).astimezone(_ET)
+                        from datetime import datetime as _dt2
+                        start_et  = _dt2.fromtimestamp(start_ts, tz=_ET)
                         mins      = (start_et - now).total_seconds() / 60
                         gt        = start_et.strftime("%-I:%M %p ET")
 
