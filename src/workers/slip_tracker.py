@@ -598,31 +598,10 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Ask Sofascore if the game is finished.
-                    # If Sofascore is unreachable or returns nothing, fall back to kickoff time.
-                    sf_id = pick.get("sofascore_id", "")
-                    _sf_confirmed_finished = False
-                    _sf_available = False
-                    if sf_id:
-                        try:
-                            from src.apis.sofascore import _get as _sf_get
-                            _ev_data = _sf_get(f"/event/{sf_id}")
-                            if _ev_data:  # only trust Sofascore when it actually responds
-                                _sf_available = True
-                                _ev = (_ev_data or {}).get("event", {})
-                                _sf_status = (_ev.get("status") or {}).get("type", "")
-                                if _sf_status == "finished":
-                                    _sf_confirmed_finished = True
-                                else:
-                                    continue  # Sofascore responded and says not done yet
-                        except Exception:
-                            pass  # Sofascore unreachable — fall through to time-based guard
-
-                    if not _sf_available:
-                        # Sofascore unavailable — use kickoff time as guard
-                        if ct and now < ct:
-                            continue  # game hasn't started yet
-                        # Past kickoff with no Sofascore — proceed to check Kalshi result
+                    # Wait until kickoff has passed, then poll Kalshi every 3 min.
+                    # Kalshi settles the market when the game ends — fire result instantly.
+                    if ct and now < ct:
+                        continue  # game hasn't started yet
 
                     res = _check_pick_result(pick)
                     if res:
