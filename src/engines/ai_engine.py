@@ -118,6 +118,16 @@ STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
   9. Pace/matchup mismatch that consistently favours this team or player's style
  10. Sofascore bookmaker edge — if `sofascore_bookmaker_odds` is present, compare the sportsbook implied probability (home_implied / away_implied) against the Odds API implied probability. A gap of 5%+ means the Odds API line is stale or off — use Sofascore as your anchor. Example: Sofascore home_implied=0.68 but Odds API implied=0.55 → market is underpricing home by 13 pts → strong value signal.
 
+HEAVY FAVORITE RULE — read this first:
+  If the odds are -300 or shorter (e.g. -500, -1000, -10000), the market is telling you this outcome
+  is near certain. Do NOT second-guess it. Heavy favorites exist because one side is massively superior.
+  Your job is to confirm the obvious, not find reasons to doubt it.
+  -300 to -500   → win_probability 0.77-0.83
+  -500 to -1000  → win_probability 0.83-0.91
+  -1000 to -3000 → win_probability 0.91-0.96
+  -3000+         → win_probability 0.96-0.99
+  When both Sofascore AND the Odds API agree on a heavy favorite — that IS the pick. Take it.
+
 Signals → win_probability:
   1 signal  → 0.52-0.60
   2 signals → 0.60-0.70
@@ -131,6 +141,7 @@ STEP 3 — BE HONEST WITH YOUR NUMBERS:
   Do NOT inflate or deflate it — the betting system makes the final decision, not you.
   Do NOT self-censor by returning 0.50 because you are unsure whether to bet.
   If Portugal has a 85% true chance of beating DR Congo, return 0.85. Period.
+  If a team is -2000, return 0.97. Do not water it down to 0.60 out of caution.
   If a player prop has a 70% true chance of hitting, return 0.70. Period.
 
 Return ONLY valid JSON — no markdown, no extra text:

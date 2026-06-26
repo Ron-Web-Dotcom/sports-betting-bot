@@ -403,6 +403,12 @@ Return ONLY valid JSON:
   "reasoning": "<3-4 sentences: cite the actual teams from 'game', recent form, and why the market is mis-priced>"
 }
 
+HEAVY FAVORITE RULE: When a Kalshi YES price is 85%+ (e.g. 90¢, 95¢) or the Sofascore implied
+probability is -300 or shorter, that market is pricing a near-certain outcome. Do NOT overthink it —
+high-priced YES contracts on dominant favorites ARE the edge. Confirm the obvious and pick it.
+85-90% YES → confidence 0.85-0.90. 90-97% YES → confidence 0.90-0.97.
+When Sofascore AND Kalshi both agree on a heavy favorite — that is a lock. Take it.
+
 Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if nothing qualifies."""
 
     from datetime import datetime
