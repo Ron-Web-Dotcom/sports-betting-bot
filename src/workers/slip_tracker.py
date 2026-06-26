@@ -612,8 +612,9 @@ def track_slips() -> dict:
                         except Exception:
                             continue  # error — try again next tick
                     else:
-                        # Older slip without sofascore_id — guard by kickoff time only
-                        if not ct or now < ct:
+                        # No sofascore_id — if kickoff time known, wait for it
+                        # If no kickoff time either, poll Kalshi directly (returns None until settled)
+                        if ct and now < ct:
                             continue
 
                     res = _check_pick_result(pick)

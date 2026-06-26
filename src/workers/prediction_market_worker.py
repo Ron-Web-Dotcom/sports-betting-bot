@@ -282,7 +282,33 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     continue
 
             # ── Sofascore: source of truth for game timing ─────────────────
-            sf_game    = _match_sofascore(subtitle)
+            sf_game = _match_sofascore(subtitle)
+
+            # If no match in today's cache, try scanning all Sofascore sport slugs for this game
+            if not sf_game and subtitle:
+                try:
+                    from src.apis.sofascore import _get as _sf_get2, _normalise_event as _sf_norm
+                    _today_str = _now_et.strftime("%Y-%m-%d")
+                    for _slug in ("football", "basketball", "baseball", "ice-hockey",
+                                  "american-football", "tennis", "mma", "golf"):
+                        _sf_resp = _sf_get2(f"/sport/{_slug}/scheduled-events/{_today_str}")
+                        if not _sf_resp:
+                            continue
+                        for _raw_ev in (_sf_resp if isinstance(_sf_resp, list) else _sf_resp.get("events", [])):
+                            _ne = _sf_norm(_raw_ev, _slug)
+                            _home = (_ne.get("home_team") or "").lower()
+                            _away = (_ne.get("away_team") or "").lower()
+                            _sl   = subtitle.lower()
+                            if (_home and _home in _sl) or (_away and _away in _sl):
+                                sf_game = _ne
+                                # Add to cache so tracker can use it
+                                _sf_games.append(_ne)
+                                break
+                        if sf_game:
+                            break
+                except Exception:
+                    pass
+
             sport_key  = sf_game.get("sport_key",    "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
