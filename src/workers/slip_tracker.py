@@ -598,7 +598,7 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Sofascore says finished → hit Kalshi once → fire result instantly.
+                    # Sofascore says finished → check Kalshi → fire result.
                     sf_id = pick.get("sofascore_id", "")
                     if sf_id:
                         try:
@@ -611,22 +611,12 @@ def track_slips() -> dict:
                                 continue  # game still in progress
                         except Exception:
                             continue  # error — try again next tick
-                    else:
-                        # No sofascore_id — if kickoff time known, wait for it
-                        # If no kickoff time either, poll Kalshi directly (returns None until settled)
-                        if ct and now < ct:
-                            continue
+                    # No sofascore_id — poll Kalshi directly, it returns None until settled
 
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    elif ct and (now - ct).total_seconds() > 14400:
-                        # 4h after kickoff with no Kalshi result — mark unknown
-                        results.append("unknown")
-                        logger.info(
-                            "Slip %s: Kalshi market %s unsettled 4h after kickoff — marking unknown",
-                            slip.get("id"), pick.get("market_id", "?"),
-                        )
+                    # Kalshi not settled yet — retry next tick (3 min)
                 else:
                     if not ct:
                         continue
