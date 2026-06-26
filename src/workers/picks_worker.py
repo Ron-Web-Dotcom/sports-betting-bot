@@ -569,6 +569,30 @@ def _build_hardrock_candidates(
     candidates: list[dict] = []
     _top_seen_conf: float  = 0.0
 
+    # Load Sofascore team index — keyed by lowercased team name → event dict (has 'id')
+    _sf_index: dict[str, dict] = {}
+    try:
+        from src.core.config import REDIS_URL as _RURL_SF
+        import redis as _redis_sf, json as _json_sf
+        _rsf = _redis_sf.from_url(_RURL_SF, decode_responses=True, socket_connect_timeout=2)
+        _raw_idx = _rsf.get("sofascore:today_index")
+        if _raw_idx:
+            _sf_index = _json_sf.loads(_raw_idx)
+    except Exception:
+        pass
+
+    def _sf_odds_for_game(home: str, away: str) -> dict:
+        """Fetch Sofascore bookmaker odds for this game — used to cross-check Odds API implied probs."""
+        for name in (home.lower(), away.lower()):
+            ev = _sf_index.get(name)
+            if ev and ev.get("id"):
+                try:
+                    from src.apis.sofascore import get_event_odds as _gso
+                    return _gso(ev["id"]) or {}
+                except Exception:
+                    return {}
+        return {}
+
     logger.info("HardRock [%s]: %d games in DB window", period, len(snapshots))
 
     _today_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York")).date()
@@ -622,6 +646,11 @@ def _build_hardrock_candidates(
             ctx = {}
         all_injuries = ctx.get("injuries_espn_home", []) + ctx.get("rotowire_injuries", []) or game_injuries
         hub_news     = ctx.get("news_espn", [])
+
+        # Sofascore odds — bookmaker-implied probabilities for cross-reference
+        sf_odds = _sf_odds_for_game(home_team, away_team)
+        if sf_odds:
+            ctx["sofascore_odds"] = sf_odds  # picked up by analyse_pick → AI sees it
 
         # ── Try up to 3 markets per game ─────────────────────────────────────
         priority = ["h2h", "spreads", "totals", "team_totals", "alternate_totals",

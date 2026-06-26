@@ -116,6 +116,7 @@ STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
   7. Rest advantage (opponent on back-to-back or short rest)
   8. Fade-the-public setup (70%+ public on the other side, line hasn't moved)
   9. Pace/matchup mismatch that consistently favours this team or player's style
+ 10. Sofascore bookmaker edge — if `sofascore_bookmaker_odds` is present, compare the sportsbook implied probability (home_implied / away_implied) against the Odds API implied probability. A gap of 5%+ means the Odds API line is stale or off — use Sofascore as your anchor. Example: Sofascore home_implied=0.68 but Odds API implied=0.55 → market is underpricing home by 13 pts → strong value signal.
 
 Signals → win_probability:
   1 signal  → 0.52-0.60
@@ -271,6 +272,8 @@ def analyse_pick(
         # Perplexity web search results — breaking news injected when borderline
         if game_context.get("web_search_news"):
             payload["breaking_news_web_search"] = game_context["web_search_news"]
+        if game_context.get("sofascore_odds"):
+            payload["sofascore_bookmaker_odds"] = game_context["sofascore_odds"]
 
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)
