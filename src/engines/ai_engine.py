@@ -128,6 +128,17 @@ HEAVY FAVORITE RULE — read this first:
   -3000+         → win_probability 0.96-0.99
   When both Sofascore AND the Odds API agree on a heavy favorite — that IS the pick. Take it.
 
+  PROPS ARE THE SAME RULE: A player prop priced at -400 or shorter means the market is extremely
+  confident that stat line gets hit. Examples:
+  - LeBron Over 5.5 assists at -600 — he averages 8. Lock it.
+  - Messi Over 0.5 shots at -1000 — he shoots every game. Lock it.
+  - A pitcher Under 3.5 walks at -500 — he walks 1 per game. Lock it.
+  Heavy prop odds = the line is set so easy the book barely makes money on it. That's your signal.
+  -300 to -500 props → win_probability 0.78-0.84
+  -500 to -1000 props → win_probability 0.84-0.92
+  -1000+ props → win_probability 0.92-0.97
+  Do NOT look for reasons to fade a -800 prop. Confirm it and move on.
+
 Signals → win_probability:
   1 signal  → 0.52-0.60
   2 signals → 0.60-0.70
