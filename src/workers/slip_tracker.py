@@ -539,38 +539,69 @@ def track_slips() -> dict:
         now = _now_et()
         alerts_fired = 0
 
-        # ── Pass 1: collect soon/live — one grouped embed each ────────────────
+        # ── Pass 1: starting soon / live alerts via Sofascore status ─────────
         all_soon: list[str] = []
         all_live: list[str] = []
 
+        from zoneinfo import ZoneInfo as _ZI
+        _ET = _ZI("America/New_York")
+
+        def _sf_event(sf_id: str) -> dict:
+            """Fetch Sofascore event — returns {} on any failure."""
+            try:
+                from src.apis.sofascore import _get as _sf_get
+                data = _sf_get(f"/event/{sf_id}")
+                return (data or {}).get("event", {}) if data else {}
+            except Exception:
+                return {}
+
         for slip in slips:
-            plat   = _platform_label(slip["platform"])
+            plat = _platform_label(slip["platform"])
             for pick in slip.get("picks", []):
-                ct = _parse_time(pick.get("commence_time", ""))
-                if not ct:
-                    continue
-                mins = (ct - now).total_seconds() / 60
-                _home = pick.get("home_team", "")
-                _away = pick.get("away_team", "")
-                gid  = (pick.get("event_id") or pick.get("game_key") or
-                        pick.get("market_id") or
-                        (f"{_home}:{_away}" if _home or _away else
-                         (pick.get("question") or pick.get("title") or "unknown")))
-                _game_name = f"{pick.get('away_team', '')} @ {pick.get('home_team', '')}"
-                name = (pick.get("question") or pick.get("title") or pick.get("player") or
-                        (_game_name if _game_name.strip(" @") else ""))
-                gt   = _fmt_time(pick.get("commence_time", ""))
-                tag  = f"`[{plat}]`"
+                sf_id = pick.get("sofascore_id", "")
+                gid   = sf_id or pick.get("market_id") or pick.get("event_id") or \
+                        f"{pick.get('home_team','')}:{pick.get('away_team','')}".lower() or \
+                        (pick.get("question") or pick.get("title") or "unknown")
+                name  = (pick.get("subtitle") or pick.get("question") or pick.get("player") or
+                         f"{pick.get('away_team','')} @ {pick.get('home_team','')}").strip(" @") or gid
+                tag   = f"`[{plat}]`"
 
-                soon_key = f"game:soon:{gid}"
-                if 0 <= mins <= 30 and not _alerted(r, soon_key):
-                    all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
-                    _mark_alerted(r, soon_key)
+                if sf_id:
+                    ev          = _sf_event(sf_id)
+                    sf_status   = (ev.get("status") or {}).get("type", "")
+                    start_ts    = ev.get("startTimestamp")
+                    if start_ts:
+                        from datetime import datetime as _dt2, timezone as _utc
+                        start_et  = _dt2.fromtimestamp(start_ts, tz=_utc.utc).astimezone(_ET)
+                        mins      = (start_et - now).total_seconds() / 60
+                        gt        = start_et.strftime("%-I:%M %p ET")
 
-                live_key = f"game:live:{gid}"
-                if -180 <= mins <= 5 and not _alerted(r, live_key):
-                    all_live.append(f"🔴 **{name}**  {tag}")
-                    _mark_alerted(r, live_key)
+                        soon_key = f"game:soon:{gid}"
+                        if 0 <= mins <= 30 and not _alerted(r, soon_key):
+                            all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
+                            _mark_alerted(r, soon_key)
+
+                    live_key = f"game:live:{gid}"
+                    if sf_status == "inprogress" and not _alerted(r, live_key):
+                        all_live.append(f"🔴 **{name}**  {tag}")
+                        _mark_alerted(r, live_key)
+                else:
+                    # No sofascore_id (HardRock picks) — fall back to commence_time
+                    ct = _parse_time(pick.get("commence_time", ""))
+                    if not ct:
+                        continue
+                    mins = (ct - now).total_seconds() / 60
+                    gt   = _fmt_time(pick.get("commence_time", ""))
+
+                    soon_key = f"game:soon:{gid}"
+                    if 0 <= mins <= 30 and not _alerted(r, soon_key):
+                        all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
+                        _mark_alerted(r, soon_key)
+
+                    live_key = f"game:live:{gid}"
+                    if -180 <= mins <= 5 and not _alerted(r, live_key):
+                        all_live.append(f"🔴 **{name}**  {tag}")
+                        _mark_alerted(r, live_key)
 
         if all_soon:
             _post_embed({
@@ -598,25 +629,19 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Sofascore says finished → check Kalshi → fire result.
+                    # Sofascore finished → Kalshi settled → CASHED or DEAD
                     sf_id = pick.get("sofascore_id", "")
                     if sf_id:
-                        try:
-                            from src.apis.sofascore import _get as _sf_get
-                            _sf_data = _sf_get(f"/event/{sf_id}")
-                            if not _sf_data:
-                                continue  # Sofascore unreachable — try again next tick
-                            _sf_status = (_sf_data.get("event", {}).get("status") or {}).get("type", "")
-                            if _sf_status != "finished":
-                                continue  # game still in progress
-                        except Exception:
-                            continue  # error — try again next tick
-                    # No sofascore_id — poll Kalshi directly, it returns None until settled
-
+                        ev = _sf_event(sf_id)
+                        if not ev:
+                            continue  # Sofascore unreachable — retry next tick
+                        if (ev.get("status") or {}).get("type", "") != "finished":
+                            continue  # game still in progress
+                    # No sofascore_id — poll Kalshi directly (returns None until settled)
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    # Kalshi not settled yet — retry next tick (3 min)
+                    # Not settled yet — retry next tick
                 else:
                     if not ct:
                         continue
