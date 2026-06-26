@@ -298,16 +298,19 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             sport_key  = sf_game.get("sport_key",    "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
-            # Skip if Sofascore confirms the game already started
-            if sf_kickoff:
-                try:
-                    _kdt = _dp(sf_kickoff)
-                    if _kdt.tzinfo is None:
-                        _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
-                    if _kdt.astimezone(_tz.utc) < _now_utc:
-                        continue  # game already kicked off per Sofascore
-                except Exception:
-                    pass
+            # No Sofascore match = can't confirm game hasn't started — skip it
+            if not sf_kickoff:
+                continue
+
+            # Skip if game already kicked off per Sofascore
+            try:
+                _kdt = _dp(sf_kickoff)
+                if _kdt.tzinfo is None:
+                    _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
+                if _kdt.astimezone(_tz.utc) < _now_utc:
+                    continue
+            except Exception:
+                continue  # can't parse kickoff time — skip to be safe
 
             # commence_time = Sofascore exact kickoff (ET) — drives all alerts
             _kickoff_et = _to_naive_et(sf_kickoff)
