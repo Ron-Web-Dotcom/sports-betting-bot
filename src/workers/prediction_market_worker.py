@@ -684,13 +684,16 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     sport_emoji   = _sport_emoji_map.get(sport, "🎯")
     matchup_label = _subtitle if _subtitle and _subtitle != question else sport
     answer    = (pick.get("answer") or pick.get("side") or "YES").upper()
-    yes_pct   = round(pick["yes_price"] * 100)
-    no_pct    = round(pick["no_price"]  * 100)
+    yes_pct   = round(_yes_p * 100)
+    no_pct    = round(_no_p  * 100)
     our_pct   = yes_pct if answer == "YES" else no_pct
     other_pct = no_pct  if answer == "YES" else yes_pct
     conf      = round((pick.get("confidence") or 0) * 100)
-    ev        = f"+{round((pick.get('ev_pct') or 0) * 100, 1)}%"
-    cost      = round((pick["yes_price"] if answer == "YES" else pick["no_price"]) * 10, 2)
+    _ev_val   = round((pick.get('ev_pct') or 0) * 100, 1)
+    ev        = f"+{_ev_val}%" if _ev_val >= 0 else f"{_ev_val}%"
+    _yes_p    = pick.get("yes_price") or 0.5
+    _no_p     = pick.get("no_price")  or round(1 - _yes_p, 2)
+    cost      = round((_yes_p if answer == "YES" else _no_p) * 10, 2)
     reasoning = pick.get("reasoning", "")
 
     try:

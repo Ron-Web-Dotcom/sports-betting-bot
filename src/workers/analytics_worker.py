@@ -65,7 +65,8 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
 
 def _slip_summary_line(slip: dict) -> str:
     """One-line description of a slip for recap embeds."""
-    platform = slip.get("platform", "").title()
+    _PLATFORM = {"hardrock": "HardRock", "kalshi": "Kalshi"}
+    platform = _PLATFORM.get(slip.get("platform", ""), slip.get("platform", "").title())
     period   = slip.get("period", "").upper()
     n        = len(slip.get("picks", []))
     picks    = slip.get("picks", [])
@@ -391,8 +392,9 @@ def enter_sleep_mode():
                     {"name": "TOTAL SLIPS",   "value": str(w_total),                          "inline": True},
                     {"name": "BY SPORT",      "value": "  ".join(w_sport_lines) or "—",       "inline": True},
                     {"name": "​",             "value": "​",                                   "inline": True},
-                    {"name": "✅  CASHED",    "value": w_win_lines,                           "inline": True},
-                    {"name": "❌  DEAD",      "value": w_loss_lines,                          "inline": True},
+                    {"name": "✅  WINNERS",   "value": w_win_lines,                           "inline": True},
+                    {"name": "❌  LOSERS",    "value": w_loss_lines,                          "inline": True},
+                    {"name": "​",             "value": "​",                                   "inline": True},
                 ],
                 "footer": {"text": f"Week {prev_week} closed  ·  Week {week_num} open  ·  {et.strftime('%b %-d, %Y')}"},
             }
@@ -721,7 +723,7 @@ def yesterday_recap():
 
     # Pull results from Redis slip tracker (not DB — DB is unused)
     # days_back=2 so morning recap at 6 AM catches slips from yesterday (created the day before)
-    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=2)
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
     total = wins + losses
 
     if total == 0:
@@ -840,7 +842,7 @@ def yesterday_recap():
                 "inline": False,
             },
         ],
-        "footer": {"text": f"6:00 AM ET  ·  {date_str}  ·  Scanning all sports"},
+        "footer": {"text": f"6:00 AM ET  ·  {date_str}  ·  Day entry at 10:30 AM ET"},
     }
 
     try:

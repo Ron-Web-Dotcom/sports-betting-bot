@@ -1144,7 +1144,7 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
         emoji    = get_emoji(p["sport_key"])
         odds_fmt = _fmt(p["best_odds"])
         reasoning = p.get("reasoning", "")
-        reason_short = (reasoning.split(".")[0].strip()[:120] + "…") if reasoning else ""
+        reason_short = (next((reasoning[:i+1] for i in range(min(120, len(reasoning))-1, -1, -1) if reasoning[i] in ".!?"), reasoning[:120]) + ("…" if len(reasoning) > 120 else "")) if reasoning else ""
 
         if p["type"] == "sgp":
             gt       = _game_time(p.get("commence_time", ""))
