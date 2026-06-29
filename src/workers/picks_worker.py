@@ -1139,7 +1139,7 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
         # Edge = how much our projected prob beats the vig-free market price
         # e.g. we say 78%, market vig-free says 42% → edge = +36pp
         _proj   = p["confidence"]
-        _no_vig = p.get("no_vig_prob") or p.get("ev_pct", 0) + _proj
+        _no_vig = p.get("no_vig_prob")
         ev      = round((_proj - _no_vig) * 100, 1) if _no_vig else round(min(p.get("ev_pct", 0), 0.25) * 100, 1)
         emoji    = get_emoji(p["sport_key"])
         odds_fmt = _fmt(p["best_odds"])

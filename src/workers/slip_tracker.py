@@ -280,8 +280,7 @@ def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | Non
             f"```\n"
             f"  *** {stamp} ***\n"
             f"```\n"
-            f"{_slip_legs(slip['picks'], results)}\n\n"
-            f"📊  **Record:**  {record}"
+            f"{_slip_legs(slip['picks'], results)}"
         ),
         "color": color,
         "footer": {"text": footer},
