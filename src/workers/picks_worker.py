@@ -607,7 +607,7 @@ def _build_hardrock_candidates(
 
     _today_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York")).date()
 
-    for game_id, snap_list in list(snapshots.items())[:50]:
+    for game_id, snap_list in list(snapshots.items())[:200]:
         if not snap_list:
             continue
 

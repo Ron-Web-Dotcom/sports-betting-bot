@@ -299,24 +299,42 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             sport_key  = sf_game.get("sport",         "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
-            # No Sofascore match = can't confirm game hasn't started — skip it
-            if not sf_kickoff:
+            if sf_kickoff:
+                # Sofascore match found — use its kickoff to gate the market
+                # Skip if game kicked off more than 20 minutes ago (market closed)
+                try:
+                    _kdt = _dp(sf_kickoff)
+                    if _kdt.tzinfo is None:
+                        _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
+                    from datetime import timedelta as _td2
+                    if _kdt.astimezone(_tz.utc) < _now_utc - _td2(minutes=20):
+                        continue
+                except Exception:
+                    pass  # can't parse — allow through, Kalshi close_time gate below handles it
+            elif _sf_games:
+                # Sofascore cache is populated but no match found — game is unknown,
+                # skip it to avoid betting on something that may have already started
                 continue
+            # else: Sofascore cache is empty (cold start / restart before 8 AM scan)
+            # — fall through and rely on Kalshi's own close_time instead
 
-            # Skip if game kicked off more than 20 minutes ago (market closed)
-            # Allow up to 20-min grace so a 4:30 PM game isn't dropped at 4:35 entry time
-            try:
-                _kdt = _dp(sf_kickoff)
-                if _kdt.tzinfo is None:
-                    _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
-                from datetime import timedelta as _td2
-                if _kdt.astimezone(_tz.utc) < _now_utc - _td2(minutes=20):
-                    continue
-            except Exception:
-                continue  # can't parse kickoff time — skip to be safe
+            # If no Sofascore kickoff, use Kalshi close_time to verify market is still open
+            if not sf_kickoff:
+                _close_raw = m.get("close_time") or m.get("expiration_time") or ""
+                if _close_raw:
+                    try:
+                        _close_dt = _dp(_close_raw)
+                        if _close_dt.tzinfo is None:
+                            _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
+                        if _close_dt.astimezone(_tz.utc) < _now_utc:
+                            continue  # market already closed
+                    except Exception:
+                        pass
 
-            # commence_time = Sofascore exact kickoff (ET) — drives all alerts
-            _kickoff_et = _to_naive_et(sf_kickoff)
+            # commence_time = Sofascore kickoff if available, else Kalshi close_time
+            _kickoff_et = _to_naive_et(sf_kickoff) if sf_kickoff else _to_naive_et(
+                m.get("close_time") or m.get("expiration_time") or ""
+            )
 
             # Sofascore odds — cross-reference against Kalshi price for edge detection
             _sf_odds: dict = {}
