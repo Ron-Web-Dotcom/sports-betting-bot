@@ -364,7 +364,10 @@ def _get_active_sports_cached() -> set[str]:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         cached = r.get("sofascore:active_sports")
         if cached:
-            return set(json.loads(cached))
+            try:
+                return set(json.loads(cached))
+            except (json.JSONDecodeError, TypeError):
+                pass
 
         # Cache miss — fetch from Sofascore
         from src.apis.sofascore import get_active_sports_today, SPORT_MAP
@@ -523,7 +526,10 @@ def get_live_active_sport_keys() -> set[str]:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         cached = r.get(_CACHE_KEY)
         if cached:
-            return set(json.loads(cached))
+            try:
+                return set(json.loads(cached))
+            except (json.JSONDecodeError, TypeError):
+                pass
     except Exception:
         r = None
 

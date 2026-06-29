@@ -38,6 +38,8 @@ def et_day_bounds(days_ago: int = 0) -> tuple[datetime, datetime]:
     from datetime import timedelta, timezone
     now  = datetime.now(ET)
     day  = (now - timedelta(days=days_ago)).date()
-    start = datetime(day.year, day.month, day.day, tzinfo=ET).astimezone(timezone.utc).replace(tzinfo=None)
-    end   = datetime(day.year, day.month, day.day + 1, tzinfo=ET).astimezone(timezone.utc).replace(tzinfo=None)
+    start_dt = datetime(day.year, day.month, day.day, tzinfo=ET)
+    end_dt   = start_dt + timedelta(days=1)
+    start = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
+    end   = end_dt.astimezone(timezone.utc).replace(tzinfo=None)
     return start, end

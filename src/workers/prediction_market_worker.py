@@ -754,7 +754,8 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     }
 
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        from src.workers.alert_worker import _run_async
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Prediction market %s entry posted (%d picks)", period, len(picks))
     except Exception as e:
         logger.error("Failed to post prediction market entry: %s", e)

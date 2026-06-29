@@ -68,8 +68,8 @@ def _slip_summary_line(slip: dict) -> str:
     _PLATFORM = {"hardrock": "HardRock", "kalshi": "Kalshi"}
     platform = _PLATFORM.get(slip.get("platform", ""), slip.get("platform", "").title())
     period   = slip.get("period", "").upper()
-    n        = len(slip.get("picks", []))
-    picks    = slip.get("picks", [])
+    picks    = slip.get("picks") or []
+    n        = len(picks)
 
     def _pick_label(p: dict) -> str:
         # Kalshi pick: use shortened question
@@ -681,7 +681,14 @@ def health_check():
         kalshi_props = json.loads(kalshi_raw) if kalshi_raw else []
         # Count active picks from slip tracker
         slips_raw = r.hgetall("slips:active")
-        active_slips = [v for v in slips_raw.values() if '"status": "active"' in v] if slips_raw else []
+        active_slips = []
+        for _sv in (slips_raw.values() if slips_raw else []):
+            try:
+                _sd = json.loads(_sv)
+                if _sd.get("status") == "active":
+                    active_slips.append(_sd)
+            except Exception:
+                pass
         picks_count = len(active_slips)
 
         et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
@@ -846,8 +853,8 @@ def yesterday_recap():
     }
 
     try:
-        import asyncio
-        asyncio.run(_post({"embeds": [embed]}))
+        from src.workers.alert_worker import _run_async
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Yesterday recap sent: %dW-%dL-%dP", wins, losses, pushes)
     except Exception as e:
         logger.error("yesterday_recap post failed: %s", e)

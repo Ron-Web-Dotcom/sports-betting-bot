@@ -209,7 +209,7 @@ def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
     _OUTCOME = {"won": "✅  WON", "lost": "❌  LOST", "push": "➖  PUSH"}
     lines = []
     for i, p in enumerate(picks, 1):
-        conf    = round(p.get("confidence", 0) * 100)
+        conf    = round((p.get("confidence") or 0) * 100)
         outcome = _OUTCOME.get((results[i - 1] if results and i <= len(results) else ""), "")
         outcome_line = f"\n┗  {outcome}" if outcome else ""
 

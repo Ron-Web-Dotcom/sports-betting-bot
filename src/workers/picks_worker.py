@@ -159,7 +159,7 @@ def generate_picks():
                                    projected_prob=_cal,
                                    opponent_odds=opponent_odds)
             # Require positive EV — skip no-vig check when opponent_odds unknown (avoids blocking favorites)
-            if ev_result.ev_pct <= EV_FLOOR:
+            if ev_result.ev_pct < EV_FLOOR:
                 continue
             if opponent_odds is not None and _cal <= ev_result.no_vig_prob:
                 continue
@@ -235,7 +235,7 @@ def generate_picks():
                 prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
                                    opponent_odds=opp_odds_val)
                 # Require positive EV — skip no-vig check when opposite side unknown
-                if prop_ev.ev_pct <= EV_FLOOR:
+                if prop_ev.ev_pct < EV_FLOOR:
                     continue
                 if opp_odds_val is not None and conf <= prop_ev.no_vig_prob:
                     continue
@@ -1183,7 +1183,7 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
                     "name":  f"PICK {i}  ·  {emoji}  `{label}`",
                     "value": (
                         f"**{p.get('home_team', '')} vs {p.get('away_team', '')}**{time_str}\n"
-                        f"✅  **{p['direction']}**\n"
+                        f"✅  **{p.get('direction', '?')}**\n"
                         f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
                         + (f"\n> _{reason_short}_" if reason_short else "")
                     ),
@@ -1191,11 +1191,11 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
                 })
             else:
                 label    = "TEAM PROP" if p.get("is_team_prop") else "PLAYER PROP"
-                direction = p["direction"].upper()
+                direction = (p.get("direction") or "").upper()
                 pick_fields.append({
                     "name":  f"PICK {i}  ·  {emoji}  `{label}`",
                     "value": (
-                        f"**{p['player']}**  —  {p['stat']} **{direction} {p['line']}**\n"
+                        f"**{p.get('player', '?')}**  —  {p.get('stat', '?')} **{direction} {p.get('line', '?')}**\n"
                         f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
                         + (f"\n> _{reason_short}_" if reason_short else "")
                     ),
@@ -1385,7 +1385,7 @@ def _generate_hardrock_entry(period: str) -> dict:
             # AND we haven't already used Perplexity twice today.
             close_candidates = [
                 p for p in pool
-                if 0.70 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) > 0
+                if 0.70 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) >= EV_FLOOR
             ][:1]  # one candidate only — absolute last resort
 
             # Daily rate gate — max 2 Perplexity calls per day across all entries
@@ -1515,8 +1515,12 @@ def _generate_hardrock_entry(period: str) -> dict:
         _post_hardrock_embed(period, entry)
 
         try:
+            import hashlib as _hl, zoneinfo as _zi
+            from datetime import datetime as _dt2
+            _date_str = _dt2.now(_zi.ZoneInfo("America/New_York")).strftime("%b %-d, %Y")
+            _slip_ticket = _hl.md5(f"{period}{_date_str}".encode()).hexdigest()[:8].upper()
             from src.workers.slip_tracker import save_slip
-            save_slip(period, "hardrock", entry, ticket_id=slip_id)
+            save_slip(period, "hardrock", entry, ticket_id=_slip_ticket)
         except Exception as e:
             logger.warning("slip_tracker.save_slip failed: %s", e)
 

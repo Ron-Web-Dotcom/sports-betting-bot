@@ -56,7 +56,11 @@ def _embed(title: str, description: str, color: int, fields: list[dict] | None =
     embed: dict = {"title": title[:256], "description": description[:4096], "color": color}
     if fields:
         embed["fields"] = [
-            {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", True)}
+            {
+                "name":   (str(f.get("name") or "​")[:256] or "​"),
+                "value":  (str(f.get("value", "") or "—")[:1024] or "—"),
+                "inline": f.get("inline", True),
+            }
             for f in fields[:25]
         ]
     return embed

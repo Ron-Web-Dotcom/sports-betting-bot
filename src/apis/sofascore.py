@@ -492,17 +492,19 @@ def enrich_game_context(
 
     matched = None
     for ev in events:
-        if (home_team.lower() in ev["home_team"].lower() or
-                ev["home_team"].lower() in home_team.lower() or
-                away_team.lower() in ev["away_team"].lower() or
-                ev["away_team"].lower() in away_team.lower()):
+        ev_home = (ev.get("home_team") or "").lower()
+        ev_away = (ev.get("away_team") or "").lower()
+        if (home_team.lower() in ev_home or ev_home in home_team.lower() or
+                away_team.lower() in ev_away or ev_away in away_team.lower()):
             matched = ev
             break
 
     if not matched:
         return {"available": False, "sport": sport_key, "source": "sofascore"}
 
-    eid = matched["id"]
+    eid = matched.get("id")
+    if not eid:
+        return {"available": False, "sport": sport_key, "source": "sofascore"}
     context = {
         "available":    True,
         "event":        matched,
