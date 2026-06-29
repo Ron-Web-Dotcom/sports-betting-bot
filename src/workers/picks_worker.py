@@ -698,8 +698,8 @@ def _build_hardrock_candidates(
             if not books:
                 continue
 
-            # Best odds = highest payout (highest American value)
-            best_odds = max(books.values(), key=lambda v: v if v > 0 else -(100 / (100 - v) * 100))
+            # Best odds = highest payout: max by raw value (least negative for -odds, highest for +odds)
+            best_odds = max(books.values())
 
             # ── Simple gate ───────────────────────────────────────────────────
             # h2h (game winner) requires full 77% — it's the hardest market to edge.
