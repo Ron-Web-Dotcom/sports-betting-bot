@@ -107,18 +107,18 @@ def purge_ghost_slips() -> int:
     return removed
 
 
-def save_slip(period: str, platform: str, picks: list[dict]) -> str:
+def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | None = None) -> str:
     """
     Called right after an entry is posted to Discord.
     Saves the slip to Redis so we can track it through game day.
     Only ONE slip per period per platform per day is saved — prevents
     duplicate tracking alerts from multiple restarts.
 
-    period:   "day" | "night"
-    platform: "hardrock" | "kalshi"
-    picks:    list of pick dicts from the entry generator
+    period:     "day" | "night"
+    platform:   "hardrock" | "kalshi"
+    picks:      list of pick dicts from the entry generator
+    ticket_id:  short display ID shown in the original entry embed (for consistency)
     """
-    import time
     from src.core.timezone import et_naive
     r = _redis()
 
@@ -127,13 +127,15 @@ def save_slip(period: str, platform: str, picks: list[dict]) -> str:
     slip_id = f"{period}:{platform}:{today}"
 
     slip = {
-        "id":       slip_id,
-        "period":   period,
-        "platform": platform,
-        "created":  _now_et().isoformat(),
-        "picks":    picks,
-        "status":   "active",   # active | cashed | dead
+        "id":        slip_id,
+        "period":    period,
+        "platform":  platform,
+        "created":   _now_et().isoformat(),
+        "picks":     picks,
+        "status":    "active",   # active | cashed | dead
     }
+    if ticket_id:
+        slip["ticket_id"] = ticket_id
     r.hset(_SLIP_KEY, slip_id, json.dumps(slip))
     r.expire(_SLIP_KEY, 86400 * 2)   # 48h TTL
     logger.info("Slip saved: %s (%d picks)", slip_id, len(picks))
@@ -240,14 +242,14 @@ def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
 
 
 def _ticket_header(slip: dict) -> str:
-    platform = _platform_label(slip["platform"])
-    period   = slip.get("period", "").upper()
-    slip_id  = slip.get("id", "")[-8:].upper()
-    n        = len(slip["picks"])
+    platform  = _platform_label(slip["platform"])
+    period    = slip.get("period", "").upper()
+    ticket_id = slip.get("ticket_id") or slip.get("id", "")[-8:].upper()
+    n         = len(slip["picks"])
     return (
         f"```\n"
         f"  {platform.upper()} BET SLIP  ·  {period}\n"
-        f"  Ticket #{slip_id}    {n}-LEG\n"
+        f"  Ticket #{ticket_id}    {n}-LEG\n"
         f"```"
     )
 

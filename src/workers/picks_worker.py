@@ -1516,7 +1516,7 @@ def _generate_hardrock_entry(period: str) -> dict:
 
         try:
             from src.workers.slip_tracker import save_slip
-            save_slip(period, "hardrock", entry)
+            save_slip(period, "hardrock", entry, ticket_id=slip_id)
         except Exception as e:
             logger.warning("slip_tracker.save_slip failed: %s", e)
 

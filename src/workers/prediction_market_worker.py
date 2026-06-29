@@ -738,12 +738,12 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
             },
             {
                 "name":   "🧠  REASONING",
-                "value":  reasoning[:300] if reasoning else "—",
+                "value":  (lambda r: (next((r[:i+1] for i in range(min(280, len(r))-1, -1, -1) if r[i] in ".!?"), r[:280]) if len(r) > 280 else r))(reasoning) if reasoning else "—",
                 "inline": False,
             },
             {
                 "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}  ·  {matchup_label}" + (f"  ·  🕐 **{game_time}**" if game_time else ""),
+                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}" + (f"  ·  {matchup_label}" if matchup_label and matchup_label != sport else "") + (f"  ·  🕐 **{game_time}**" if game_time else ""),
                 "inline": False,
             },
         ],
@@ -858,7 +858,7 @@ def _generate_entry(period: str) -> dict:
 
         try:
             from src.workers.slip_tracker import save_slip
-            save_slip(period, "kalshi", picks)
+            save_slip(period, "kalshi", picks, ticket_id=ticket_id)
         except Exception as e:
             logger.warning("slip_tracker.save_slip failed: %s", e)
 

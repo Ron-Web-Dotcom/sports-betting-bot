@@ -1,7 +1,11 @@
 """Analytics worker — daily/weekly summaries, self-improvement, portfolio snapshots."""
 import logging
+from datetime import date as _date
 
 logger = logging.getLogger(__name__)
+
+# Monday of the bot's first week — used to display "Week 1", "Week 2", etc.
+_BOT_LAUNCH = _date(2026, 6, 9)
 
 # ── Sleep window: 3 AM – 5 AM Eastern ─────────────────────────────────────────
 
@@ -34,10 +38,6 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
     except Exception:
         return 0, 0, 0, [], []
 
-    wins   = int(ratio_raw.get("wins",   0))
-    losses = int(ratio_raw.get("losses", 0))
-    pushes = int(ratio_raw.get("pushes", 0))
-
     winner_slips: list = []
     loser_slips:  list = []
 
@@ -55,6 +55,11 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
         except Exception:
             pass
 
+    # Count wins/losses from date-filtered slips (not all-time slips:ratio)
+    wins   = len(winner_slips)
+    losses = len(loser_slips)
+    pushes = int(ratio_raw.get("pushes", 0))
+
     return wins, losses, pushes, winner_slips, loser_slips
 
 
@@ -64,10 +69,15 @@ def _slip_summary_line(slip: dict) -> str:
     period   = slip.get("period", "").upper()
     n        = len(slip.get("picks", []))
     picks    = slip.get("picks", [])
-    legs = ", ".join(
-        p.get("selection") or p.get("player") or "?"
-        for p in picks[:3]
-    )
+
+    def _pick_label(p: dict) -> str:
+        # Kalshi pick: use shortened question
+        if p.get("question"):
+            q = p["question"]
+            return q[:40] + "…" if len(q) > 40 else q
+        return p.get("selection") or p.get("player") or "?"
+
+    legs = ", ".join(_pick_label(p) for p in picks[:2])
     return f"• **{platform} {period}** — {n}-leg: {legs}"
 
 
@@ -217,7 +227,7 @@ def send_weekly_summary():
     sport_stats: dict = {}
     for slip in winner_slips + loser_slips:
         for pick in slip.get("picks", []):
-            sk = pick.get("sport_key", "other")
+            sk = pick.get("sport_key") or pick.get("sport") or ("kalshi" if pick.get("question") else "other")
             if sk not in sport_stats:
                 sport_stats[sk] = {"w": 0, "l": 0}
             if slip.get("status") == "cashed":
@@ -227,7 +237,7 @@ def send_weekly_summary():
     sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in sport_stats.items()]
     sport_breakdown = "  ".join(sport_lines) or "—"
 
-    week_num = now_et.isocalendar()[1]
+    week_num  = ((now_et.date() - _BOT_LAUNCH).days // 7) + 1
     next_week = week_num + 1
     date_str = now_et.strftime("%b %-d, %Y")
     slip_id  = hashlib.md5(f"weekly{date_str}".encode()).hexdigest()[:8].upper()
@@ -359,14 +369,14 @@ def enter_sleep_mode():
             w_sport: dict = {}
             for slip in w_winners + w_losers:
                 for pick in slip.get("picks", []):
-                    sk = pick.get("sport_key", "other")
+                    sk = pick.get("sport_key") or pick.get("sport") or ("kalshi" if pick.get("question") else "other")
                     if sk not in w_sport:
                         w_sport[sk] = {"w": 0, "l": 0}
                     w_sport[sk]["w" if slip.get("status") == "cashed" else "l"] += 1
             w_sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in w_sport.items()]
             import hashlib as _hl
-            week_num  = et.isocalendar()[1]
-            prev_week = week_num - 1 if week_num > 1 else 52
+            week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
+            prev_week = max(week_num - 1, 1)
             w_slip_id = _hl.md5(f"weekly{et.strftime('%Y-W%W')}".encode()).hexdigest()[:8].upper()
             w_color   = 0x1B5E20 if w_wins >= w_losses and w_total > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
             weekly_embed = {
@@ -411,7 +421,7 @@ def enter_sleep_mode():
         {"name": "​",         "value": "​",     "inline": True},
         {
             "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "value": f"Scanning paused  ·  AI self-improvement running\n{et.strftime('%-I:%M %p ET')}   CLOSED",
+            "value": f"Scanning paused  ·  Back online at 5 AM ET\n{et.strftime('%-I:%M %p ET')}   CLOSED",
             "inline": False,
         },
     ]
@@ -729,7 +739,7 @@ def yesterday_recap():
     sport_stats: dict = {}
     for slip in winner_slips + loser_slips:
         for pick in slip.get("picks", []):
-            sk = pick.get("sport_key", "other")
+            sk = pick.get("sport_key") or pick.get("sport") or ("kalshi" if pick.get("question") else "other")
             if sk not in sport_stats:
                 sport_stats[sk] = {"w": 0, "l": 0}
             if slip.get("status") == "cashed":
@@ -802,13 +812,12 @@ def yesterday_recap():
     date_str = et.strftime("%b %-d, %Y")
     slip_id  = hashlib.md5(f"recap{date_str}".encode()).hexdigest()[:8].upper()
 
-    yesterday = et - timedelta(days=1)
     is_monday = et.weekday() == 0
-    week_num  = et.isocalendar()[1]
+    week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
     title_str = (
-        f"🟢  NEW WEEK · WEEK {week_num}  ·  {yesterday.strftime('%A, %b %-d')}"
+        f"🟢  NEW WEEK · WEEK {week_num}  ·  {et.strftime('%A, %b %-d')}"
         if is_monday else
-        f"📊  MORNING RECAP  ·  {yesterday.strftime('%A, %b %-d')}"
+        f"📊  MORNING RECAP  ·  {et.strftime('%A, %b %-d')}"
     )
     embed = {
         "title": title_str,
