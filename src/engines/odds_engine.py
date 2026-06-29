@@ -62,20 +62,38 @@ PLAYER_PROP_MARKETS = [
 
 # Soccer — all leagues share same prop market names
 _SOCCER_LEAGUES = {
+    # US
+    "soccer_usa_mls", "soccer_usa_nwsl",
+    # Europe Top 5
     "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga",
-    "soccer_italy_serie_a", "soccer_france_ligue_one", "soccer_usa_mls",
+    "soccer_italy_serie_a", "soccer_france_ligue_one",
+    # Europe Other
     "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga",
-    "soccer_mexico_ligamx", "soccer_argentina_primera_division",
-    "soccer_brazil_campeonato", "soccer_turkey_super_league", "soccer_spl",
+    "soccer_turkey_super_league", "soccer_spl",
+    "soccer_belgium_first_div", "soccer_greece_super_league",
+    "soccer_denmark_superliga", "soccer_sweden_allsvenskan",
+    "soccer_norway_eliteserien", "soccer_finland_veikkausliiga",
+    "soccer_austria_bundesliga", "soccer_swiss_superleague",
+    "soccer_czech_liga", "soccer_poland_ekstraklasa",
+    "soccer_romania_liga_1", "soccer_croatia_hnl",
+    # UEFA / Cups
     "soccer_uefa_champs_league", "soccer_uefa_europa_league",
-    "soccer_uefa_europa_conference_league",
+    "soccer_uefa_europa_conference_league", "soccer_uefa_nations_league",
     "soccer_fifa_world_cup", "soccer_fifa_club_world_cup",
-    "soccer_conmebol_copa_america",
-    "soccer_conmebol_copa_libertadores", "soccer_conmebol_copa_sudamericana",
     "soccer_africa_cup_of_nations",
+    # South America
+    "soccer_brazil_campeonato", "soccer_argentina_primera_division",
+    "soccer_mexico_ligamx", "soccer_conmebol_copa_america",
+    "soccer_conmebol_copa_libertadores", "soccer_conmebol_copa_sudamericana",
+    "soccer_chile_primera_division", "soccer_colombia_primera_a",
+    "soccer_ecuador_liga_pro", "soccer_uruguay_primera_division",
+    "soccer_peru_primera_division", "soccer_venezuela_primera_liga",
+    # Asia / Oceania / Middle East
+    "soccer_japan_j_league", "soccer_south_korea_kleague1",
+    "soccer_china_superleague", "soccer_saudi_arabia_premier_league",
+    "soccer_australia_aleague",
     # Women's soccer
-    "soccer_usa_nwsl", "soccer_fifa_womens_world_cup",
-    "soccer_uefa_womens_champs_league",
+    "soccer_fifa_womens_world_cup", "soccer_uefa_womens_champs_league",
     "soccer_england_wsl", "soccer_germany_frauen_bundesliga",
     "soccer_spain_liga_f", "soccer_france_d1_feminine",
     "soccer_italy_serie_a_feminine",
@@ -91,11 +109,17 @@ _GOLF_TOURNAMENTS = {
 
 # Tennis — grand slams + all active tour events
 _TENNIS = {
+    # Grand Slams (ATP + WTA)
     "tennis_atp_french_open",       "tennis_wta_french_open",
     "tennis_atp_wimbledon",         "tennis_wta_wimbledon",
     "tennis_atp_us_open",           "tennis_wta_us_open",
     "tennis_atp_australian_open",   "tennis_wta_aus_open_singles",
+    # ATP Masters 1000 + Tour events
+    "tennis_atp_madrid",            "tennis_atp_rome",
+    "tennis_atp_miami",             "tennis_atp_indian_wells",
+    "tennis_atp_toronto",           "tennis_atp_cincinnati",
     "tennis_atp_queens_club_champ", "tennis_atp_halle_open",
+    # WTA tour events
     "tennis_wta_german_open",
 }
 
@@ -108,11 +132,17 @@ PLAYER_PROP_SPORTS = {
     "mma_mixed_martial_arts", "boxing_boxing",
     "aussierules_afl", "aussierules_aflw",
     "icehockey_pwhl",
+    # Cricket — men + women
     "cricket_icc_world_cup", "cricket_ipl", "cricket_icc_womens_t20_wc",
     "cricket_test_match", "cricket_odi", "cricket_international_t20",
-    "cricket_t20_world_cup_womens",
+    "cricket_t20_world_cup_womens", "cricket_t20_blast",
+    # Rugby union + league
     "rugbyunion_world_cup", "rugbyunion_women_world_cup",
+    "rugbyunion_super_rugby", "rugbyunion_premiership",
+    "rugbyunion_top14", "rugbyunion_united_rugby_championship",
     "rugbyleague_nrl", "rugbyleague_nrl_state_of_origin",
+    # Motorsport
+    "motorsport_formula_1", "motorsport_indycar", "motorsport_nascar_cup_series",
 } | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS
 
 
@@ -284,13 +314,11 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
         "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_anytime_td"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
         "baseball_mlb":                 _BASEBALL_FULL + _TEAM_BASEBALL + _GAME_BASEBALL,
         "icehockey_nhl":                _HOCKEY_FULL + _TEAM_HOCKEY + _GAME_HOCKEY,
-        "tennis_atp_french_open":       _TENNIS_MARKETS,
-        "tennis_wta_french_open":       _TENNIS_MARKETS,
         "mma_mixed_martial_arts":       _MMA_FULL,
         "boxing_boxing":                _MMA_FULL,
-        "soccer_usa_nwsl":              _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER,
-        "soccer_fifa_womens_world_cup": _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER,
-        # All other soccer leagues
+        # All tennis events (ATP + WTA — slams and tour)
+        **{t: _TENNIS_MARKETS for t in _TENNIS},
+        # All soccer leagues (men + women, all regions)
         **{league: _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER for league in _SOCCER_LEAGUES},
     }
     markets = _sport_markets.get(sport_key, [])

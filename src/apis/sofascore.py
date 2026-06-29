@@ -64,6 +64,33 @@ SPORT_MAP = {
     "soccer_conmebol_copa_libertadores":     "football",
     "soccer_conmebol_copa_sudamericana":     "football",   # Copa Sudamericana
     "soccer_africa_cup_of_nations":          "football",
+    "soccer_uefa_nations_league":            "football",
+    # ── Soccer — Europe Other ─────────────────────────────────────────────────
+    "soccer_belgium_first_div":              "football",
+    "soccer_greece_super_league":            "football",
+    "soccer_denmark_superliga":              "football",
+    "soccer_sweden_allsvenskan":             "football",
+    "soccer_norway_eliteserien":             "football",
+    "soccer_finland_veikkausliiga":          "football",
+    "soccer_austria_bundesliga":             "football",
+    "soccer_swiss_superleague":              "football",
+    "soccer_czech_liga":                     "football",
+    "soccer_poland_ekstraklasa":             "football",
+    "soccer_romania_liga_1":                 "football",
+    "soccer_croatia_hnl":                    "football",
+    # ── Soccer — South America ────────────────────────────────────────────────
+    "soccer_chile_primera_division":         "football",
+    "soccer_colombia_primera_a":             "football",
+    "soccer_ecuador_liga_pro":               "football",
+    "soccer_uruguay_primera_division":       "football",
+    "soccer_peru_primera_division":          "football",
+    "soccer_venezuela_primera_liga":         "football",
+    # ── Soccer — Asia / Oceania / Middle East ─────────────────────────────────
+    "soccer_japan_j_league":                 "football",
+    "soccer_south_korea_kleague1":           "football",
+    "soccer_china_superleague":              "football",
+    "soccer_saudi_arabia_premier_league":    "football",
+    "soccer_australia_aleague":              "football",
     # ── Women's Soccer ────────────────────────────────────────────────────────
     "soccer_usa_nwsl":                       "football",
     "soccer_fifa_womens_world_cup":          "football",
@@ -80,6 +107,11 @@ SPORT_MAP = {
     "golf_us_open_winner":                   "golf",
     "golf_the_open_championship_winner":     "golf",
     "golf_lpga":                             "golf",
+    "golf_dp_world_tour":                    "golf",
+    # ── Motorsport ───────────────────────────────────────────────────────────
+    "motorsport_formula_1":                  "formula-1",
+    "motorsport_indycar":                    "motorsport",
+    "motorsport_nascar_cup_series":          "motorsport",
     # ── Combat Sports ────────────────────────────────────────────────────────
     "mma_mixed_martial_arts":                "mma",
     "boxing_boxing":                         "boxing",
@@ -95,6 +127,12 @@ SPORT_MAP = {
     "tennis_atp_queens_club_champ":          "tennis",
     "tennis_atp_halle_open":                 "tennis",
     "tennis_wta_german_open":                "tennis",
+    "tennis_atp_madrid":                     "tennis",
+    "tennis_atp_rome":                       "tennis",
+    "tennis_atp_miami":                      "tennis",
+    "tennis_atp_indian_wells":               "tennis",
+    "tennis_atp_toronto":                    "tennis",
+    "tennis_atp_cincinnati":                 "tennis",
     # ── Women's Hockey ────────────────────────────────────────────────────────
     "icehockey_pwhl":                        "ice-hockey",
     # ── Aussie Rules (Men's + Women's) ───────────────────────────────────────
@@ -103,6 +141,10 @@ SPORT_MAP = {
     # ── Rugby (Men's + Women's) ───────────────────────────────────────────────
     "rugbyunion_world_cup":                  "rugby",
     "rugbyunion_women_world_cup":            "rugby",
+    "rugbyunion_super_rugby":                "rugby",
+    "rugbyunion_premiership":                "rugby",
+    "rugbyunion_top14":                      "rugby",
+    "rugbyunion_united_rugby_championship":  "rugby",
     "rugbyleague_nrl":                       "rugby-league",
     "rugbyleague_nrl_state_of_origin":       "rugby-league",
     # ── Cricket (Men's + Women's) ─────────────────────────────────────────────
@@ -113,6 +155,7 @@ SPORT_MAP = {
     "cricket_odi":                           "cricket",
     "cricket_international_t20":             "cricket",
     "cricket_t20_world_cup_womens":          "cricket",
+    "cricket_t20_blast":                     "cricket",
 }
 
 _HEADERS = {
