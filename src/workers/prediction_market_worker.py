@@ -303,12 +303,14 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             if not sf_kickoff:
                 continue
 
-            # Skip if game already kicked off per Sofascore
+            # Skip if game kicked off more than 20 minutes ago (market closed)
+            # Allow up to 20-min grace so a 4:30 PM game isn't dropped at 4:35 entry time
             try:
                 _kdt = _dp(sf_kickoff)
                 if _kdt.tzinfo is None:
                     _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
-                if _kdt.astimezone(_tz.utc) < _now_utc:
+                from datetime import timedelta as _td2
+                if _kdt.astimezone(_tz.utc) < _now_utc - _td2(minutes=20):
                     continue
             except Exception:
                 continue  # can't parse kickoff time — skip to be safe
