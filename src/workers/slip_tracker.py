@@ -191,10 +191,10 @@ def _update_ratio(r, result: str) -> dict:
 # ── Discord posts ──────────────────────────────────────────────────────────────
 
 def _post_embed(embed: dict) -> None:
-    import asyncio
     from src.discord_bot.bot import _post
+    from src.workers.alert_worker import _run_async
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
     except Exception as e:
         logger.error("Slip alert post failed: %s", e)
 
@@ -680,7 +680,7 @@ def track_slips() -> dict:
             #   all won (no unknowns) → cashed
             #   anything else         → dead
             if results and len(results) == len(picks):
-                if not results or any(r != "won" for r in results):
+                if any(r != "won" for r in results):
                     slip_result = "dead"
                 else:
                     slip_result = "cashed"

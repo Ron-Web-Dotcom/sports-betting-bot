@@ -709,8 +709,8 @@ def health_check():
             "footer": {"text": f"Health check · {time_str}"},
         }
 
-        import asyncio
-        asyncio.run(_post({"embeds": [embed]}))
+        from src.workers.alert_worker import _run_async
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Health check posted at %s", time_str)
         return {"status": "ok", "props": len(odds_props) + len(kalshi_props)}
 

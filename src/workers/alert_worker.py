@@ -56,9 +56,9 @@ def send_lineup_alerts(alerts: list[dict]):
     try:
         embeds = [
             {
-                "title":       a["title"][:256],
-                "description": a["description"][:4096],
-                "color":       a["color"],
+                "title":       (str(a.get("title") or "Alert")[:256]),
+                "description": (str(a.get("description") or "")[:4096]),
+                "color":       a.get("color") or 0x607D8B,
                 "fields": [
                     {"name": (str(f.get("name") or "​")[:256] or "​"), "value": (str(f.get("value", "") or "—")[:1024] or "—"), "inline": f.get("inline", True)}
                     for f in a.get("fields", [])[:25]

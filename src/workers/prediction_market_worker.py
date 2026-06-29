@@ -792,8 +792,8 @@ def _check_move(prev: dict | None, yes: float, no: float) -> dict | None:
 
 
 def _post_move_alert(market: dict, move: dict, platform: str) -> None:
-    import asyncio
     from src.discord_bot.bot import _post
+    from src.workers.alert_worker import _run_async
     emoji   = _PLATFORM_EMOJI.get(platform, "📊")
     title   = (market.get("title") or "")[:100]
     sport   = (market.get("sport_key") or "").split("_")[-1].upper()
@@ -810,7 +810,7 @@ def _post_move_alert(market: dict, move: dict, platform: str) -> None:
         "color": 0xE65100 if move["delta"] > 0 else 0x1565C0,
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
     except Exception as e:
         logger.error("Move alert failed: %s", e)
 
