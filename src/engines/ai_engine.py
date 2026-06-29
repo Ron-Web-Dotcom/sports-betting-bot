@@ -225,11 +225,6 @@ def analyse_pick(
         # Build H2H from best available source: Sportradar > Sofascore > StatMuse (disabled)
         sr  = game_context.get("sportradar") or {}
         sf  = game_context.get("sofascore")  or {}
-        payload["head_to_head"] = (
-            sr.get("h2h") or
-            game_context.get("h2h_statmuse") or
-            sf.get("h2h") or []
-        )
         tsdb = game_context.get("thesportsdb") or {}
         payload["head_to_head"] = (
             sr.get("h2h") or

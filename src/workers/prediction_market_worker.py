@@ -552,7 +552,8 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
                 logger.warning("Kalshi Perplexity last resort failed: %s", _pe)
     # ── End last resort ────────────────────────────────────────────────────────
 
-    if idx >= len(candidates) or confidence < 0.77 or ev_pct < 0.03:
+    from src.workers.picks_worker import EV_FLOOR as _EV_FLOOR, CONF_FLOOR as _CONF_FLOOR
+    if idx >= len(candidates) or confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR:
         return []
 
     pick      = candidates[idx]

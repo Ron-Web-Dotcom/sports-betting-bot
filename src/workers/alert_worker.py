@@ -60,14 +60,13 @@ def send_lineup_alerts(alerts: list[dict]):
                 "description": a["description"][:4096],
                 "color":       a["color"],
                 "fields": [
-                    {"name": f["name"][:256], "value": str(f["value"])[:1024], "inline": f.get("inline", True)}
+                    {"name": (str(f.get("name") or "​")[:256] or "​"), "value": (str(f.get("value", "") or "—")[:1024] or "—"), "inline": f.get("inline", True)}
                     for f in a.get("fields", [])[:25]
                 ],
             }
             for a in alerts[:10]
         ]
-        import asyncio
-        asyncio.run(_post({"embeds": embeds}))
+        _run_async(_post({"embeds": embeds}))
         logger.info("Lineup alerts sent: %d", len(alerts))
     except Exception as e:
         logger.error("Failed to send lineup alerts: %s", e)
@@ -138,8 +137,7 @@ def send_prop_summary(picks: list[dict]):
         "footer": {"text": f"{len(picks)} picks · PrizePicks & Underdog · Bet responsibly"},
     }
     try:
-        import asyncio
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Prop summary posted: %d picks", len(picks))
     except Exception as e:
         logger.error("Failed to send prop summary: %s", e)
@@ -156,7 +154,6 @@ def send_prop_result_alert(pick: dict, result: str, actual: float):
 def send_underdog_entry(picks: list[dict]):
     """Post Underdog Fantasy entry card — Underdog-specific props only."""
     from src.discord_bot.bot import _post
-    import asyncio
     if not picks:
         return
 
@@ -201,7 +198,7 @@ def send_underdog_entry(picks: list[dict]):
         ],
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Underdog entry posted: %d picks", n)
     except Exception as e:
         logger.error("Failed to send Underdog entry: %s", e)
@@ -210,7 +207,6 @@ def send_underdog_entry(picks: list[dict]):
 def send_hardrock_entry(games: list[dict]):
     """Post HardRock Bet entry card — top game picks (ML/spread/totals) from Odds API."""
     from src.discord_bot.bot import _post
-    import asyncio
     if not games:
         return
 
@@ -270,7 +266,7 @@ def send_hardrock_entry(games: list[dict]):
         "footer": {"text": "HardRock Bet · via Odds API · Bet responsibly"},
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("HardRock entry posted: %d games", n)
     except Exception as e:
         logger.error("Failed to send HardRock entry: %s", e)
@@ -362,11 +358,10 @@ def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
 def send_kalshi_entry(markets: list[dict]):
     """Post Kalshi prediction market entry — shared slip template, dark green branding."""
     from src.discord_bot.bot import _post
-    import asyncio
     if not markets:
         return
     try:
-        asyncio.run(_post({"embeds": [_prediction_market_embed("kalshi", markets)]}))
+        _run_async(_post({"embeds": [_prediction_market_embed("kalshi", markets)]}))
         logger.info("Kalshi entry posted")
     except Exception as e:
         logger.error("Failed to send Kalshi entry: %s", e)
@@ -375,7 +370,6 @@ def send_kalshi_entry(markets: list[dict]):
 def send_games_starting_soon(games: list[dict]):
     """Post ONE embed: all games starting in ~30 min."""
     from src.discord_bot.bot import _post
-    import asyncio
     if not games:
         return
 
@@ -395,7 +389,7 @@ def send_games_starting_soon(games: list[dict]):
         "footer": {"text": "Last chance to place your bets"},
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Games-starting-soon alert sent: %d games", len(games))
     except Exception as e:
         logger.error("Failed to send games-starting-soon alert: %s", e)
@@ -404,7 +398,6 @@ def send_games_starting_soon(games: list[dict]):
 def send_games_started(games: list[dict]):
     """Post ONE embed: all games that just went live."""
     from src.discord_bot.bot import _post
-    import asyncio
     if not games:
         return
 
@@ -422,7 +415,7 @@ def send_games_started(games: list[dict]):
         "footer": {"text": "Games are underway — no more pre-game bets"},
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Games-started alert sent: %d games", len(games))
     except Exception as e:
         logger.error("Failed to send games-started alert: %s", e)
@@ -439,7 +432,6 @@ def send_pick_line_update(changes: list[dict]):
     All changes batched into ONE summary embed.
     """
     from src.discord_bot.bot import _post
-    import asyncio
     if not changes:
         return
 
@@ -482,7 +474,7 @@ def send_pick_line_update(changes: list[dict]):
         "footer": {"text": "Review before placing — lines may have shifted"},
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Pick line ALERT sent: %d changes", len(changes))
     except Exception as e:
         logger.error("Failed to send pick line alert: %s", e)
@@ -495,7 +487,6 @@ def send_watchlist_update(watchlist: list[dict]):
     Lets you keep an eye on props that almost made the cut.
     """
     from src.discord_bot.bot import _post
-    import asyncio
     if not watchlist:
         return
 
@@ -525,7 +516,7 @@ def send_watchlist_update(watchlist: list[dict]):
         "footer": {"text": "Near-miss picks · 55–64% confidence · Not a recommendation"},
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Watchlist posted: %d props on radar", len(watchlist))
     except Exception as e:
         logger.error("Failed to send watchlist: %s", e)
@@ -537,7 +528,6 @@ def send_line_shop_alert(opportunities: list[dict]):
     One embed showing all discrepancies, ranked by gap size.
     """
     from src.discord_bot.bot import _post
-    import asyncio
     if not opportunities:
         return
 
@@ -574,7 +564,7 @@ def send_line_shop_alert(opportunities: list[dict]):
         "footer": {"text": f"{len(opportunities)} discrepancies found · PrizePicks vs Underdog · Bet responsibly"},
     }
     try:
-        asyncio.run(_post({"embeds": [embed]}))
+        _run_async(_post({"embeds": [embed]}))
         logger.info("Line shop alert posted: %d opportunities", len(opportunities))
     except Exception as e:
         logger.error("Failed to send line shop alert: %s", e)

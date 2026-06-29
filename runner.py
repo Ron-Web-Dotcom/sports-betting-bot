@@ -218,6 +218,13 @@ def main():
     tasks = _import_tasks()
     logger.info("Tasks loaded: %s", sorted(tasks.keys()))
 
+    # Validate all scheduled task names exist in the dispatch dict
+    _all_scheduled = {name for _, name in INTERVAL_TASKS} | {name for _, _, name, _, _ in CRON_TASKS}
+    _missing = _all_scheduled - tasks.keys()
+    if _missing:
+        logger.error("STARTUP ERROR — unknown task names in schedule: %s", sorted(_missing))
+        sys.exit(1)
+
     # Track last-run time for interval tasks
     last_run: dict[str, float] = {name: 0.0 for _, name in INTERVAL_TASKS}
     # Track which cron minute was last fired to avoid double-firing
@@ -254,7 +261,12 @@ def main():
         now_key = now.strftime("%Y-%m-%d %H:%M")   # unique per minute
 
         # ── Interval tasks ──────────────────────────────────────────────────
+        # Skip interval tasks during sleep window (3–5 AM ET)
+        _in_sleep = 3 <= now.hour < 5
         for interval, name in INTERVAL_TASKS:
+            if _in_sleep:
+                last_run[name] = ts  # reset timer so tasks don't pile up at 5 AM
+                continue
             if ts - last_run[name] >= interval:
                 fn = tasks.get(name)
                 if fn:
@@ -291,7 +303,7 @@ def main():
                     last_cron_fired[fired_key] = now_key
                 # Prune old keys to avoid unbounded growth
                 if len(last_cron_fired) > 500:
-                    oldest = sorted(last_cron_fired)[:-200]
+                    oldest = sorted(last_cron_fired, key=lambda k: last_cron_fired[k])[:-200]
                     for k in oldest:
                         del last_cron_fired[k]
 

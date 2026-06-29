@@ -280,6 +280,9 @@ def get_sports_markets() -> list[dict]:
         yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid
         no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid
 
+        if not yes_mid and not no_mid:
+            continue  # no valid price on either side — skip illiquid market
+
         # Detect sport from title
         sport_key = ""
         for sk, tag_list in _SPORT_TAGS.items():
