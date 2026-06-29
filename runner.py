@@ -18,12 +18,17 @@ ET = ZoneInfo("America/New_York")
 # Ensure log directory exists before FileHandler tries to open it
 Path("/var/log/sports-bot").mkdir(parents=True, exist_ok=True)
 
+from logging.handlers import RotatingFileHandler as _RFH
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("/var/log/sports-bot/runner.log"),
+        _RFH(
+            "/var/log/sports-bot/runner.log",
+            maxBytes=10 * 1024 * 1024,  # 10 MB per file
+            backupCount=5,              # keep 5 rotated files → 50 MB max total
+        ),
     ],
 )
 # Silence noisy libs

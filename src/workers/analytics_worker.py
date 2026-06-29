@@ -641,10 +641,14 @@ def cleanup_old_snapshots():
     from datetime import timedelta
     from src.core.timezone import et_naive
 
-    cutoff_snapshots = et_naive() - timedelta(days=7)
-    cutoff_alerts    = et_naive() - timedelta(days=30)
+    cutoff_snapshots     = et_naive() - timedelta(days=7)
+    cutoff_alerts        = et_naive() - timedelta(days=30)
+    cutoff_line_movement = et_naive() - timedelta(days=90)
+    cutoff_picks         = et_naive() - timedelta(days=365)
 
     with get_db() as db:
+        from src.db.models import Pick, Game
+
         deleted_snaps = db.query(OddsSnapshot).filter(
             OddsSnapshot.captured_at < cutoff_snapshots
         ).delete(synchronize_session=False)
@@ -653,11 +657,25 @@ def cleanup_old_snapshots():
             AlertRecord.sent_at < cutoff_alerts
         ).delete(synchronize_session=False)
 
+        deleted_movements = db.query(LineMovement).filter(
+            LineMovement.detected_at < cutoff_line_movement
+        ).delete(synchronize_session=False)
+
+        # Keep picks forever for win-rate tracking — only purge after 1 year
+        deleted_picks = db.query(Pick).filter(
+            Pick.generated_at < cutoff_picks
+        ).delete(synchronize_session=False)
+
     logger.info(
-        "Cleanup: deleted %d old snapshots, %d old alert records",
-        deleted_snaps, deleted_alerts,
+        "Cleanup: %d snapshots, %d alerts, %d line movements, %d picks (>1yr)",
+        deleted_snaps, deleted_alerts, deleted_movements, deleted_picks,
     )
-    return {"snapshots_deleted": deleted_snaps, "alerts_deleted": deleted_alerts}
+    return {
+        "snapshots_deleted":     deleted_snaps,
+        "alerts_deleted":        deleted_alerts,
+        "movements_deleted":     deleted_movements,
+        "picks_deleted":         deleted_picks,
+    }
 
 
 def health_check():
