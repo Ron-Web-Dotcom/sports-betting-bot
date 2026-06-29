@@ -680,7 +680,7 @@ def health_check():
         # Prop counts from cache
         odds_raw = r.get("props:odds_api")
         odds_props = json.loads(odds_raw) if odds_raw else []
-        kalshi_raw = r.get("kalshi:markets")
+        kalshi_raw = r.get("kalshi:live_markets")
         kalshi_props = json.loads(kalshi_raw) if kalshi_raw else []
         # Count active picks from slip tracker
         slips_raw = r.hgetall("slips:active")

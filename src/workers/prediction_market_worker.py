@@ -296,7 +296,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             # ── Sofascore: source of truth for game timing ─────────────────
             sf_game = _match_sofascore(subtitle)
 
-            sport_key  = sf_game.get("sport_key",    "") if sf_game else ""
+            sport_key  = sf_game.get("sport",         "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
             # No Sofascore match = can't confirm game hasn't started — skip it

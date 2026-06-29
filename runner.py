@@ -57,7 +57,7 @@ def _import_tasks():
         send_weekly_summary, send_weekly_fresh_start, run_self_improvement,
         snapshot_portfolio, send_monthly_summary, yesterday_recap,
         cleanup_old_snapshots, flush_memory, cleanup_old_slips,
-        check_odds_api_restored,
+        check_odds_api_restored, health_check,
     )
     return {
         "scan_and_save_odds":                       scan_and_save_odds,
@@ -85,6 +85,7 @@ def _import_tasks():
         "flush_memory":                             flush_memory,
         "cleanup_old_slips":                        cleanup_old_slips,
         "check_odds_api_restored":                  check_odds_api_restored,
+        "health_check":                             health_check,
     }
 
 
@@ -108,9 +109,12 @@ CRON_TASKS = [
     (0,  1,  "send_monthly_summary",    None, 1),     # 1st of month
     (7,  0,  "check_odds_api_restored", None, 10),   # 10th of month — confirms Odds API credits reset
     (2,  0,  "run_self_improvement",    None, None),
+    (2,  45, "send_daily_summary",      None, None),  # daily recap
+    (2,  50, "send_weekly_summary",     6,    None),  # Sunday only
     (2,  52, "cleanup_old_slips",        None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),
     (2,  58, "flush_memory",            None, None),
+    (12, 0,  "health_check",            None, None),  # midday system health
     (3,  0,  "enter_sleep_mode",        None, None),
     (5,  0,  "wake_up_brief",            None, None),
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan

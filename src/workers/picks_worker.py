@@ -1513,7 +1513,7 @@ def _generate_hardrock_entry(period: str) -> dict:
                     logger.warning("Perplexity last resort failed: %s", _lr_err)
 
             if len(entry) < 1:
-                logger.info("HardRock %s: no qualifying picks after all research (best_conf=%.0f%%)", period, best_conf * 100)
+                logger.info("HardRock %s: no qualifying picks after all research (best_conf=%.1f%%)", period, best_conf)
                 # Release dedup lock so the next runner tick can retry
                 try:
                     if _r_dedup and _dedup_key:

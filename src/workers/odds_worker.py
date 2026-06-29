@@ -98,8 +98,9 @@ def scan_and_save_odds():
 
 
 def _prop_key(prop: dict) -> str:
-    """Unique key for a prop: subject + stat + sport."""
-    return f"{prop.get('subject', '')}|{prop.get('stat', '')}|{prop.get('sport_key', '')}"
+    """Unique key for a prop: player/subject + stat + sport."""
+    subject = prop.get('player') or prop.get('subject', '')
+    return f"{subject}|{prop.get('stat', '')}|{prop.get('sport_key', '')}"
 
 
 def _alert_active_pick_changes(r, all_changes: list[dict]):
@@ -125,7 +126,7 @@ def _alert_active_pick_changes(r, all_changes: list[dict]):
 
     relevant = []
     for c in all_changes:
-        key = f"{c.get('subject', '')}|{c.get('stat', '')}|{c.get('sport_key', '')}"
+        key = f"{c.get('player') or c.get('subject', '')}|{c.get('stat', '')}|{c.get('sport_key', '')}"
         if key in active_keys:
             pick = active_keys[key]
             relevant.append({**c, "our_direction": pick.get("direction", "")})
