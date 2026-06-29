@@ -144,9 +144,9 @@ def _extract_winner(score_item: dict) -> str | None:
         return None
     try:
         sorted_scores = sorted(scores, key=lambda s: float(s.get("score", 0) or 0), reverse=True)
-        if len(sorted_scores) >= 2 and sorted_scores[0]["score"] != sorted_scores[1]["score"]:
+        if len(sorted_scores) >= 2 and sorted_scores[0].get("score") != sorted_scores[1].get("score"):
             return sorted_scores[0].get("name")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, KeyError):
         pass
     return None
 

@@ -100,7 +100,7 @@ def generate_picks():
                       "away_team": away_team, "commence_time": commence,
                       "game_date": _today}
             game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
-            odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if "book" in s}
+            odds_by_book  = {s["book"]: s["best_odds"] for s in snap_list if s.get("book") and s.get("best_odds") is not None}
             try:
                 game_context = build_game_context(sport_key=sport_key, home_team=home_team,
                                                    away_team=away_team, game_time=commence)
@@ -117,7 +117,7 @@ def generate_picks():
             selection = ai.get("selection", "")
             books_odds = {s["book"]: s["best_odds"] for s in snap_list
                           if s.get("market") == market and s.get("selection") == selection
-                          and s.get("book")}
+                          and s.get("book") and s.get("best_odds") is not None}
             if not books_odds:
                 # Fuzzy fallback: AI may return "White Sox" instead of "Chicago White Sox"
                 # Try partial match against snapshot selections
@@ -127,12 +127,17 @@ def generate_picks():
                     if s_mkt == market and s.get("book") and (
                         selection.lower() in s_sel or s_sel in selection.lower()
                     ):
-                        books_odds[s["book"]] = s["best_odds"]
+                        if s.get("best_odds") is not None:
+                            books_odds[s["book"]] = s["best_odds"]
             if not books_odds:
                 logger.warning("picks: no odds matched selection=%r market=%r for %s @ %s — falling back to game odds", selection, market, away_team, home_team)
                 books_odds = odds_by_book
             # Derive best_odds from AI's actual selection — not snapshot[0] which may be the other side
-            best_odds_val = max(books_odds.values(), key=lambda v: v if v > 0 else 1/(1 - 100/(100 + abs(v)))) if books_odds else best_snap.get("best_odds", -110)
+            def _odds_sort_key(v):
+                if v > 0: return v
+                denom = 100 + abs(v)
+                return 1 / (1 - 100 / denom) if denom != 100 else -999
+            best_odds_val = max(books_odds.values(), key=_odds_sort_key) if books_odds else best_snap.get("best_odds", -110)
             opp_prob      = ai.get("opponent_probability")
             opponent_odds = (decimal_to_american(1.0 / opp_prob)
                              if opp_prob and 0 < opp_prob < 1 else None)
@@ -266,7 +271,7 @@ def generate_picks():
         blocked_game_keys = set()
         seen_players      = set()
         for pick in pool:
-            if len(entry) == 2:
+            if len(entry) == 5:
                 break
             if pick["type"] == "prop":
                 if pick["game_key"] and pick["game_key"] in blocked_game_keys:
@@ -475,8 +480,13 @@ def scan_todays_games():
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
-        for fut in futures:
-            for ev in fut.result():
+        for fut, sk in futures.items():
+            try:
+                results_for_sport = fut.result()
+            except Exception as _fe:
+                logger.warning("scan_todays_games: fetch failed for %s — %s", sk, _fe)
+                continue
+            for ev in results_for_sport:
                 eid = ev.get("id", "")
                 if eid and eid in seen_ids:
                     continue
@@ -1340,7 +1350,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         seen_players: set[str]       = set()
 
         for pick in pool:
-            if len(entry) == 2:
+            if len(entry) == 5:
                 break
 
             if pick["type"] == "sgp":

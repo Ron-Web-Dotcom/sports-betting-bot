@@ -275,8 +275,10 @@ def get_event_odds(event_id: str) -> dict:
                     # Convert decimal to American
                     if odd >= 2.0:
                         american = f"+{int((odd - 1) * 100)}"
-                    else:
+                    elif odd > 1.0:
                         american = str(int(-100 / (odd - 1)))
+                    else:
+                        continue  # odd == 1.0 means 100% probability — invalid, skip
                     implied = round(1 / odd, 4)
                     if name in ("1", "HOME"):
                         result["home_odds"]    = american

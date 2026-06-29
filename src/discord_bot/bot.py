@@ -298,7 +298,8 @@ async def post_hardrock_parlay(picks: list[dict]) -> None:
         bet      = p.get("bet") or p.get("selection") or p.get("subject", "?")
         leg_odds = p.get("american_odds") or p.get("odds", "?")
         lo_str   = f"+{leg_odds}" if isinstance(leg_odds, int) and leg_odds > 0 else str(leg_odds)
-        conf     = round((p.get("confidence_pct") or p.get("confidence") or 0) * (1 if (p.get("confidence") or 0) <= 1 else 0.01))
+        _conf_raw = p.get("confidence_pct") or p.get("confidence") or 0
+        conf      = round(_conf_raw * 100 if _conf_raw <= 1 else _conf_raw)
 
         # Per-leg reason
         factors   = p.get("key_factors") or []
@@ -426,23 +427,24 @@ async def post_prop_changes(changes: list[dict]) -> None:
     for source, items in by_source.items():
         lines = []
         for c in items[:10]:
-            icon    = ICONS.get(c["change_type"], "•")
+            ct      = c.get("change_type", "")
+            icon    = ICONS.get(ct, "•")
             subject = c.get("subject", "Unknown")
             stat    = c.get("stat", "")
             sport   = c.get("sport_key", "").split("_")[-1].upper()
-            if c["change_type"] == "moved":
+            if ct == "moved":
                 lines.append(
-                    f"{icon} **{subject}** {stat} `{c['old_line']} → {c['new_line']}` ({sport})"
+                    f"{icon} **{subject}** {stat} `{c.get('old_line', '?')} → {c.get('new_line', '?')}` ({sport})"
                 )
-            elif c["change_type"] == "added":
-                lines.append(f"{icon} **{subject}** {stat} `{c['new_line']}` ({sport})")
+            elif ct == "added":
+                lines.append(f"{icon} **{subject}** {stat} `{c.get('new_line', '?')}` ({sport})")
             else:
-                lines.append(f"{icon} **{subject}** {stat} `{c['old_line']}` removed ({sport})")
+                lines.append(f"{icon} **{subject}** {stat} `{c.get('old_line', '?')}` removed ({sport})")
 
         if len(items) > 10:
             lines.append(f"*… and {len(items) - 10} more*")
 
-        dominant = max(set(c["change_type"] for c in items), key=lambda t: sum(1 for x in items if x["change_type"] == t))
+        dominant = max(set(c.get("change_type", "") for c in items), key=lambda t: sum(1 for x in items if x.get("change_type") == t))
         embeds.append(_embed(
             title=f"{source.title()} Props Update",
             description="\n".join(lines),

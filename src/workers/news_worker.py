@@ -51,7 +51,7 @@ def _load_prev_injuries(r, sport_key: str) -> dict[str, str]:
 def _save_current_injuries(r, sport_key: str, injuries: list[dict]) -> None:
     """Cache current injury snapshot in Redis (TTL 2h)."""
     import json
-    snapshot = {i["player_name"]: i["status"].lower() for i in injuries if i.get("player_name")}
+    snapshot = {i["player_name"]: (i.get("status") or "").lower() for i in injuries if i.get("player_name")}
     r.setex(f"injuries:{sport_key}", 7200, json.dumps(snapshot))
 
 
@@ -143,7 +143,7 @@ def _build_injury_alert(change: dict, affected_props: list[dict]) -> dict | None
     # Cleared from injury report
     if status == "active":
         action = "✅ CLEARED"
-        reason = "Back on the injury report as active. Props are back on."
+        reason = "Cleared from the injury report. Props are back on."
 
     color_map = {
         "❌ AVOID": 0xC62828, "⚠️ AVOID": 0xE53935,

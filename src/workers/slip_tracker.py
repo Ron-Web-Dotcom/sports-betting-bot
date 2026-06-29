@@ -316,8 +316,8 @@ def _check_kalshi_result(pick: dict) -> str | None:
                 if not score_list:
                     continue
                 sorted_s = sorted(score_list, key=lambda s: float(s.get("score", 0) or 0), reverse=True)
-                if len(sorted_s) < 2 or sorted_s[0]["score"] == sorted_s[1]["score"]:
-                    return "push"
+                if len(sorted_s) < 2 or sorted_s[0].get("score") == sorted_s[1].get("score"):
+                    return "lost"  # draw/tie = lost (no push)
                 winner = (sorted_s[0].get("name") or "").lower()
                 if answer == "yes":
                     return "won" if (home and (home in winner or winner in home)) else "lost"
@@ -408,7 +408,8 @@ def _check_pick_result(pick: dict) -> str | None:
                                 PropResult.result.isnot(None),
                             ).order_by(PropResult.settled_at.desc()).first()
                             if row:
-                                return row.result  # "won" | "lost" | "push"
+                                res = row.result
+                                return "lost" if res == "push" else res  # push → lost
                     except Exception:
                         pass
                     # If game completed but no DB record yet, assume pending
@@ -421,13 +422,8 @@ def _check_pick_result(pick: dict) -> str | None:
                         return None
                     if winner in selection or selection in winner:
                         return "won"
-                    elif sorted_s[0]["score"] == sorted_s[1]["score"]:
-                        # Draw: in soccer a draw on a team ML pick = lost
-                        # Only true push is if the book explicitly offers draw markets
-                        sport = pick.get("sport_key", "")
-                        if "soccer" in sport or "football" in sport:
-                            return "lost"
-                        return "push"
+                    elif sorted_s[0].get("score") == sorted_s[1].get("score"):
+                        return "lost"  # draw = lost regardless of sport
                     else:
                         return "lost"
 
@@ -443,8 +439,9 @@ def _check_pick_result(pick: dict) -> str | None:
                                           _normalize_team_name(item.get("home_team","")) or
                                           _normalize_team_name(item.get("home_team","")) in
                                           _normalize_team_name(s.get("name",""))), None)
+                    _ht_norm = _normalize_team_name(item.get("home_team", ""))
                     away_score_val = next((float(s.get("score", 0) or 0) for s in score_list
-                                          if s.get("name") != item.get("home_team","")), None)
+                                          if _normalize_team_name(s.get("name", "")) != _ht_norm), None)
                     if home_score_val is None or away_score_val is None:
                         return None
                     home_team_norm = _normalize_team_name(item.get("home_team", ""))
@@ -455,7 +452,7 @@ def _check_pick_result(pick: dict) -> str | None:
                     margin  = (home_score_val - away_score_val) if is_home else (away_score_val - home_score_val)
                     covered = margin + float(line_val)
                     if abs(covered) < 0.1:
-                        return "push"
+                        return "lost"  # exact spread = lost (no push)
                     return "won" if covered > 0 else "lost"
 
                 elif market == "totals":
@@ -471,7 +468,7 @@ def _check_pick_result(pick: dict) -> str | None:
                         elif total < line_val:
                             return "won" if "under" in direction else "lost"
                         else:
-                            return "push"
+                            return "lost"  # exact total = lost (no push)
                     except Exception:
                         return None
 

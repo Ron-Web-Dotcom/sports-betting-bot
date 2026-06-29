@@ -310,9 +310,13 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
 
     props = []
     for bk in data.get("bookmakers", []):
-        book = bk["key"]
+        book = bk.get("key")
+        if not book:
+            continue
         for mkt in bk.get("markets", []):
-            mkt_key    = mkt["key"]
+            mkt_key    = mkt.get("key")
+            if not mkt_key:
+                continue
             is_team    = mkt_key.startswith(_TEAM_MARKET_PREFIXES)
             stat       = mkt_key.replace("player_", "").replace("team_", "").replace("_", " ").title()
             for outcome in mkt.get("outcomes", []):
@@ -441,7 +445,8 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
                         continue
             except Exception:
                 pass
-            tasks.append((sport_key, ev["id"]))
+            if ev.get("id"):
+                tasks.append((sport_key, ev["id"]))
 
     if not tasks:
         return []
@@ -465,12 +470,18 @@ def normalise_event(event: dict, sport_key: str) -> dict:
     """Flatten a raw Odds API event into a consistent structure."""
     markets: dict = {}
     for bk in event.get("bookmakers", []):
-        book = bk["key"]
+        book = bk.get("key")
+        if not book:
+            continue
         for mkt in bk.get("markets", []):
-            mk = mkt["key"]
+            mk = mkt.get("key")
+            if not mk:
+                continue
             markets.setdefault(mk, {})
             for outcome in mkt.get("outcomes", []):
-                sel   = outcome["name"]
+                sel   = outcome.get("name", "")
+                if not sel:
+                    continue
                 try:
                     price = int(outcome.get("price", -110))
                 except (TypeError, ValueError):
@@ -541,7 +552,7 @@ def get_live_active_sport_keys() -> set[str]:
             logger.warning("Odds API /sports returned no data — falling back to full SPORTS list")
             return set(SPORTS.values())
 
-        active = {s["key"] for s in data if not s.get("has_outrights", False)}
+        active = {s["key"] for s in data if s.get("key") and not s.get("has_outrights", False)}
         logger.info("Odds API: %d active in-season sports", len(active))
 
         if r and active:

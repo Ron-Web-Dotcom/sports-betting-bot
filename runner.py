@@ -246,9 +246,11 @@ def main():
         # Refresh active sports FIRST — a mid-day restart finds a stale/empty Redis
         # sports list and scan_and_save_odds returns 0 events → no picks all day.
         logger.info("Startup: refreshing active sports...")
-        _run(tasks.get("refresh_active_sports"), "refresh_active_sports [startup]")
+        if tasks.get("refresh_active_sports"):
+            _run(tasks["refresh_active_sports"], "refresh_active_sports [startup]")
         logger.info("Startup: running initial odds scan before catchup...")
-        _run(tasks.get("scan_and_save_odds"), "scan_and_save_odds [startup]")
+        if tasks.get("scan_and_save_odds"):
+            _run(tasks["scan_and_save_odds"], "scan_and_save_odds [startup]")
         last_run["scan_and_save_odds"] = time.monotonic()  # prevent immediate re-run
 
     # ── Catch-up: run any critical tasks missed due to restart ────────────────

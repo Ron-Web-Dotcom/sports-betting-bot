@@ -86,7 +86,10 @@ def scan_and_save_odds():
         if all_movements:
             from src.workers.alert_worker import send_line_movement_alerts
             import dataclasses
-            send_line_movement_alerts([dataclasses.asdict(m) for m in all_movements])
+            send_line_movement_alerts([
+                dataclasses.asdict(m) if dataclasses.is_dataclass(m) and not isinstance(m, type) else (m if isinstance(m, dict) else vars(m))
+                for m in all_movements
+            ])
 
         return {"snapshots": len(snapshots), "movements": len(all_movements)}
     except Exception as exc:

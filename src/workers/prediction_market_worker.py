@@ -191,6 +191,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         # today_index has every game across all sports (populated by scan_todays_games at 8 AM)
         _idx_raw = _rr.get("sofascore:today_index")
         if _idx_raw:
+            import json as _jc  # ensure _jc is defined even if first try block failed
             _seen_ids: set[str] = set()
             for _ev in _jc.loads(_idx_raw).values():
                 _eid = _ev.get("id", "")
@@ -440,7 +441,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
             "ticker":           c.get("event_ticker", ""),
             "game_time_et":     _fmt_gt(c.get("commence_time", "")),
             "kalshi_yes_%":     f"{round(c['yes_prob']*100)}%",
-            "kalshi_yes_odds":  f"{c['yes_american']:+d}" if c.get("yes_american") else "—",
+            "kalshi_yes_odds":  f"{int(c['yes_american']):+d}" if c.get("yes_american") is not None else "—",
             "volume":           c.get("volume", 0),
             # Sofascore bookmaker odds — use to spot Kalshi mispricing
             "sf_home_odds":     c.get("sf_home_odds") or None,
