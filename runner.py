@@ -114,7 +114,6 @@ CRON_TASKS = [
     (0,  1,  "send_monthly_summary",    None, 1),     # 1st of month
     (7,  0,  "check_odds_api_restored", None, 10),   # 10th of month — confirms Odds API credits reset
     (2,  0,  "run_self_improvement",    None, None),
-    (2,  45, "send_daily_summary",      None, None),  # daily recap
     (2,  50, "send_weekly_summary",     6,    None),  # Sunday only
     (2,  52, "cleanup_old_slips",        None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),

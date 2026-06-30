@@ -86,10 +86,15 @@ def _slip_summary_line(slip: dict) -> str:
 
 
 def send_daily_summary():
+    """No-op — daily summary is now combined into enter_sleep_mode at 3 AM."""
+    logger.info("send_daily_summary: skipped — combined into enter_sleep_mode")
+    return {"skipped": "combined_into_enter_sleep_mode"}
+
+
+def _send_daily_summary_impl():
     """
-    Posts the daily summary after the last game of the day has completed.
-    Checks Sofascore for today's latest game end time and waits until it's done.
-    If no game data is available, falls back to posting after 11 PM ET.
+    Internal: posts the daily summary after the last game of the day has completed.
+    Called internally if needed; public entry point is enter_sleep_mode at 3 AM.
     """
     import zoneinfo
     from datetime import datetime, timedelta
@@ -418,31 +423,33 @@ def enter_sleep_mode():
 
     import hashlib
     date_str = et.strftime("%b %-d, %Y")
-    slip_id  = hashlib.md5(f"sleep{date_str}".encode()).hexdigest()[:8].upper()
-
-    fields = [
-        {"name": "TODAY'S RECORD", "value": record_str,  "inline": True},
-        {"name": "TOTAL PICKS",    "value": str(total),  "inline": True},
-        {"name": "​",         "value": "​",     "inline": True},
-        {"name": "✅  CASHED",     "value": win_text,    "inline": True},
-        {"name": "❌  DEAD",       "value": loss_text,   "inline": True},
-        {"name": "​",         "value": "​",     "inline": True},
-        {
-            "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "value": f"Scanning paused  ·  Back online at 5 AM ET\n{et.strftime('%-I:%M %p ET')}   CLOSED",
-            "inline": False,
-        },
-    ]
+    slip_id  = hashlib.md5(f"daily{date_str}".encode()).hexdigest()[:8].upper()
+    color    = 0x1B5E20 if wins > losses and total > 0 else (0xB71C1C if losses > wins and total > 0 else 0x1A237E)
 
     embed = {
-        "title": "🌙  DAILY SUMMARY  ·  Back at 5 AM ET",
+        "title": f"📊  DAILY SUMMARY  ·  {et.strftime('%A, %b %-d')}",
         "description": (
             f"**{date_str}**  ·  Slip `#{slip_id}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
-        "fields": fields,
-        "color": 0x1A237E,
-        "footer": {"text": f"3:00 AM ET  ·  {date_str}  ·  See you at 5 AM"},
+        "color": color,
+        "fields": [
+            {"name": "TODAY'S RECORD", "value": record_str,  "inline": True},
+            {"name": "TOTAL PICKS",    "value": str(total),  "inline": True},
+            {"name": "​",         "value": "​",     "inline": True},
+            {"name": "✅  CASHED",     "value": win_text,    "inline": True},
+            {"name": "❌  DEAD",       "value": loss_text,   "inline": True},
+            {"name": "​",         "value": "​",     "inline": True},
+            {
+                "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "value": (
+                    f"☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**\n"
+                    f"Scanning paused  ·  Back online at 5 AM ET"
+                ),
+                "inline": False,
+            },
+        ],
+        "footer": {"text": f"Daily recap  ·  3:00 AM ET  ·  {date_str}  ·  See you at 5 AM"},
     }
     _run_async(_post({"embeds": [embed]}))
     logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
