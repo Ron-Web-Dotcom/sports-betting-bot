@@ -224,10 +224,20 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             if not home or not away:
                 continue
             # Match on team name OR country name
-            home_match = home in sl or any(w in sl for w in home.split()) or \
-                         (home_country and (home_country in sl or any(w in sl for w in home_country.split())))
-            away_match = away in sl or any(w in sl for w in away.split()) or \
-                         (away_country and (away_country in sl or any(w in sl for w in away_country.split())))
+            # Require full team name match OR multi-word partial; single-word names (≤4 chars
+            # or common English words) must match the full name to avoid false positives.
+            def _team_in_title(name: str, title: str) -> bool:
+                if name in title:
+                    return True
+                words = name.split()
+                # Only do word-level partial match for names with 2+ meaningful words
+                return len(words) >= 2 and any(
+                    w in title for w in words if len(w) > 4
+                )
+            home_match = _team_in_title(home, sl) or \
+                         bool(home_country and _team_in_title(home_country, sl))
+            away_match = _team_in_title(away, sl) or \
+                         bool(away_country and _team_in_title(away_country, sl))
             score = sum([home_match, away_match])
             if score > best_score:
                 best_score, best = score, g

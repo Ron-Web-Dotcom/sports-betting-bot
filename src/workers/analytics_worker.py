@@ -4,7 +4,7 @@ from datetime import date as _date
 
 logger = logging.getLogger(__name__)
 
-# Monday of the bot's first week — used to display "Week 1", "Week 2", etc.
+# Bot launch date — used to display "Week 1", "Week 2", etc. (7-day rolling weeks)
 _BOT_LAUNCH = _date(2026, 6, 9)
 
 # ── Sleep window: 3 AM – 5 AM Eastern ─────────────────────────────────────────
@@ -29,7 +29,9 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
     import redis as _redis
 
     ET    = zoneinfo.ZoneInfo("America/New_York")
-    cutoff = (datetime.now(ET) - timedelta(days=days_back)).date()
+    now_et = datetime.now(ET)
+    cutoff = (now_et - timedelta(days=days_back)).date()
+    today  = now_et.date()
 
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
@@ -45,7 +47,8 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
         try:
             slip = json.loads(raw)
             created_date = slip.get("created", "")[:10]
-            if created_date < str(cutoff):
+            # Exclude slips before cutoff AND slips from today (avoid double-counting)
+            if created_date < str(cutoff) or created_date >= str(today):
                 continue
             status = slip.get("status", "active")
             if status == "cashed":

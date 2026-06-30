@@ -275,9 +275,12 @@ def get_active_sports_today() -> set[str]:
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(_check, sk): sk for sk in SPORT_MAP}
         for fut in futures:
-            result = fut.result()
-            if result:
-                active.add(result)
+            try:
+                result = fut.result()
+                if result:
+                    active.add(result)
+            except Exception as _e:
+                logger.warning("Sofascore active-sport check failed: %s", _e)
 
     logger.info("Sofascore active sports today: %s", sorted(active))
     return active

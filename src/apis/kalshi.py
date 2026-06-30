@@ -578,6 +578,7 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             "volume":            vol,
             # close_time = when Kalshi stops accepting bets = actual game start time
             # expected_expiration_time = when market settles (~2-3h AFTER game ends) — kept for filtering only
+            "close_time":        _close_time_raw,
             "game_time":         _to_et(_close_time_raw),
             "expiration_time":   _to_et(_expiration_raw),
             "source":            "kalshi",

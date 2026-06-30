@@ -316,6 +316,38 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
         "icehockey_nhl":                _HOCKEY_FULL + _TEAM_HOCKEY + _GAME_HOCKEY,
         "mma_mixed_martial_arts":       _MMA_FULL,
         "boxing_boxing":                _MMA_FULL,
+        # Aussie Rules
+        "aussierules_afl":              ["player_goals", "player_disposals", "player_marks", "player_tackles"],
+        "aussierules_aflw":             ["player_goals", "player_disposals", "player_marks", "player_tackles"],
+        # Ice hockey — PWHL (women)
+        "icehockey_pwhl":               _HOCKEY_FULL,
+        # Cricket — all formats
+        **{sk: ["player_runs", "player_wickets", "player_fours", "player_sixes",
+                "player_fifties", "player_hundreds", "player_catches"]
+           for sk in [
+               "cricket_icc_world_cup", "cricket_ipl", "cricket_icc_womens_t20_wc",
+               "cricket_test_match", "cricket_odi", "cricket_international_t20",
+               "cricket_t20_world_cup_womens", "cricket_t20_blast",
+           ]},
+        # Rugby union + league
+        **{sk: ["player_tries", "player_conversions", "player_penalty_goals",
+                "player_tackles", "player_carries"]
+           for sk in [
+               "rugbyunion_world_cup", "rugbyunion_women_world_cup",
+               "rugbyunion_super_rugby", "rugbyunion_premiership",
+               "rugbyunion_top14", "rugbyunion_united_rugby_championship",
+               "rugbyleague_nrl", "rugbyleague_nrl_state_of_origin",
+           ]},
+        # Motorsport — race/podium/fastest-lap outrights only
+        **{sk: ["player_podium_finish", "player_race_winner", "player_fastest_lap",
+                "player_top_5_finish", "player_top_10_finish"]
+           for sk in [
+               "motorsport_formula_1", "motorsport_indycar", "motorsport_nascar_cup_series",
+           ]},
+        # Golf — outrights
+        **{sk: ["player_win", "player_top_5_finish", "player_top_10_finish",
+                "player_top_20_finish", "player_make_cut"]
+           for sk in _GOLF_TOURNAMENTS},
         # All tennis events (ATP + WTA — slams and tour)
         **{t: _TENNIS_MARKETS for t in _TENNIS},
         # All soccer leagues (men + women, all regions)

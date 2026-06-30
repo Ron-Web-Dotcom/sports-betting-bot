@@ -334,7 +334,7 @@ def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
             f"━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━  `{slip_id}`"
         ),
         "fields": [
-            {"name": "PICK",       "value": f"**{pick_label}**\nYes @ **{pick_pct}% chance**", "inline": True},
+            {"name": "PICK",       "value": f"**{pick_label}**\nYes @ **{pick_pct if pick_pct is not None else '?'}% chance**", "inline": True},
             {"name": "VOLUME",     "value": vol_str,                                             "inline": True},
             {"name": "​",     "value": "​",                                            "inline": True},
             {"name": "COST",       "value": f"**${cost}**",                                      "inline": True},
@@ -464,11 +464,14 @@ def send_pick_line_update(changes: list[dict]):
     if not lines:
         return
 
+    body = "\n\n".join(lines)
+    if len(body) > 3800:
+        body = body[:3800] + "\n…(truncated)"
     embed = {
         "title": "🚨 ALERT ALERT — Prop Updated",
         "description": (
             f"**{len(lines)} of your active picks have been updated.**\n\n"
-            + "\n\n".join(lines)
+            + body
         ),
         "color": 0xFF0000,
         "footer": {"text": "Review before placing — lines may have shifted"},

@@ -339,10 +339,10 @@ async def post_pick(pick: dict) -> None:
     fields = [
         {"name": "Game",       "value": pick.get("game", "—")},
         {"name": "Sport",      "value": pick.get("sport", "—")},
-        {"name": "Odds",       "value": f"{pick.get('odds', 0):+d}"},
+        {"name": "Odds",       "value": f"{int(round(pick.get('odds') or 0)):+d}"},
         {"name": "Units",      "value": f"{unit_bar} ({units}/5)"},
         {"name": "EV",         "value": f"{pick.get('ev_pct', 0):.1%}"},
-        {"name": "Confidence", "value": f"{pick.get('confidence_pct', 0):.0f}%"},
+        {"name": "Confidence", "value": f"{float(pick.get('confidence_pct') or 0):.0f}%"},
         {"name": "Best Book",  "value": pick.get("best_book", "—")},
     ]
     key_factors = pick.get("key_factors", [])
@@ -382,7 +382,10 @@ async def post_result(pick: dict, result: str) -> None:
     bet     = pick.get("bet") or pick.get("selection", "—")
     market  = pick.get("market", "MONEYLINE").upper()
     odds    = pick.get("odds") or pick.get("american_odds_at_gen", 0)
-    odds_fmt = f"{int(odds):+d}" if odds else "—"
+    try:
+        odds_fmt = f"{int(round(float(odds))):+d}" if odds else "—"
+    except (TypeError, ValueError):
+        odds_fmt = str(odds) if odds else "—"
     sport   = (pick.get("sport") or pick.get("sport_key") or "").split("_")[-1].upper()
     wager   = pick.get("wager_display", "$10.00")
     pnl     = pick.get("actual_pnl_units", 0)
@@ -473,7 +476,7 @@ async def post_parlay(parlay: dict) -> None:
     legs = parlay.get("legs", [])
     desc = "\n".join(f"• {l.get('bet', 'Unknown')}" for l in legs)
     embed = _embed(
-        title=f"Parlay ({len(legs)} legs) — {parlay.get('combined_odds', 0):+d}",
+        title=f"Parlay ({len(legs)} legs) — {int(round(parlay.get('combined_odds') or 0)):+d}",
         description=desc,
         color=0xFDD835,
         fields=[

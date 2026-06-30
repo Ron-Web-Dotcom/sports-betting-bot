@@ -687,14 +687,17 @@ def _build_hardrock_candidates(
 
             # Resolve odds for selected side
             books = {s["book"]: s["best_odds"] for s in snaps
-                     if s.get("market") == market and s.get("selection") == selection and s.get("book")}
+                     if s.get("market") == market and s.get("selection") == selection
+                     and s.get("book") and s.get("best_odds") is not None}
             if not books and selection:
                 sl = selection.lower()
-                books = {s["book"]: s["best_odds"] for s in snaps if s.get("book") and
-                         (sl in (s.get("selection") or "").lower() or
+                books = {s["book"]: s["best_odds"] for s in snaps if s.get("book")
+                         and s.get("best_odds") is not None
+                         and (sl in (s.get("selection") or "").lower() or
                           (s.get("selection") or "").lower() in sl)}
             if not books:
-                books = {s["book"]: s["best_odds"] for s in snaps if s.get("book")}
+                books = {s["book"]: s["best_odds"] for s in snaps
+                         if s.get("book") and s.get("best_odds") is not None}
             if not books:
                 continue
 
@@ -1095,7 +1098,7 @@ def _build_sgp_bundles(prop_candidates: list[dict]) -> list[dict]:
                 "legs":         [p1, p2],
                 "correlation":  signal,
                 "ev_pct":       (p1["ev_pct"] + p2["ev_pct"]) / 2,
-                "best_odds":    min(p1["best_odds"], p2["best_odds"]),  # most conservative leg
+                "best_odds":    max(p1["best_odds"], p2["best_odds"]),  # best payout of the two legs
             })
 
     bundles.sort(key=lambda x: x["score"], reverse=True)
@@ -1172,7 +1175,7 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
                 leg_odds = _fmt(leg.get("best_odds", ""))
                 legs_lines.append(
                     f"  • **{leg.get('player') or leg.get('home_team','')}** "
-                    f"— {leg['stat']} **{leg_dir} {leg.get('line','')}**  `{leg_odds}`"
+                    f"— {leg.get('stat', '')} **{leg_dir} {leg.get('line','')}**  `{leg_odds}`"
                 )
             pick_fields.append({
                 "name":  f"PICK {i}  ·  {emoji}  `⚡ SGP — {corr_label.upper()}`",
@@ -1333,7 +1336,7 @@ def _generate_hardrock_entry(period: str) -> dict:
             combined_dec      = 1.0
             for p in picks:
                 combined_win_prob *= p["confidence"]
-                combined_dec      *= _american_to_dec(int(p["best_odds"]))
+                combined_dec      *= _american_to_dec(round(p["best_odds"]))
             return combined_win_prob * combined_dec > 1.0
 
         # Candidates already passed all gates inside their builders.

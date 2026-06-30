@@ -636,6 +636,10 @@ def track_slips() -> dict:
                         if (ev.get("status") or {}).get("type", "") != "finished":
                             continue  # game still in progress
                     # No sofascore_id — poll Kalshi directly (returns None until settled)
+                    # Safety timeout: if commence_time is known and 12h+ have passed, mark dead
+                    if ct and (now - ct).total_seconds() > 12 * 3600:
+                        results.append("dead")
+                        continue
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)

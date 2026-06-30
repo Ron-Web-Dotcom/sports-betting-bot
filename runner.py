@@ -312,11 +312,13 @@ def main():
                         else:
                             _run(fn, name)
                     last_cron_fired[fired_key] = now_key
-                # Prune old keys to avoid unbounded growth
-                if len(last_cron_fired) > 500:
-                    oldest = sorted(last_cron_fired, key=lambda k: last_cron_fired[k])[:-200]
-                    for k in oldest:
-                        del last_cron_fired[k]
+
+        # Prune old minute-keyed entries only (window date-keys must never be evicted)
+        if len(last_cron_fired) > 500:
+            _window_names = set(CRON_WINDOWS)
+            pruneable = [k for k in last_cron_fired if k.split(":")[0] not in _window_names]
+            for k in sorted(pruneable, key=lambda k: last_cron_fired[k])[:-200]:
+                del last_cron_fired[k]
 
         time.sleep(1)
 
