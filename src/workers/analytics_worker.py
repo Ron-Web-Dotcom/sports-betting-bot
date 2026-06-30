@@ -342,6 +342,18 @@ def enter_sleep_mode():
     from datetime import datetime
     import zoneinfo
 
+    # Dedup: only post once per calendar day even if scheduler fires twice at 3 AM
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis_sleep
+        _r_sleep = _redis_sleep.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _sleep_key = f"sleep_mode_sent:{datetime.now(zoneinfo.ZoneInfo('America/New_York')).strftime('%Y-%m-%d')}"
+        if not _r_sleep.set(_sleep_key, "1", ex=86400, nx=True):
+            logger.info("enter_sleep_mode: already ran today — skipping duplicate")
+            return {"skipped": "already_ran_today"}
+    except Exception:
+        pass  # Redis down — allow through
+
     # Settle any late-finishing games before posting the nightly summary
     try:
         from src.workers.settlement_worker import settle_completed_picks as _settle
@@ -370,45 +382,54 @@ def enter_sleep_mode():
     # ── Weekly summary — Sunday night only (fires 3 AM Monday morning) ───────
     if et.weekday() == 0:  # 0 = Monday; 3 AM Monday = Sunday night rollover
         try:
-            w_wins, w_losses, w_pushes, w_winners, w_losers = _load_slip_results(days_back=7)
-            w_total  = w_wins + w_losses
-            w_pct    = f" ({round(w_wins/w_total*100)}% hit rate)" if w_total > 0 else ""
-            w_record = f"{w_wins}W – {w_losses}L{w_pct}" if w_total > 0 else "No settled slips this week"
-            w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners[:5]) or "—"
-            w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers[:5])  or "—"
-            w_sport: dict = {}
-            for slip in w_winners + w_losers:
-                for pick in slip.get("picks", []):
-                    sk = pick.get("sport_key") or pick.get("sport") or ("kalshi" if pick.get("question") else "other")
-                    if sk not in w_sport:
-                        w_sport[sk] = {"w": 0, "l": 0}
-                    w_sport[sk]["w" if slip.get("status") == "cashed" else "l"] += 1
-            w_sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in w_sport.items()]
-            import hashlib as _hl
-            week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
-            prev_week = max(week_num - 1, 1)
-            w_slip_id = _hl.md5(f"weekly{et.strftime('%Y-W%W')}".encode()).hexdigest()[:8].upper()
-            w_color   = 0x1B5E20 if w_wins >= w_losses and w_total > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
-            weekly_embed = {
-                "title": f"📊  WEEK {prev_week} SUMMARY  ·  🟢  WEEK {week_num} STARTS NOW",
-                "description": (
-                    f"**{et.strftime('%b %-d, %Y')}**  ·  Slip `#{w_slip_id}`\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                ),
-                "color": w_color,
-                "fields": [
-                    {"name": "WEEK'S RECORD", "value": w_record,                              "inline": False},
-                    {"name": "TOTAL SLIPS",   "value": str(w_total),                          "inline": True},
-                    {"name": "BY SPORT",      "value": "  ".join(w_sport_lines) or "—",       "inline": True},
-                    {"name": "​",             "value": "​",                                   "inline": True},
-                    {"name": "✅  WINNERS",   "value": w_win_lines,                           "inline": True},
-                    {"name": "❌  LOSERS",    "value": w_loss_lines,                          "inline": True},
-                    {"name": "​",             "value": "​",                                   "inline": True},
-                ],
-                "footer": {"text": f"Week {prev_week} closed  ·  Week {week_num} open  ·  {et.strftime('%b %-d, %Y')}"},
-            }
-            _run_async(_post({"embeds": [weekly_embed]}))
-            logger.info("Weekly summary posted Sunday night: %dW-%dL-%dP", w_wins, w_losses, w_pushes)
+            # Shared dedup key with send_weekly_summary — only one of them posts per week
+            _week_key = f"weekly_summary_sent:{et.strftime('%Y-W%W')}"
+            from src.core.config import REDIS_URL as _RURL_W
+            import redis as _redis_w
+            _r_w = _redis_w.from_url(_RURL_W, decode_responses=True, socket_connect_timeout=2)
+            if _r_w.get(_week_key):
+                logger.info("enter_sleep_mode: weekly summary already sent this week — skipping")
+            else:
+                w_wins, w_losses, w_pushes, w_winners, w_losers = _load_slip_results(days_back=7)
+                w_total  = w_wins + w_losses
+                w_pct    = f" ({round(w_wins/w_total*100)}% hit rate)" if w_total > 0 else ""
+                w_record = f"{w_wins}W – {w_losses}L{w_pct}" if w_total > 0 else "No settled slips this week"
+                w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners[:5]) or "—"
+                w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers[:5])  or "—"
+                w_sport: dict = {}
+                for slip in w_winners + w_losers:
+                    for pick in slip.get("picks", []):
+                        sk = pick.get("sport_key") or pick.get("sport") or ("kalshi" if pick.get("question") else "other")
+                        if sk not in w_sport:
+                            w_sport[sk] = {"w": 0, "l": 0}
+                        w_sport[sk]["w" if slip.get("status") == "cashed" else "l"] += 1
+                w_sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in w_sport.items()]
+                import hashlib as _hl
+                week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
+                prev_week = max(week_num - 1, 1)
+                w_slip_id = _hl.md5(f"weekly{et.strftime('%Y-W%W')}".encode()).hexdigest()[:8].upper()
+                w_color   = 0x1B5E20 if w_wins >= w_losses and w_total > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
+                weekly_embed = {
+                    "title": f"📊  WEEK {prev_week} SUMMARY  ·  🟢  WEEK {week_num} STARTS NOW",
+                    "description": (
+                        f"**{et.strftime('%b %-d, %Y')}**  ·  Slip `#{w_slip_id}`\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    ),
+                    "color": w_color,
+                    "fields": [
+                        {"name": "WEEK'S RECORD", "value": w_record,                              "inline": False},
+                        {"name": "TOTAL SLIPS",   "value": str(w_total),                          "inline": True},
+                        {"name": "BY SPORT",      "value": "  ".join(w_sport_lines) or "—",       "inline": True},
+                        {"name": "​",             "value": "​",                                   "inline": True},
+                        {"name": "✅  WINNERS",   "value": w_win_lines,                           "inline": True},
+                        {"name": "❌  LOSERS",    "value": w_loss_lines,                          "inline": True},
+                        {"name": "​",             "value": "​",                                   "inline": True},
+                    ],
+                    "footer": {"text": f"Week {prev_week} closed  ·  Week {week_num} open  ·  {et.strftime('%b %-d, %Y')}"},
+                }
+                _run_async(_post({"embeds": [weekly_embed]}))
+                _r_w.setex(_week_key, 7 * 86400, "1")
+                logger.info("Weekly summary posted Sunday night: %dW-%dL-%dP", w_wins, w_losses, w_pushes)
         except Exception as _we:
             logger.warning("3 AM weekly summary failed: %s", _we)
 
@@ -494,7 +515,7 @@ def wake_up_brief():
 def run_self_improvement():
     from src.engines.self_improvement_engine import run_full_self_improvement
     result = run_full_self_improvement()
-    logger.info("Self-improvement cycle done: %s periods", len(result))
+    logger.info("Self-improvement cycle done: %s periods", len(result or []))
     return result
 
 
@@ -580,10 +601,13 @@ def cleanup_old_slips():
         logger.warning("cleanup_old_slips: Redis error: %s", e)
         return {"removed": 0}
 
+    import re as _re_slip
     removed = 0
     for sid, raw in all_slips.items():
         try:
             date_part = sid.split(":")[-1]   # e.g. "2026-06-12" from "day:hardrock:2026-06-12"
+            if not _re_slip.match(r'^\d{4}-\d{2}-\d{2}$', date_part):
+                continue  # not a date-keyed slip — don't delete
             if date_part < cutoff:
                 r.hdel("slips:active", sid)
                 removed += 1

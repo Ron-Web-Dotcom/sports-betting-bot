@@ -105,6 +105,7 @@ _GOLF_TOURNAMENTS = {
     "golf_masters_tournament_winner", "golf_pga_championship_winner",
     "golf_us_open_winner", "golf_the_open_championship_winner",
     "golf_lpga",
+    "golf_dp_world_tour",
 }
 
 # Tennis — grand slams + all active tour events

@@ -299,7 +299,10 @@ async def post_hardrock_parlay(picks: list[dict]) -> None:
         sport    = _SPORT_LABELS_SHORT.get(p.get("sport_key", ""), p.get("sport", ""))
         bet      = p.get("bet") or p.get("selection") or p.get("subject", "?")
         leg_odds = p.get("american_odds") or p.get("odds", "?")
-        lo_str   = f"+{leg_odds}" if isinstance(leg_odds, int) and leg_odds > 0 else str(leg_odds)
+        if isinstance(leg_odds, (int, float)):
+            lo_str = f"+{int(round(leg_odds))}" if leg_odds > 0 else str(int(round(leg_odds)))
+        else:
+            lo_str = str(leg_odds) if leg_odds else "—"
         _conf_raw = p.get("confidence_pct") or p.get("confidence") or 0
         conf      = round(_conf_raw * 100 if _conf_raw <= 1 else _conf_raw)
 
@@ -477,8 +480,13 @@ async def post_line_movement(movement: dict) -> None:
 async def post_parlay(parlay: dict) -> None:
     legs = parlay.get("legs", [])
     desc = "\n".join(f"• {l.get('bet', 'Unknown')}" for l in legs)
+    _co = parlay.get('combined_odds')
+    try:
+        _co_str = f"{int(round(float(_co))):+d}" if _co is not None else "—"
+    except (TypeError, ValueError):
+        _co_str = str(_co) if _co else "—"
     embed = _embed(
-        title="Parlay ({} legs) — {}".format(len(legs), f"{int(round(parlay['combined_odds'])):+d}" if parlay.get('combined_odds') else "—"),
+        title="Parlay ({} legs) — {}".format(len(legs), _co_str),
         description=desc,
         color=0xFDD835,
         fields=[

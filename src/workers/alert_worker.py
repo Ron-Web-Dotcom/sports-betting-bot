@@ -130,9 +130,12 @@ def send_prop_summary(picks: list[dict]):
 
     import zoneinfo
     now_str = datetime.now(zoneinfo.ZoneInfo("America/New_York")).strftime("%I:%M %p ET")
+    description = "\n\n".join(lines)
+    if len(description) > 3900:
+        description = description[:3900] + "\n…(truncated)"
     embed = {
         "title": f"🎯 Top Prop Picks — {now_str}",
-        "description": "\n\n".join(lines),
+        "description": description,
         "color": 0x00C851,
         "footer": {"text": f"{len(picks)} picks · PrizePicks & Underdog · Bet responsibly"},
     }

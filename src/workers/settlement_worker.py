@@ -32,7 +32,7 @@ def _settlement_window() -> bool:
 
 def settle_completed_picks():
     if not _settlement_window():
-        logger.debug("settle_completed_picks: outside window (3–12 AM ET), skipping")
+        logger.debug("settle_completed_picks: outside window (3–5 AM ET), skipping")
         return {"skipped": "outside_settlement_window"}
     try:
         from src.engines.odds_engine import fetch_scores
@@ -187,10 +187,8 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
     """Map game outcome to pick result."""
     status = score.get("status", "")
     if status in ("canceled", "postponed"):
-        return BetResult.VOID
-
-    if score.get("push"):
-        return BetResult.PUSH
+        # Don't settle canceled/postponed games — keep PENDING, cleanup handles old picks
+        return None
 
     selection = (pick.selection or "").strip()
     market    = (pick.market or "h2h").lower()
@@ -205,7 +203,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             return None
         is_over = selection.lower().startswith("over")
         if abs(total_scored - total_line) < 0.1:
-            return BetResult.PUSH
+            return BetResult.LOST  # exact total = lost (no push)
         return BetResult.WON if (is_over and total_scored > total_line) or \
                         (not is_over and total_scored < total_line) else BetResult.LOST
 
@@ -230,7 +228,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             margin = (home_score - away_score) if is_home else (away_score - home_score)
             covered = margin + spread
             if abs(covered) < 0.1:
-                return BetResult.PUSH
+                return BetResult.LOST  # exact spread = lost (no push)
             return BetResult.WON if covered > 0 else BetResult.LOST
 
     # ── Moneyline (h2h) ───────────────────────────────────────────────────────

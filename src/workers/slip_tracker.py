@@ -636,20 +636,28 @@ def track_slips() -> dict:
                     if sf_id:
                         ev = _sf_event(sf_id)
                         if not ev:
-                            continue  # Sofascore unreachable — retry next tick
+                            # Sofascore unreachable — apply 12h timeout or retry
+                            if ct and (now - ct).total_seconds() > 12 * 3600:
+                                results.append("dead")
+                                continue
+                            continue  # retry next tick
                         if (ev.get("status") or {}).get("type", "") != "finished":
                             continue  # game still in progress
-                    # No sofascore_id — poll Kalshi directly (returns None until settled)
-                    # Safety timeout: if commence_time is known and 12h+ have passed, mark dead
-                    if ct and (now - ct).total_seconds() > 12 * 3600:
-                        results.append("dead")
-                        continue
+                    else:
+                        # No sofascore_id — apply timeout or check Kalshi directly
+                        if ct and (now - ct).total_seconds() > 12 * 3600:
+                            results.append("dead")
+                            continue
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
                     # Not settled yet — retry next tick
                 else:
                     if not ct:
+                        # No commence_time: use slip creation time as fallback
+                        slip_created = _parse_time(slip.get("created", ""))
+                        if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
+                            results.append("unknown")
                         continue
                     mins = (ct - now).total_seconds() / 60
                     # Don't check games that haven't started yet or just kicked off
@@ -690,8 +698,7 @@ def track_slips() -> dict:
                 else:
                     slip_result = "cashed"
 
-                _period_date = f"{slip.get('period','night')}:{slip.get('platform','hardrock')}:{slip.get('created','')[:10]}"
-                result_key = f"game:result:{_period_date}"
+                result_key = f"game:result:{slip['id']}"
                 if not _alerted(r, result_key):
                     ratio = _update_ratio(r, slip_result)
                     _alert_result(slip, slip_result, ratio, results)

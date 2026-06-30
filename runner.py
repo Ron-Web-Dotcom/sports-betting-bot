@@ -219,6 +219,8 @@ def _run_catchup(tasks: dict, now: datetime, last_cron_fired: dict):
                 else:
                     _run(fn, f"{name} [catch-up]")
             last_cron_fired[date_key] = now.strftime("%Y-%m-%d %H:%M")
+            # Also mark the exact-minute key so the cron loop won't double-fire
+            last_cron_fired[f"{name}:{date_str} {hour:02d}:{minute:02d}"] = now.strftime("%Y-%m-%d %H:%M")
 
 
 def main():
@@ -258,7 +260,7 @@ def main():
             _run(tasks["refresh_active_sports"], "refresh_active_sports [startup]")
         logger.info("Startup: running initial odds scan before catchup...")
         if tasks.get("scan_and_save_odds"):
-            _run(tasks["scan_and_save_odds"], "scan_and_save_odds [startup]")
+            _run_bg(tasks["scan_and_save_odds"], "scan_and_save_odds [startup]")
         last_run["scan_and_save_odds"] = time.monotonic()  # prevent immediate re-run
 
     # ── Catch-up: run any critical tasks missed due to restart ────────────────

@@ -187,7 +187,7 @@ def generate_picks():
                 "market":       market,
                 "selection":    selection,
                 "best_odds":    best_odds_val,
-                "best_book":    best_snap.get("book", "hardrock"),
+                "best_book":    next((bk for bk, v in books_odds.items() if v == best_odds_val), best_snap.get("book", "hardrock")),
                 "books_odds":   books_odds,
                 "ev_pct":       ev_result.ev_pct,
                 "confidence":   confidence.calibrated_score,
@@ -430,7 +430,7 @@ Consider: implied probability vs your assessment, team form, injuries, matchup."
         scored = []
         for item in result:
             idx = item.get("index")
-            if idx is None or idx >= len(sports):
+            if idx is None or idx < 0 or idx >= len(sports):
                 continue
             m = dict(sports[idx])
             m["ai_direction"]  = item.get("direction", "yes")
@@ -747,7 +747,7 @@ def _build_hardrock_candidates(
                                       and s.get("selection") == selection
                                       and s.get("line_value") is not None), None),
                 "best_odds":    best_odds,
-                "best_book":    rep.get("book", "hardrock"),
+                "best_book":    next((bk for bk, v in books.items() if v == best_odds), rep.get("book", "hardrock")),
                 "books_odds":   books,
                 "ev_pct":       ev,
                 "no_vig_prob":  ev_full.no_vig_prob,
@@ -1266,6 +1266,13 @@ def _generate_hardrock_entry(period: str) -> dict:
     """
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
+
+    # HardRock entries paused until July 10, 2026
+    from datetime import date as _date_cls
+    from src.core.timezone import et_naive as _et_naive_hr
+    if _et_naive_hr().date() < _date_cls(2026, 7, 10):
+        logger.info("HardRock %s entry paused until July 10, 2026", period)
+        return {"skipped": "paused_until_july_10", "period": period}
 
     # Skip entirely if Odds API credits are exhausted — no data to work with
     try:

@@ -287,10 +287,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 return raw
 
         for m in kalshi_full[:200]:
-            yes_prob = m.get("yes_price", 0)
-            no_prob  = round(1 - yes_prob, 4)
+            yes_prob = m.get("yes_price") or 0
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
+            no_prob  = round(1 - yes_prob, 4)
 
             subtitle = m.get("subtitle", "")
 
@@ -511,9 +511,12 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
     # Fires when AI picked a candidate but it's just under the floors (0.70-0.77 conf or 0.02-0.03 ev).
     # Web search injects fresh game intel → AI re-scores with real-world context.
     # Rate-limited to 2 calls/day shared with HardRock.
+    # Only trigger Perplexity when pick is actually below floors — never overwrite qualifying picks
     _near_miss = (
-        idx < len(candidates)
-        and (0.70 <= confidence < 0.77 or (confidence >= 0.77 and 0.005 <= ev_pct < 0.03))
+        idx >= 0
+        and idx < len(candidates)
+        and (confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR)
+        and confidence >= 0.70  # reasonably close to threshold
     )
     if _near_miss:
         _perplexity_allowed = False
@@ -565,7 +568,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
                     if _result2 and _result2.get("index") is not None:
                         _c2 = float(_result2.get("confidence") or 0)
                         _e2 = float(_result2.get("ev_pct") or 0)
-                        if _c2 >= 0.77 and _e2 >= _EV_FLOOR:
+                        if _c2 >= _CONF_FLOOR and _e2 >= _EV_FLOOR:
                             result     = _result2
                             result["index"] = idx   # keep same candidate
                             confidence = _c2
@@ -641,7 +644,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
     r = _redis()
 
     entry_hash = hashlib.md5(
-        json.dumps([p["title"] + p.get("team", "") for p in picks]).encode()
+        json.dumps([(p.get("title") or p.get("event_title") or "") + p.get("team", "") for p in picks]).encode()
     ).hexdigest()
     hash_key = f"{_ENTRY_HASH_KEY}:{period}"
     if r.get(hash_key) == entry_hash:
