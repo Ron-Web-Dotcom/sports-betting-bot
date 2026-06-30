@@ -384,7 +384,7 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
                 direction  = outcome.get("name", "").lower()  # "Over" or "Under"
                 line       = outcome.get("point")
                 try:
-                    odds = int(outcome.get("price", -110))
+                    odds = int(round(float(outcome.get("price", -110))))
                 except (TypeError, ValueError):
                     odds = -110
 
@@ -543,7 +543,7 @@ def normalise_event(event: dict, sport_key: str) -> dict:
                 if not sel:
                     continue
                 try:
-                    price = int(outcome.get("price", -110))
+                    price = int(round(float(outcome.get("price", -110))))
                 except (TypeError, ValueError):
                     price = -110
                 line  = outcome.get("point")

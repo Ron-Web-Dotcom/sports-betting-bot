@@ -284,6 +284,8 @@ async def post_hardrock_parlay(picks: list[dict]) -> None:
             dec = 1.91
         combined_decimal *= dec
 
+    if combined_decimal <= 1.0:
+        combined_decimal = 1.91  # fallback: -110 equivalent when odds missing
     if combined_decimal >= 2.0:
         combined_american = int((combined_decimal - 1) * 100)
     else:
@@ -339,7 +341,7 @@ async def post_pick(pick: dict) -> None:
     fields = [
         {"name": "Game",       "value": pick.get("game", "—")},
         {"name": "Sport",      "value": pick.get("sport", "—")},
-        {"name": "Odds",       "value": f"{int(round(pick.get('odds') or 0)):+d}"},
+        {"name": "Odds",       "value": f"{int(round(pick.get('odds') or 0)):+d}" if pick.get('odds') else "—"},
         {"name": "Units",      "value": f"{unit_bar} ({units}/5)"},
         {"name": "EV",         "value": f"{pick.get('ev_pct', 0):.1%}"},
         {"name": "Confidence", "value": f"{float(pick.get('confidence_pct') or 0):.0f}%"},
@@ -476,7 +478,7 @@ async def post_parlay(parlay: dict) -> None:
     legs = parlay.get("legs", [])
     desc = "\n".join(f"• {l.get('bet', 'Unknown')}" for l in legs)
     embed = _embed(
-        title=f"Parlay ({len(legs)} legs) — {int(round(parlay.get('combined_odds') or 0)):+d}",
+        title="Parlay ({} legs) — {}".format(len(legs), f"{int(round(parlay['combined_odds'])):+d}" if parlay.get('combined_odds') else "—"),
         description=desc,
         color=0xFDD835,
         fields=[

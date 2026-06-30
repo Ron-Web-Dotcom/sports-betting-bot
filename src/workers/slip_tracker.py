@@ -206,7 +206,7 @@ def _platform_label(platform: str) -> str:
 def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
     """Render each leg in slip format. Pass results=['won','lost',...] to show outcome per leg."""
     _MARKET = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
-    _OUTCOME = {"won": "✅  WON", "lost": "❌  LOST", "push": "➖  PUSH"}
+    _OUTCOME = {"won": "✅  WON", "cashed": "✅  CASHED", "lost": "❌  LOST", "dead": "❌  DEAD", "push": "➖  PUSH"}
     lines = []
     for i, p in enumerate(picks, 1):
         conf    = round((p.get("confidence") or 0) * 100)

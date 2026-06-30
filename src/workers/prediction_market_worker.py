@@ -443,7 +443,7 @@ high-priced YES contracts on dominant favorites ARE the edge. Confirm the obviou
 85-90% YES → confidence 0.85-0.90. 90-97% YES → confidence 0.90-0.97.
 When Sofascore AND Kalshi both agree on a heavy favorite — that is a lock. Take it.
 
-Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if nothing qualifies."""
+Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if nothing qualifies."""
 
     from datetime import datetime
     import zoneinfo
@@ -500,6 +500,8 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
         logger.info("Kalshi AI: no qualifying pick")
         return []
 
+    from src.workers.picks_worker import EV_FLOOR as _EV_FLOOR, CONF_FLOOR as _CONF_FLOOR
+
     idx        = int(result.get("index", 0))
     confidence = float(result.get("confidence") or 0)
     ev_pct     = float(result.get("ev_pct") or 0)
@@ -511,7 +513,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
     # Rate-limited to 2 calls/day shared with HardRock.
     _near_miss = (
         idx < len(candidates)
-        and (0.70 <= confidence < 0.77 or (confidence >= 0.77 and 0.02 <= ev_pct < 0.03))
+        and (0.70 <= confidence < 0.77 or (confidence >= 0.77 and 0.005 <= ev_pct < 0.03))
     )
     if _near_miss:
         _perplexity_allowed = False
@@ -563,7 +565,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
                     if _result2 and _result2.get("index") is not None:
                         _c2 = float(_result2.get("confidence") or 0)
                         _e2 = float(_result2.get("ev_pct") or 0)
-                        if _c2 >= 0.77 and _e2 >= 0.03:
+                        if _c2 >= 0.77 and _e2 >= _EV_FLOOR:
                             result     = _result2
                             result["index"] = idx   # keep same candidate
                             confidence = _c2
@@ -583,7 +585,6 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
                 logger.warning("Kalshi Perplexity last resort failed: %s", _pe)
     # ── End last resort ────────────────────────────────────────────────────────
 
-    from src.workers.picks_worker import EV_FLOOR as _EV_FLOOR, CONF_FLOOR as _CONF_FLOOR
     if idx >= len(candidates) or confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR:
         return []
 
@@ -591,10 +592,13 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.03. Return {"index": null} if no
     true_prob = float(result.get("true_prob") or confidence)
     yes_prob  = pick["yes_prob"]
     no_prob   = pick["no_prob"]
-    question  = result.get("question") or pick.get("title", "")
+    question  = result.get("question") or pick.get("title", "") or ""
 
     # Derive team/subject name from title for display
-    team = pick.get("home_team", "") or question.split("Will ")[-1].split(" win")[0] if "Will" in question else question[:40]
+    if "Will" in question:
+        team = pick.get("home_team", "") or question.split("Will ")[-1].split(" win")[0]
+    else:
+        team = pick.get("home_team", "") or question[:40]
 
     return [{
         "title":        pick.get("event_title", pick.get("title", question)),

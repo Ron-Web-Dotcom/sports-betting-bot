@@ -308,16 +308,14 @@ def send_monthly_summary():
     _pnl    = monthly.get('total_profit', 0) or 0
     _clv    = monthly.get('avg_clv', 0) or 0
     roi_str   = f"{_roi:.1%}"
-    pnl_sign  = "+" if _pnl >= 0 else ""
-    clv_sign  = "+" if _clv >= 0 else ""
     color     = 0x1B5E20 if _pnl >= 0 else 0xB71C1C
 
     embed_body = (
         f"─────────────────────────\n"
         f"**Bets:**  {monthly.get('total_bets', 0)}  ·  "
-        f"**P&L:**  {pnl_sign}{_pnl:+.2f}u  ·  "
+        f"**P&L:**  {_pnl:+.2f}u  ·  "
         f"**ROI:**  {roi_str}\n\n"
-        f"**Avg CLV:**  {clv_sign}{_clv:.2%}\n"
+        f"**Avg CLV:**  {_clv:+.2%}\n"
         f"**Best Sport:**  {monthly.get('best_sport') or '—'}  ·  "
         f"**Best Market:**  {monthly.get('best_market') or '—'}\n\n"
         f"🔥 Win Streak: **{monthly.get('largest_winning_streak', 0)}**  ·  "
@@ -327,7 +325,7 @@ def send_monthly_summary():
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post, _embed
     _run_async(_post({"embeds": [_embed(
-        title=f"🗓️  Monthly Summary  ·  {now.strftime('%B %Y')}",
+        title=f"🗓️  Monthly Summary  ·  {_date(prev_year, prev_month, 1).strftime('%B %Y')}",
         description=embed_body,
         color=color,
     )]}))

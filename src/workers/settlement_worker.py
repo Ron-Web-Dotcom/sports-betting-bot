@@ -250,11 +250,14 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
 
 def _calculate_pnl(pick: Pick, result: str) -> float:
     units = pick.units or 1
-    if result == "won":
+    # result comes from _determine_result which returns BetResult enum values
+    # BetResult(str, Enum) so string comparison works; accept both "won"/"cashed" and "lost"/"dead"
+    result_lower = str(result).lower()
+    if result_lower in ("won", "cashed"):
         from src.engines.ev_engine import american_to_decimal
         dec = american_to_decimal(pick.american_odds_at_gen or -110)
         return round((dec - 1) * units, 2)
-    elif result == "lost":
+    elif result_lower in ("lost", "dead"):
         return -units
     return 0.0  # push or void
 
