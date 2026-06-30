@@ -557,8 +557,12 @@ def track_slips() -> dict:
             plat = _platform_label(slip["platform"])
             for pick in slip.get("picks", []):
                 sf_id = pick.get("sofascore_id", "")
-                gid   = sf_id or pick.get("market_id") or pick.get("event_id") or \
-                        f"{pick.get('home_team','')}:{pick.get('away_team','')}".lower() or \
+                # Normalize game ID to home:away so HardRock + Kalshi slips for the
+                # same game share one dedup key and never fire duplicate alerts.
+                _home = _normalize_team_name(pick.get("home_team", "") or "")
+                _away = _normalize_team_name(pick.get("away_team", "") or "")
+                gid   = (f"{_home}:{_away}" if _home and _away else None) or \
+                        sf_id or pick.get("market_id") or pick.get("event_id") or \
                         (pick.get("question") or pick.get("title") or "unknown")
                 name  = (pick.get("subtitle") or pick.get("question") or pick.get("player") or
                          f"{pick.get('away_team','')} @ {pick.get('home_team','')}").strip(" @") or gid
