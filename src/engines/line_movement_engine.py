@@ -49,8 +49,11 @@ def detect_movements(
     # Group snapshots by market+selection+book (only within the window)
     by_key: dict[str, list[dict]] = {}
     for snap in current_snapshots:
-        if (snap.get("captured_at") or "") < cutoff_str:
-            continue
+        ca = snap.get("captured_at")
+        if ca is not None:
+            ca_str = ca.isoformat() if hasattr(ca, "isoformat") else str(ca)
+            if ca_str < cutoff_str:
+                continue
         key = f"{snap['market']}|{snap['selection']}|{snap['book']}"
         by_key.setdefault(key, []).append(snap)
 

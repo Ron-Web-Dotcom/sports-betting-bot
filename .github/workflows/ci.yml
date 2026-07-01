@@ -16,10 +16,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff
-      - run: ruff check src/ --select F821
+      - name: Ruff — full src scan
+        run: ruff check src/
 
   tests:
-    name: Invariant Tests
+    name: Tests
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: test-key
@@ -33,5 +34,5 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run invariant tests
-        run: python -m pytest tests/test_invariants.py -v
+      - name: Run all tests
+        run: python -m pytest tests/ -v --ignore=tests/integration --ignore=tests/security -k "not celery and not webhook and not discord"
