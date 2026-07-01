@@ -275,3 +275,43 @@ def test_hardrock_paused_until_july_10():
     assert '2026, 7, 10' in src, (
         "HardRock pause until July 10, 2026 not found in picks_worker.py"
     )
+
+
+# ── Kalshi (prediction market) entry guards ───────────────────────────────────
+
+def test_kalshi_entry_cap_is_1():
+    """Kalshi _build_entry must cap at max_picks=1."""
+    src = (ROOT / "src/workers/prediction_market_worker.py").read_text()
+    # Every call site (not the def) must pass max_picks=1
+    for line in src.splitlines():
+        stripped = line.strip()
+        if "_build_entry(" in stripped and "max_picks" in stripped and not stripped.startswith("def "):
+            assert "max_picks=1" in stripped, (
+                f"Kalshi _build_entry called with wrong max_picks: {stripped}"
+            )
+    # Default in the signature must also be 1
+    import re as _re
+    m = _re.search(r"def _build_entry\([^)]*max_picks\s*=\s*(\d+)", src)
+    if m:
+        assert int(m.group(1)) == 1, (
+            f"Kalshi _build_entry default max_picks={m.group(1)}, must be 1"
+        )
+
+
+def test_kalshi_conf_floor_no_65_fallback():
+    """Kalshi prediction_market_worker must not use 0.65 as a confidence fallback."""
+    src = (ROOT / "src/workers/prediction_market_worker.py").read_text()
+    for line in src.splitlines():
+        if "0.65" in line and "conf" in line.lower():
+            pytest.fail(
+                f"prediction_market_worker uses 0.65 conf floor: {line.strip()}"
+            )
+
+
+def test_kalshi_uses_imported_conf_floor():
+    """Kalshi must import and use CONF_FLOOR from picks_worker, not hardcode a lower value."""
+    src = (ROOT / "src/workers/prediction_market_worker.py").read_text()
+    assert "CONF_FLOOR" in src, "CONF_FLOOR not referenced in prediction_market_worker.py"
+    assert "_CONF_FLOOR" in src or "CONF_FLOOR" in src, (
+        "Kalshi entry does not gate on CONF_FLOOR"
+    )
