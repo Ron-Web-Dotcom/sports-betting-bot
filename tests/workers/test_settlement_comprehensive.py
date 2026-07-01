@@ -62,21 +62,24 @@ def test_determine_result_no_match_lost():
 
 
 def test_determine_result_push():
+    # CASHED/DEAD only — push flag on moneyline is treated as no-winner → None (unsettled)
     pick = _make_pick("Lakers")
     result = _determine_result(pick, None, {"completed": True, "push": True})
-    assert result == "push"
+    assert result is None  # push → not settled, stays PENDING
 
 
 def test_determine_result_canceled_void():
+    # canceled games stay PENDING (not voided) — no push/void results
     pick = _make_pick("Lakers")
     result = _determine_result(pick, None, {"completed": True, "status": "canceled"})
-    assert result == "void"
+    assert result is None  # canceled → keep PENDING, not settled
 
 
 def test_determine_result_postponed_void():
+    # postponed games stay PENDING (not voided) — no push/void results
     pick = _make_pick("Lakers")
     result = _determine_result(pick, None, {"completed": True, "status": "postponed"})
-    assert result == "void"
+    assert result is None  # postponed → keep PENDING, not settled
 
 
 def test_determine_result_no_winner_none():
@@ -188,12 +191,13 @@ def test_totals_under_wins():
 
 
 def test_totals_push():
+    # Exact total = lost (CASHED/DEAD only — no push)
     pick = _make_pick(selection="Over 221.5")
     pick.market = "totals"
     score = {"completed": True, "status": "", "push": False,
              "winner": None, "total_scored": 221.5,
              "home_score": 110.75, "away_score": 110.75, "home_team": "Lakers"}
-    assert _determine_result(pick, None, score) == "push"
+    assert _determine_result(pick, None, score) == "lost"
 
 
 def test_totals_missing_total_scored_returns_none():
@@ -233,5 +237,5 @@ def test_spreads_push():
     score = {"completed": True, "status": "", "push": False,
              "winner": "Lakers", "home_score": 110.0, "away_score": 105.0,
              "home_team": "Lakers", "total_scored": 215.0}
-    # Lakers win by exactly 5.0 — push
-    assert _determine_result(pick, "Lakers", score) == "push"
+    # Lakers win by exactly 5.0 — exact spread = lost (CASHED/DEAD only, no push)
+    assert _determine_result(pick, "Lakers", score) == "lost"

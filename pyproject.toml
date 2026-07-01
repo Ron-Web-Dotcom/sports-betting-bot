@@ -1,0 +1,27 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (undefined names, unused imports)
+    "W",   # pycodestyle warnings
+    "B",   # flake8-bugbear (common bugs)
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    "B008",  # do not perform function calls in default arguments
+    "UP007", # use X | Y for union types — not always readable
+]
+exclude = ["tests/", "migrations/"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/db/models.py" = ["F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+filterwarnings = ["ignore::DeprecationWarning"]
