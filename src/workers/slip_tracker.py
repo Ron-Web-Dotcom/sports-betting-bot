@@ -543,11 +543,19 @@ def track_slips() -> dict:
         _ET = _ZI("America/New_York")
 
         def _sf_event(sf_id: str) -> dict:
-            """Fetch Sofascore event — returns {} on any failure."""
+            """Fetch Sofascore event, cached in Redis for 2 min to avoid repeat calls."""
             try:
+                import json as _j
+                _cache_key = f"sofascore:event:{sf_id}"
+                _cached = r.get(_cache_key)
+                if _cached:
+                    return _j.loads(_cached)
                 from src.apis.sofascore import _get as _sf_get
                 data = _sf_get(f"/event/{sf_id}")
-                return (data or {}).get("event", {}) if data else {}
+                ev = (data or {}).get("event", {}) if data else {}
+                if ev:
+                    r.setex(_cache_key, 120, _j.dumps(ev))
+                return ev
             except Exception:
                 return {}
 

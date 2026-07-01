@@ -1,140 +1,187 @@
 # Sports Betting Bot
 
-A Kalshi-style automated sports betting system with parlay construction, arbitrage detection, live hedging, multi-factor signal engine, and a real-time CLI dashboard.
+An automated sports intelligence system that generates high-confidence picks for HardRock and Kalshi, posts them to Discord, tracks slips end-to-end, and settles results automatically.
 
 ---
 
-## Architecture
+## The Tree
 
 ```
-bot.py                          <- Entry point + signal handler
-config/settings.py              <- All config from .env
-src/
-  apis/
-    odds_api.py                 <- The Odds API — live lines for 10 sports
-    espn.py                     <- ESPN — injuries, scores, news
-    prizepicks.py               <- PrizePicks player props
-    underdog.py                 <- Underdog Fantasy lines
-    sleeper.py                  <- Sleeper player status/trending
-    draftkings.py               <- DraftKings live odds
-    fanduel.py                  <- FanDuel live odds
-  core/
-    market_scanner.py           <- Event-driven scan loop (60s/15s for live)
-    signal_engine.py            <- Multi-factor signal scoring (AI + line movement + injuries)
-    ai_engine.py                <- Claude analysis — legs, parlay approval, summaries
-    parlay_builder.py           <- 2-4 leg parlay construction + SGP builder
-    arb_detector.py             <- Cross-book arbitrage detection
-    hedge_engine.py             <- Live parlay hedge calculations (full + partial)
-    line_shopper.py             <- Best-line finder across all books
-    position_manager.py         <- Portfolio tracker, settlement, hedge triggers
-    risk_manager.py             <- Portfolio Kelly sizing + guardrails
-    paper_trader.py             <- Execution engine (paper/live)
-    database.py                 <- SQLite: positions, parlays, arbs, signals, bankroll
-  alerts/
-    discord.py                  <- Rich Discord embeds for all event types
-  dashboard/
-    cli.py                      <- Live Rich terminal UI
-tests/                          <- 56 passing tests
-deployment/
-  sports-betting-bot.service    <- systemd unit (hardened)
-  install.sh                    <- One-command VPS install
+                        🧠  BOT  (the brain / roots)
+                                    |
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+         SOFASCORE              ODDS API             KALSHI API
+              │                     │                     │
+         ──────────────── DATA BRANCHES (leaves) ──────────────
+         • Today's games       • Moneylines         • YES/NO prices
+         • Kickoff times       • Spreads            • Implied prob
+         • Live status         • Totals             • Volume
+         • Team odds           • Player props       • Market status
+         • H2H history         • Line movement      • Settlement
+         • Team form           • Sharp action
+         • Player stats        • Public %
+              │                     │                     │
+              └─────────────────────┼─────────────────────┘
+                                    │
+                          🧠  ENGINES  (AI scoring)
+                          EV · Confidence · Risk · Gate
+                                    │
+                   ┌────────────────┴────────────────┐
+                   │                                 │
+           🎯  HARDROCK SLIP                 🎯  KALSHI SLIP
+           2 legs · 77%+ · day/night         1 leg · 77%+ · day/night
 ```
+
+**Sofascore is the source of truth for all game timing.**
+No pick is posted without a confirmed Sofascore kickoff.
+Kalshi's `close_time` is never used as a game-start gate — it stays open after games end.
 
 ---
 
-## How It Works
+## Hard Rules — Never Change
 
-```
-Every 60s (15s when live games detected):
-  1. Fetch live odds (The Odds API, all sports)
-  2. Save market snapshots for line-movement tracking
-  3. Scan all events for cross-book arbitrage
-  4. Settle completed positions via live scores
-  5. Check open parlays for hedge opportunities
-  6. For each event:
-       - Ask Claude to evaluate the betting opportunity
-       - Line-shop for best odds across all books
-       - Compute multi-factor signal score (AI + line movement + injuries)
-  7. Rank signals by composite score
-  8. Place top straight bets (Kelly-sized, risk-checked)
-  9. Build optimal 2-4 leg parlays from top signals
- 10. Place top 2 parlay candidates
- 11. Fire Discord alerts for every action
-```
+| Rule | Value |
+|------|-------|
+| Confidence floor | **77%+** (`CONF_FLOOR = 0.765`) |
+| EV floor | **0.5%+** (`EV_FLOOR = 0.005`) |
+| HardRock pick cap | **2 legs max** |
+| Kalshi pick cap | **1 leg max** |
+| Bet outcomes | **CASHED or DEAD only** — no push, no draw, no void |
+| Prediction markets | **Kalshi only** — no Polymarket |
+| HardRock entries | **Paused until July 10, 2026** |
+| Exact spread / total / prop line | **LOST** (not push) |
 
 ---
 
-## Quick Start
+## Daily Schedule (Eastern Time)
+
+| Time ET | Task |
+|---------|------|
+| 2:00 AM | Self-improvement cycle |
+| 2:50 AM | Weekly summary (Sunday only) |
+| 2:52 AM | Cleanup old slips (8-day window) |
+| **3:00 AM** | **Sleep mode — bot goes quiet** |
+| **5:00 AM** | **Wake-up brief — daily summary to Discord** |
+| 5:30 AM | Refresh active sports |
+| 6:00 AM | Yesterday's recap |
+| **8:00 AM** | **Sofascore full scan — day/night split (4 PM ET cutoff)** |
+| 10:30 AM | HardRock day entry *(paused until July 10)* |
+| **10:35 AM** | **Kalshi day entry** |
+| 12:00 PM | Health check |
+| **3:00 PM** | **Sofascore rescan — catch postponements / time changes** |
+| 4:30 PM | HardRock night entry *(paused until July 10)* |
+| **4:35 PM** | **Kalshi night entry** |
+
+**Every 3 min:** Slip tracker — Game Soon (30 min before tip) · Live Now · CASHED / DEAD
+
+**Every 30 min:** Odds scan — 5 AM to 3 AM ET (skips sleep window)
+
+---
+
+## Workers
+
+| Worker | File | Role |
+|--------|------|------|
+| Picks | `src/workers/picks_worker.py` | HardRock day/night entries |
+| Prediction Market | `src/workers/prediction_market_worker.py` | Kalshi day/night entries |
+| Slip Tracker | `src/workers/slip_tracker.py` | Game Soon / Live / CASHED / DEAD alerts |
+| Settlement | `src/workers/settlement_worker.py` | Settles picks via Odds API (days_from=14) |
+| Analytics | `src/workers/analytics_worker.py` | Summaries, sleep/wake, self-improvement |
+| Odds | `src/workers/odds_worker.py` | Odds snapshots + line movement |
+
+---
+
+## Data Sources (The Trunk)
+
+| Source | File | Provides |
+|--------|------|----------|
+| Sofascore | `src/apis/sofascore.py` | Schedules, live status, odds, H2H, form |
+| Odds API | `src/engines/odds_engine.py` | Moneylines, spreads, totals, props, scores |
+| Kalshi | `src/apis/kalshi.py` | Prediction market prices and settlement |
+| TheSportsDB | `src/apis/thesportsdb.py` | Team form, H2H history, player bios |
+| Action Network | `src/apis/action_network.py` | Public betting % and sharp action signals |
+
+---
+
+## Engines
+
+| Engine | File | Role |
+|--------|------|------|
+| Pick Gate | `src/engines/pick_gate.py` | Final filter — conf ≥ 76.5%, EV ≥ 3%, risk ≤ 75 |
+| Prop Engine | `src/engines/prop_engine.py` | Over/under grading — exact line = LOST |
+| Summary Engine | `src/engines/summary_engine.py` | Daily/weekly P&L |
+| Portfolio Engine | `src/engines/portfolio_engine.py` | Risk-tiered portfolio construction |
+| Expiration Engine | `src/engines/expiration_engine.py` | Bet urgency from line movement |
+| Line Movement | `src/engines/line_movement_engine.py` | Steam / sharp / public money detection |
+
+---
+
+## Redis Keys
+
+| Key | TTL | Content |
+|-----|-----|---------|
+| `sofascore:day_games` | 24h | Games kicking off before 4 PM ET |
+| `sofascore:night_games` | 24h | Games kicking off 4 PM ET or later |
+| `sofascore:today_index` | 24h | Team-name → event lookup |
+| `sofascore:event:{id}` | 2 min | Per-event live status cache |
+| `slips:active` | persist | Active slips — never auto-expires |
+| `kalshi:posted:{period}:{date}` | 24h | Dedup guard — one entry per period per day |
+
+---
+
+## Setup
 
 ```bash
-git clone https://github.com/ron-web-dotcom/sports-betting-bot
-cd sports-betting-bot
-python3 -m venv venv && source venv/bin/activate
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env    # keys already set
 
-python bot.py           # full bot + live dashboard
-python bot.py --no-dash # headless (systemd mode)
-python bot.py --dash    # dashboard read-only view
+# Required environment variables
+OPENAI_API_KEY=...
+ODDS_API_KEY=...
+KALSHI_API_KEY_ID=...
+KALSHI_PRIVATE_KEY=...
+REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://...
+DISCORD_BOT_TOKEN=...
+DISCORD_CHANNEL_ID=...
+
+# Start
+python3 runner.py
+
+# Manage via systemd
+sudo systemctl restart sports-bot
+sudo systemctl status sports-bot
 ```
 
 ---
 
-## Commands
+## CI
 
-| Command | Description |
-|---|---|
-| `python bot.py` | Run bot + live terminal dashboard |
-| `python bot.py --no-dash` | Headless mode (for systemd/VPS) |
-| `python bot.py --dash` | Dashboard only (monitor without trading) |
-| `pytest tests/ -v` | Run all 56 tests |
+GitHub Actions runs on every push to `main`:
 
----
-
-## VPS Deployment
+- **Lint** — `ruff check src/` — zero tolerance
+- **Tests** — 488 tests including 22 invariant tests that enforce all hard rules
 
 ```bash
-bash deployment/install.sh
-systemctl start sports-betting-bot
-journalctl -u sports-betting-bot -f
+# Run locally before pushing
+ruff check src/
+python3 -m pytest tests/ -q --ignore=tests/integration --ignore=tests/security -k "not celery and not webhook and not discord"
+# Expected: 488 passed, 3 skipped
 ```
 
 ---
 
-## Risk Management
+## Invariant Tests (`tests/test_invariants.py`)
 
-| Parameter | Default | Description |
-|---|---|---|
-| `PAPER_TRADING` | `true` | Paper mode on by default |
-| `MAX_KELLY_FRACTION` | `0.25` | 25% fractional Kelly |
-| `MAX_BET_PCT` | `0.05` | Max 5% bankroll per straight bet |
-| `MAX_PARLAY_PCT` | `0.02` | Max 2% bankroll per parlay |
-| `MAX_PORTFOLIO_EXPOSURE` | `0.20` | Max 20% bankroll at risk at once |
-| `MIN_EDGE_THRESHOLD` | `0.03` | Min 3% EV to bet |
-| `MIN_CONFIDENCE` | `0.60` | Min 60% AI confidence |
-| `ARB_MIN_PROFIT_PCT` | `0.01` | Min 1% guaranteed arb profit |
+These 22 tests enforce the hard rules at the code level — CI fails if any are broken:
 
----
-
-## Discord Alerts
-
-- **Straight bet placed** — event, selection, odds, stake, edge, AI reasoning, key factors
-- **Parlay placed** — all legs, combined odds, stake, EV, win probability
-- **Bet settled** — result, P&L, new bankroll
-- **Arbitrage found** — both sides, books, stakes, guaranteed profit
-- **Hedge opportunity** — full/partial hedge stakes, profit/loss scenarios
-- **Session summary** — W/L, total P&L, arbs found (every 6 hours + on shutdown)
-
----
-
-## Supported Sports
-
-NFL, NCAAF, NBA, NCAAB, MLB, NHL, EPL, UEFA Champions League, MMA
-
-## Supported Books
-
-DraftKings, FanDuel, BetMGM, Caesars, PointsBet, Unibet (via The Odds API)
-
-## Prop Platforms
-
-PrizePicks, Underdog Fantasy, Sleeper
+- `CONF_FLOOR` never below 0.765
+- `EV_FLOOR` never below 0.005
+- HardRock cap = 2 picks, Kalshi cap = 1 pick
+- No Polymarket anywhere in source
+- Exact line = LOST in prop engine, settlement, spreads, totals
+- Slip key uses `persist()` not `expire()`
+- Settlement uses `days_from >= 14`
+- Sleep window consistent at 3–5 AM ET across all workers
+- HardRock paused until July 10, 2026
