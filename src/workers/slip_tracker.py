@@ -76,14 +76,21 @@ def purge_ghost_slips() -> int:
     """
     Remove stale slips from Redis whose IDs don't match the stable
     {period}:{platform}:{date} format (old hash-based IDs from prior runs).
-    Also removes any slip older than 2 days.
+    Keeps slips from the last 7 days so the weekly summary can count them;
+    purges anything 8+ days old.
     Returns number of slips removed.
     """
     import re
+    from datetime import timedelta
     from src.core.timezone import et_naive
     r = _redis()
     all_slips = r.hgetall(_SLIP_KEY)
-    today     = et_naive().strftime("%Y-%m-%d")
+    _now      = et_naive()
+    # Build set of date strings we want to keep (today + last 7 days)
+    _keep_dates = {
+        (_now - timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(8)  # 0 = today … 7 = 7 days ago
+    }
     removed   = 0
     for sid, raw in all_slips.items():
         # Valid IDs look like "day:hardrock:2026-06-13"
@@ -91,19 +98,12 @@ def purge_ghost_slips() -> int:
             r.hdel(_SLIP_KEY, sid)
             removed += 1
             logger.info("Purged ghost slip: %s", sid)
-        elif sid.split(":")[-1] != today:
-            # Keep yesterday's slip if still active — late-ending games (past midnight ET)
-            # need one more settlement pass before being purged
-            try:
-                slip_data = json.loads(raw)
-                if slip_data.get("status") == "active":
-                    logger.info("Keeping yesterday's active slip for late settlement: %s", sid)
-                    continue
-            except Exception:
-                pass
+        elif sid.split(":")[-1] not in _keep_dates:
+            # 8+ days old — safe to purge
             r.hdel(_SLIP_KEY, sid)
             removed += 1
-            logger.info("Purged yesterday's slip: %s", sid)
+            logger.info("Purged old slip: %s", sid)
+        # else: within 7-day window — keep for daily/weekly summaries
     return removed
 
 
