@@ -74,7 +74,7 @@ def settle_completed_picks():
 
             scores: dict[int, dict] = {}  # db game_id → score dict
             for sport_key, _ext_ids in sport_to_external.items():
-                raw = fetch_scores(sport_key, days_from=3)
+                raw = fetch_scores(sport_key, days_from=14)
                 for item in raw:
                     ext_id = item.get("id")
                     if ext_id and ext_id in ext_to_db_id:

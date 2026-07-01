@@ -39,7 +39,7 @@ def get_daily_summary(date: Optional[datetime] = None) -> dict:
     units_lost = abs(sum(p["actual_pnl_units"] for p in pick_rows if p["result"] == "lost" and p["actual_pnl_units"]))
     net_units  = sum(p["actual_pnl_units"] for p in pick_rows if p["actual_pnl_units"] is not None)
     net_profit = net_units
-    settled_rows = [p for p in pick_rows if p["result"] in ("won", "lost", "push")]
+    settled_rows = [p for p in pick_rows if p["result"] in ("won", "lost")]
     total_wagered = sum(p["units"] for p in settled_rows if p["units"])
     roi = net_units / total_wagered if total_wagered > 0 else 0.0
     avg_ev         = sum(p["ev_pct"] for p in pick_rows) / total_picks if total_picks > 0 else 0.0

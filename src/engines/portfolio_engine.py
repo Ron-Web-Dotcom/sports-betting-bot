@@ -110,7 +110,7 @@ def get_performance_stats(period: str = "lifetime") -> dict:
             Pick.result, Pick.actual_pnl_units, Pick.units,
         ).filter(
             Pick.generated_at >= cutoff,
-            Pick.result.in_(["won", "lost", "push"]),
+            Pick.result.in_(["won", "lost"]),
         ).all()
 
     if not rows:

@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from src.core.timezone import et_now
 
 
 @dataclass

@@ -18,7 +18,7 @@ MIN_EV_PCT_GATE        = max(MIN_EV_PCT, 0.03)   # never below 3% regardless of 
 MIN_REASONING_CHARS    = 80                       # explanation must be substantive
 MIN_KEY_FACTORS        = 2                        # at least 2 traceable factors
 MIN_BOOKS_FOR_EV       = 2                        # EV must be visible across ≥2 books
-MIN_CONFIDENCE         = 0.50                     # calibrated confidence floor
+MIN_CONFIDENCE         = 0.765                    # calibrated confidence floor (hard floor)
 MAX_RISK_SCORE         = 75.0                     # reject high-risk picks outright
 
 

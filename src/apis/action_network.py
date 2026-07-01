@@ -31,7 +31,10 @@ def get_consensus(sport_key: str) -> list[dict]:
     Fetch public betting consensus for all games in a sport.
     Returns bet% and money% on each side — divergence signals sharp action.
     """
-    sport = SPORT_MAP.get(sport_key, "NBA")
+    sport = SPORT_MAP.get(sport_key)
+    if not sport:
+        logger.debug("action_network: unsupported sport_key %s", sport_key)
+        return []
     data = get_json(f"{_BASE}/games", params={"sport": sport, "bookIds": "15,30,76"})
     if not data:
         return []

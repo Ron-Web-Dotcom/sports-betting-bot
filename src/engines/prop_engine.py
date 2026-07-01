@@ -273,7 +273,7 @@ def record_prop_result(
     elif actual_value < line:
         outcome = "won" if direction == "under" else "lost"
     else:
-        outcome = "push"
+        outcome = "lost"  # exact line = lost (no push — CASHED/DEAD only)
 
     # ── Save to DB ────────────────────────────────────────────────────────────
     try:

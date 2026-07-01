@@ -44,10 +44,13 @@ def detect_movements(
     """
     alerts = []
     cutoff = et_naive() - timedelta(minutes=window_minutes)
+    cutoff_str = cutoff.isoformat()
 
-    # Group snapshots by market+selection+book
+    # Group snapshots by market+selection+book (only within the window)
     by_key: dict[str, list[dict]] = {}
     for snap in current_snapshots:
+        if (snap.get("captured_at") or "") < cutoff_str:
+            continue
         key = f"{snap['market']}|{snap['selection']}|{snap['book']}"
         by_key.setdefault(key, []).append(snap)
 

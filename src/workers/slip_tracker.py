@@ -137,7 +137,7 @@ def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | No
     if ticket_id:
         slip["ticket_id"] = ticket_id
     r.hset(_SLIP_KEY, slip_id, json.dumps(slip))
-    r.expire(_SLIP_KEY, 86400 * 2)   # 48h TTL
+    r.persist(_SLIP_KEY)  # never auto-expire; cleanup_old_slips handles removal
     logger.info("Slip saved: %s (%d picks)", slip_id, len(picks))
     return slip_id
 
