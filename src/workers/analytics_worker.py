@@ -497,8 +497,13 @@ def wake_up_brief():
             {"name": "STATUS",      "value": "🟢  Scanning all sports",                    "inline": True},
             {"name": "MODE",        "value": "High-confidence picks only",                  "inline": True},
             {"name": "​", "value": "​",                                            "inline": True},
-            {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  HardRock + Kalshi", "inline": True},
-            {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi",  "inline": True},
+            *([
+                {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  Kalshi only  ·  HardRock resumes Jul 10", "inline": True},
+                {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  Kalshi only  ·  HardRock resumes Jul 10",  "inline": True},
+            ] if __import__('datetime').date.today() < __import__('datetime').date(2026, 7, 10) else [
+                {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  HardRock + Kalshi", "inline": True},
+                {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi",  "inline": True},
+            ]),
             {"name": "​", "value": "​",                                            "inline": True},
             {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
              "value": "Picks post automatically when edge is found.\nAll picks require positive EV + 77%+ confidence.",
