@@ -850,6 +850,19 @@ def yesterday_recap():
             "tennis_wta_french_open":    "🎾 French Open",
         }
 
+        # Validate the cached games are from TODAY — the 24h TTL means yesterday's
+        # scan is still alive at 6 AM, making stale games appear as today's schedule.
+        if all_events:
+            try:
+                from dateutil.parser import parse as _p_chk
+                _first_ct = all_events[0].get("commence_time", "")
+                if _first_ct:
+                    _first_date = _p_chk(_first_ct).date()
+                    if _first_date < et.date():
+                        all_events = []  # stale — yesterday's cache
+            except Exception:
+                pass
+
         if all_events:
             lines = []
             for ev in all_events[:15]:

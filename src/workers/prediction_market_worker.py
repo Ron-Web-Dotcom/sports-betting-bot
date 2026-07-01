@@ -588,7 +588,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
                 logger.warning("Kalshi Perplexity last resort failed: %s", _pe)
     # ── End last resort ────────────────────────────────────────────────────────
 
-    if idx >= len(candidates) or confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR:
+    if idx < 0 or idx >= len(candidates) or confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR:
         return []
 
     pick      = candidates[idx]
