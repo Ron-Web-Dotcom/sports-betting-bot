@@ -15,17 +15,16 @@ def _is_sleep_time() -> bool:
 
 
 def _odds_window() -> bool:
-    """Odds scan runs 6 AM–2:30 AM ET only. Saves credits during true dead hours."""
+    """Odds scan runs 5 AM–3 AM ET only. Matches sleep window (3–5 AM ET)."""
     from datetime import datetime
     import zoneinfo
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
-    # Allow 6 AM through 2:30 AM next day (2 = hour, 30 = minute cutoff)
-    return not (2 < et.hour < 6)
+    return not (3 <= et.hour < 5)
 
 
 def scan_and_save_odds():
     if not _odds_window():
-        logger.debug("scan_and_save_odds: dead hours (2:30–6 AM ET), skipping")
+        logger.debug("scan_and_save_odds: sleep hours (3–5 AM ET), skipping")
         return {"skipped": "dead_hours"}
     if _is_sleep_time():
         logger.debug("scan_and_save_odds: sleep window active, skipping")
