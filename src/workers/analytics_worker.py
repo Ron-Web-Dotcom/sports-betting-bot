@@ -433,13 +433,6 @@ def enter_sleep_mode():
         except Exception as _we:
             logger.warning("3 AM weekly summary failed: %s", _we)
 
-    # Run self-improvement silently while sleeping
-    try:
-        run_full_self_improvement()
-        logger.info("Self-improvement ran during sleep window")
-    except Exception as e:
-        logger.warning("Self-improvement failed during sleep: %s", e)
-
     import hashlib
     date_str = et.strftime("%b %-d, %Y")
     slip_id  = hashlib.md5(f"daily{date_str}".encode()).hexdigest()[:8].upper()
@@ -472,6 +465,14 @@ def enter_sleep_mode():
     }
     _run_async(_post({"embeds": [embed]}))
     logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
+
+    # Run self-improvement AFTER posting — it makes AI API calls and can take minutes
+    try:
+        run_full_self_improvement()
+        logger.info("Self-improvement ran during sleep window")
+    except Exception as e:
+        logger.warning("Self-improvement failed during sleep: %s", e)
+
     return {"sleep_entered": et.isoformat(), "wins": wins, "losses": losses, "pushes": pushes}
 
 
@@ -597,7 +598,7 @@ def cleanup_old_slips():
     import redis as _redis
 
     ET     = zoneinfo.ZoneInfo("America/New_York")
-    cutoff = (datetime.now(ET) - timedelta(days=2)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(ET) - timedelta(days=8)).strftime("%Y-%m-%d")
 
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
@@ -755,7 +756,7 @@ def health_check():
         embed = {
             "title": "🟢 Bot Online",
             "description": (
-                f"Scanning odds every 10 min · Props every 20 min · Picks every 20 min.\n"
+                f"Scanning odds every 30 min · Props every 20 min · Entries at 10:30 AM & 4:30 PM ET.\n"
                 f"Top picks posted when high-confidence edges are found."
             ),
             "color": 0x00C851,
