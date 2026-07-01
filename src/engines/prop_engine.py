@@ -265,7 +265,7 @@ def record_prop_result(
     """
     Grade a prop pick (over/under) against actual result.
     Saves to PropResult table and fires Discord alert for ALL outcomes.
-    Returns 'won'|'lost'|'push'.
+    Returns 'won'|'lost' (exact line = lost; no push in CASHED/DEAD system).
     """
     if actual_value > line:
         outcome = "won" if direction == "over" else "lost"

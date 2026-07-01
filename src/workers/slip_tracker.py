@@ -301,7 +301,7 @@ def _check_kalshi_result(pick: dict) -> str | None:
             return None
         try:
             from src.engines.odds_engine import fetch_scores
-            scores = fetch_scores(sport, days_from=3)
+            scores = fetch_scores(sport, days_from=14)
             answer = (pick.get("answer") or pick.get("side") or "yes").lower()
             for item in scores:
                 if not item.get("completed"):
@@ -357,7 +357,7 @@ def _check_kalshi_result(pick: dict) -> str | None:
 
 def _check_pick_result(pick: dict) -> str | None:
     """
-    Returns 'won', 'lost', 'push', or None (not settled yet).
+    Returns 'won', 'lost', or None (not settled yet).
     Kalshi picks resolved via Kalshi API; others via Odds API scores.
     """
     # Kalshi picks resolved via their own API
@@ -370,7 +370,7 @@ def _check_pick_result(pick: dict) -> str | None:
         if not sport_key:
             return None
 
-        scores = fetch_scores(sport_key, days_from=3)
+        scores = fetch_scores(sport_key, days_from=14)
         home = (pick.get("home_team") or "").lower()
         away = (pick.get("away_team") or "").lower()
 

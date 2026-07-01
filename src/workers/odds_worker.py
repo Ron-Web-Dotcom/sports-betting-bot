@@ -26,9 +26,6 @@ def scan_and_save_odds():
     if not _odds_window():
         logger.debug("scan_and_save_odds: sleep hours (3–5 AM ET), skipping")
         return {"skipped": "dead_hours"}
-    if _is_sleep_time():
-        logger.debug("scan_and_save_odds: sleep window active, skipping")
-        return {"skipped": "sleep_mode"}
     try:
         snapshots = run_full_odds_scan()
         logger.info("Odds scan complete: %d events", len(snapshots))
