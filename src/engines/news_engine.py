@@ -8,7 +8,6 @@ On each update, re-evaluates affected picks and triggers alerts.
 """
 import logging
 import httpx
-from datetime import datetime
 from src.core.config import ESPN_API_BASE, SPORTS
 from src.core.timezone import et_naive
 

@@ -23,7 +23,8 @@ class SystemHealth:
 
 
 def check_odds_api() -> ServiceStatus:
-    import os, urllib.request
+    import os
+    import urllib.request
     name = "odds_api"
     t0 = time.monotonic()
     try:
@@ -75,7 +76,8 @@ def check_database() -> ServiceStatus:
 
 def check_discord() -> ServiceStatus:
     import os
-    import urllib.request, urllib.error
+    import urllib.request
+    import urllib.error
     name = "discord"
     t0 = time.monotonic()
     try:

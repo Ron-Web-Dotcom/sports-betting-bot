@@ -12,7 +12,6 @@ Full cycle:
 """
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
 from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ def analyse_prop(prop: dict, player_context: dict | None = None, loss_history: l
     Includes player context and — on retry after a loss — deeper data.
     """
     import json
-    from src.engines.ai_engine import _call_json   # noqa: internal
+    from src.engines.ai_engine import _call_json   # noqa: F401
 
     system = """You are an elite sports prop analyst. Given a player or team prop line,
 decide whether to bet OVER or UNDER (or PASS).
@@ -296,7 +295,6 @@ def record_prop_result(
 
     # ── Fire Discord alert for every result (win, loss, push) ─────────────────
     try:
-        from src.workers.alert_worker import send_prop_result_alert
         alert_pick = pick_dict or {
             "subject":   subject,
             "stat":      stat,

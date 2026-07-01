@@ -6,13 +6,12 @@ Implements the full output format specified in the master prompt.
 """
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
 
 from src.engines.ev_engine import EVResult, bankroll_examples, american_to_decimal
 from src.engines.confidence_engine import ConfidenceResult
 from src.engines.risk_engine import RiskAssessment
 from src.engines.comparison_engine import BookComparison
-from src.core.config import DEFAULT_BANKROLL, UNIT_SIZE_PCT
+from src.core.config import UNIT_SIZE_PCT
 from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)

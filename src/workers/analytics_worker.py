@@ -105,7 +105,8 @@ def _send_daily_summary_impl():
     last_game_et = None
     try:
         from src.core.config import REDIS_URL
-        import redis as _redis, json
+        import redis as _redis
+        import json
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         night_raw = r.get("sofascore:night_games")
         day_raw   = r.get("sofascore:day_games")
@@ -197,7 +198,8 @@ def _send_daily_summary_impl():
 
 def send_weekly_summary():
     """Fires Sunday midnight Eastern — last week recap + new week fresh start in one embed."""
-    import hashlib, zoneinfo
+    import hashlib
+    import zoneinfo
     from datetime import datetime
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
@@ -269,8 +271,8 @@ def send_weekly_summary():
             {"name": "​",        "value": "​",          "inline": True},
             {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
              "value": (
-                 f"Fresh slate  ·  Record resets  ·  Let's build the streak 🎯\n"
-                 f"☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**"
+                 "Fresh slate  ·  Record resets  ·  Let's build the streak 🎯\n"
+                 "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**"
              ),
              "inline": False},
         ],
@@ -337,7 +339,7 @@ def send_monthly_summary():
 def enter_sleep_mode():
     """3 AM Eastern — settle any remaining picks, post goodnight with W/L/P summary."""
     from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post, _embed
+    from src.discord_bot.bot import _post
     from src.engines.self_improvement_engine import run_full_self_improvement
     from datetime import datetime
     import zoneinfo
@@ -455,8 +457,8 @@ def enter_sleep_mode():
             {
                 "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
                 "value": (
-                    f"☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**\n"
-                    f"Scanning paused  ·  Back online at 5 AM ET"
+                    "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**\n"
+                    "Scanning paused  ·  Back online at 5 AM ET"
                 ),
                 "inline": False,
             },
@@ -481,7 +483,8 @@ def wake_up_brief():
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
     from datetime import datetime
-    import zoneinfo, hashlib
+    import zoneinfo
+    import hashlib
 
     ET      = zoneinfo.ZoneInfo("America/New_York")
     now_et  = datetime.now(ET)
@@ -549,7 +552,7 @@ def check_odds_api_restored():
     Runs on the 10th of each month at 7 AM ET.
     Tests whether Odds API credits have been restored — posts a Discord alert if so.
     """
-    from src.engines.odds_engine import _get, _clear_credits_exhausted
+    from src.engines.odds_engine import _clear_credits_exhausted
     import zoneinfo
     from datetime import datetime
 
@@ -591,7 +594,6 @@ def cleanup_old_slips():
     Slips are already ignored by summaries after their date window, so this
     is purely a housekeeping step with no effect on reporting.
     """
-    import json
     from datetime import datetime, timedelta
     import zoneinfo
     from src.core.config import REDIS_URL
@@ -639,7 +641,7 @@ def flush_memory():
 
     # 1. Vacuum systemd journal — logs pile up silently and eat RAM
     try:
-        result = subprocess.run(
+        _result = subprocess.run(
             ["journalctl", "--vacuum-size=50M"],
             capture_output=True, text=True, timeout=30,
         )
@@ -685,7 +687,7 @@ def cleanup_old_snapshots():
     cutoff_picks         = et_naive() - timedelta(days=365)
 
     with get_db() as db:
-        from src.db.models import Pick, Game
+        from src.db.models import Pick
 
         deleted_snaps = db.query(OddsSnapshot).filter(
             OddsSnapshot.captured_at < cutoff_snapshots
@@ -724,7 +726,8 @@ def health_check():
     try:
         from src.core.config import REDIS_URL, DISCORD_WEBHOOK_URL
         from src.discord_bot.bot import _post
-        import redis as _redis, json
+        import redis as _redis
+        import json
         from datetime import datetime
         import zoneinfo
 
@@ -756,8 +759,8 @@ def health_check():
         embed = {
             "title": "🟢 Bot Online",
             "description": (
-                f"Scanning odds every 30 min · Props every 20 min · Entries at 10:30 AM & 4:30 PM ET.\n"
-                f"Top picks posted when high-confidence edges are found."
+                "Scanning odds every 30 min · Props every 20 min · Entries at 10:30 AM & 4:30 PM ET.\n"
+                "Top picks posted when high-confidence edges are found."
             ),
             "color": 0x00C851,
             "fields": [
@@ -782,8 +785,9 @@ def yesterday_recap():
     """6 AM ET — yesterday's slip results from Redis + today's game count."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
-    from datetime import datetime, timedelta
-    import zoneinfo, json
+    from datetime import datetime
+    import zoneinfo
+    import json
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 

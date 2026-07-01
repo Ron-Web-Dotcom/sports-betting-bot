@@ -1,6 +1,5 @@
 """Picks endpoints — list, filter, trigger generation."""
 from fastapi import APIRouter, Query, HTTPException
-from pydantic import Field
 from datetime import datetime, timedelta
 from src.db.session import get_db
 from src.db.models import Pick

@@ -20,7 +20,7 @@ Key endpoints used:
   GET /team/{id}/players                         squad list with positions
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import quote
 from src.apis.base import get_json
 from src.core.timezone import et_naive, ET
@@ -456,7 +456,6 @@ def get_player_stats(player_id: str, season_id: str) -> dict:
 
 def search_player(name: str, sport_key: str) -> list[dict]:
     """Search for a player by name across all sports."""
-    slug = _slug(sport_key)
     data = _get(f"/search/all/?q={quote(name)}")
     if not data:
         return []

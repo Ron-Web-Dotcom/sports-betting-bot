@@ -271,10 +271,13 @@ class TestDataHub:
     def test_completeness_score_with_all_data(self):
         from src.apis.data_hub import _score_completeness
         context = {
+            "thesportsdb":        {"available": True},
+            "sportradar":         {"available": True},
             "injuries_espn_home": [{"player": "X"}],
-            "sharp_action":       {"signals": []},
             "news_espn":          [{"headline": "Z"}],
-            "sofascore":          {"available": True, "form": {"home": "WWW"}},
+            "kalshi_markets":     [{"market": "A"}],
+            "sportsdataio":       {"standings": []},
+            "mlb_stats":          {"pitcher": "X"},
         }
         score = _score_completeness(context)
         assert score == 1.0
@@ -282,7 +285,8 @@ class TestDataHub:
     def test_completeness_score_with_no_data(self):
         from src.apis.data_hub import _score_completeness
         score = _score_completeness({})
-        assert score == 0.0
+        # No thesportsdb → core_score=0.25, no bonuses
+        assert score == pytest.approx(0.25)
 
 
 # ── Prop change detection ──────────────────────────────────────────────────────
@@ -369,7 +373,8 @@ class TestPropEngine:
             mock_db.return_value.__exit__ = MagicMock(return_value=False)
             from src.engines.prop_engine import record_prop_result
             result = record_prop_result("LeBron James", "Points", "basketball_nba", "under", 25.5, 25.5)
-        assert result == "push"
+        # Exact line = lost (no push — CASHED/DEAD only)
+        assert result == "lost"
 
     def test_under_win(self):
         from unittest.mock import patch, MagicMock

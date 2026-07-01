@@ -6,24 +6,25 @@ from src.engines.timing_engine import (
     minutes_to_game, get_alert_window, should_fire_alert,
     get_urgency_level, upcoming_games_by_window,
 )
+from src.core.timezone import et_naive
 
 
 # ── minutes_to_game ───────────────────────────────────────────────────────────
 
 def test_future_game_positive_minutes():
-    future = (datetime.utcnow() + timedelta(hours=2)).isoformat()
+    future = (et_naive() + timedelta(hours=2)).isoformat()
     result = minutes_to_game(future)
     assert 118 < result < 122
 
 
 def test_past_game_negative_minutes():
-    past = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+    past = (et_naive() - timedelta(hours=1)).isoformat()
     result = minutes_to_game(past)
     assert result < 0
 
 
 def test_game_starting_now_near_zero():
-    now = datetime.utcnow().isoformat()
+    now = et_naive().isoformat()
     result = minutes_to_game(now)
     assert -2 < result < 2
 
@@ -49,7 +50,7 @@ def test_empty_string_returns_9999():
 
 
 def test_datetime_object_accepted():
-    future = datetime.utcnow() + timedelta(minutes=30)
+    future = et_naive() + timedelta(minutes=30)
     result = minutes_to_game(future)
     assert 28 < result < 32
 
@@ -140,8 +141,8 @@ def test_should_fire_returns_true_on_db_error():
 
 def test_upcoming_games_groups_correctly():
     events = [
-        {"commence_time": (datetime.utcnow() + timedelta(minutes=31)).isoformat()},
-        {"commence_time": (datetime.utcnow() + timedelta(minutes=16)).isoformat()},
+        {"commence_time": (et_naive() + timedelta(minutes=31)).isoformat()},
+        {"commence_time": (et_naive() + timedelta(minutes=16)).isoformat()},
     ]
     result = upcoming_games_by_window(events)
     assert isinstance(result, dict)
@@ -150,7 +151,7 @@ def test_upcoming_games_groups_correctly():
 
 def test_upcoming_games_excludes_already_started():
     events = [
-        {"commence_time": (datetime.utcnow() - timedelta(minutes=5)).isoformat()},
+        {"commence_time": (et_naive() - timedelta(minutes=5)).isoformat()},
     ]
     result = upcoming_games_by_window(events)
     total = sum(len(v) for v in result.values())
@@ -159,7 +160,7 @@ def test_upcoming_games_excludes_already_started():
 
 def test_upcoming_games_excludes_too_far_out():
     events = [
-        {"commence_time": (datetime.utcnow() + timedelta(hours=5)).isoformat()},
+        {"commence_time": (et_naive() + timedelta(hours=5)).isoformat()},
     ]
     result = upcoming_games_by_window(events)
     total = sum(len(v) for v in result.values())

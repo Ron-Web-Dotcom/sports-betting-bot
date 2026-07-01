@@ -16,7 +16,7 @@ A slip is DEAD if any pick lost (like a parlay — one loss kills the ticket).
 """
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,6 @@ def purge_ghost_slips() -> int:
     Returns number of slips removed.
     """
     import re
-    from datetime import timedelta
     from src.core.timezone import et_naive
     r = _redis()
     all_slips = r.hgetall(_SLIP_KEY)
@@ -119,7 +118,6 @@ def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | No
     picks:      list of pick dicts from the entry generator
     ticket_id:  short display ID shown in the original entry embed (for consistency)
     """
-    from src.core.timezone import et_naive
     r = _redis()
 
     # One slip per period per platform per day — overwrite if exists

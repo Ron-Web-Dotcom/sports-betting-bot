@@ -126,7 +126,7 @@ def _assess_impact(temp_f, wind_mph, precip_mm) -> dict:
         factors.append(f"Heavy precipitation {precip_mm:.1f}mm — ball security issues")
         total_impact -= 0.12
     elif precip_mm and precip_mm > 1:
-        factors.append(f"Light precipitation — minor impact")
+        factors.append("Light precipitation — minor impact")
         total_impact -= 0.04
 
     if temp_f and temp_f > 95:

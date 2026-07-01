@@ -13,7 +13,6 @@ Endpoint reference: https://sportsdata.io/developers/api-documentation
 """
 import logging
 import os
-from datetime import datetime
 
 from src.apis.base import get_json
 from src.core.timezone import et_naive

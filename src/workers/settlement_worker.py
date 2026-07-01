@@ -24,7 +24,6 @@ def _normalize_team_name(name: str) -> str:
 
 def _settlement_window() -> bool:
     """Skip only during sleep window (3–5 AM ET). Settle any time outside that."""
-    from datetime import datetime
     import zoneinfo
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     return not (3 <= et.hour < 5)
@@ -53,7 +52,6 @@ def settle_completed_picks():
             # Fetch scores per sport, then build {game_external_id: score_dict} lookup
             game_ids = {p.game_id for p in open_picks if p.game_id}
             games = db.query(Game).filter(Game.id.in_(game_ids)).all()
-            game_map = {g.id: g for g in games}  # db id → Game
 
             # Fetch Sport keys for those games
             sport_ids = {g.sport_id for g in games if g.sport_id}
@@ -263,7 +261,6 @@ def _calculate_pnl(pick: Pick, result: str) -> float:
 def record_closing_lines():
     """Snapshot current odds for open picks — used later for CLV calculation.
     Only runs when games are active (8 AM–midnight ET)."""
-    from datetime import datetime
     import zoneinfo
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     if not (8 <= et.hour < 24):

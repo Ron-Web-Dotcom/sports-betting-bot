@@ -188,7 +188,7 @@ def _build_injury_alert(change: dict, affected_props: list[dict]) -> dict | None
 
     return {
         "title": f"🚨 Lineup Alert: {player} — {status.upper()}",
-        "description": f"Status update affecting your active props.",
+        "description": "Status update affecting your active props.",
         "color": color,
         "fields": fields,
     }

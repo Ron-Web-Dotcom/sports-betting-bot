@@ -11,7 +11,6 @@ Projections are used as prop-line equivalents (same underlying data
 that Sleeper's own Player Picks pick'em product surfaces).
 """
 import logging
-from datetime import datetime
 from src.apis.base import get_json
 from src.core.timezone import et_naive
 

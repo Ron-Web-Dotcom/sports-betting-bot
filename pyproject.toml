@@ -14,6 +14,13 @@ ignore = [
     "E501",  # line too long — handled by formatter
     "B008",  # do not perform function calls in default arguments
     "UP007", # use X | Y for union types — not always readable
+    "E701",  # multiple statements on one line — used intentionally for aligned assignments
+    "E741",  # ambiguous variable name (l, O, I) — context makes them clear
+    "B007",  # loop control variable not used — underscore rename is noisy in this codebase
+    "E711",  # comparison to None — SQLAlchemy requires == None in some filter contexts
+    "F811",  # redefinition of unused name — local imports intentionally shadow top-level
+    "UP042", # use StrEnum — requires Python 3.11+ and breaks SQLAlchemy column type mapping
+    "E402",  # module level import not at top — deferred imports used intentionally
 ]
 exclude = ["tests/", "migrations/"]
 

@@ -1,10 +1,9 @@
 """Summary engine — daily, weekly, monthly performance summaries."""
 from datetime import datetime, timedelta
-from typing import Optional
 from src.core.timezone import et_naive
 
 
-def get_daily_summary(date: Optional[datetime] = None) -> dict:
+def get_daily_summary(date: datetime | None = None) -> dict:
     from src.db.session import get_db
     from src.db.models import Pick
 
@@ -85,7 +84,7 @@ def get_daily_summary(date: Optional[datetime] = None) -> dict:
     }
 
 
-def get_weekly_summary(week_start: Optional[datetime] = None) -> dict:
+def get_weekly_summary(week_start: datetime | None = None) -> dict:
     from src.db.session import get_db
     from src.db.models import Pick
 
@@ -215,7 +214,7 @@ def get_weekly_summary(week_start: Optional[datetime] = None) -> dict:
     }
 
 
-def get_monthly_summary(year: Optional[int] = None, month: Optional[int] = None) -> dict:
+def get_monthly_summary(year: int | None = None, month: int | None = None) -> dict:
     from src.db.session import get_db
     from src.db.models import Pick, Parlay
     import calendar

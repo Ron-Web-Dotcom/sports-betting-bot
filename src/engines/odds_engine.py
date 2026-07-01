@@ -7,9 +7,8 @@ Detects new markets and emits alerts.
 """
 import logging
 import httpx
-from datetime import datetime
+from datetime import datetime, UTC
 from src.core.config import ODDS_API_KEY, ODDS_API_BASE, SPORTS, SPORTSBOOKS
-from src.core.timezone import et_naive
 from src.engines.ev_engine import american_to_decimal, implied_prob
 
 logger = logging.getLogger(__name__)
@@ -435,7 +434,7 @@ def _get_active_sports_cached() -> set[str]:
                 pass
 
         # Cache miss — fetch from Sofascore
-        from src.apis.sofascore import get_active_sports_today, SPORT_MAP
+        from src.apis.sofascore import get_active_sports_today
         active_from_sofascore = get_active_sports_today()
 
         from src.apis.sofascore import SPORT_MAP as _SM
@@ -499,8 +498,7 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
                     ct = _parse(ct)
                 if ct:
                     # Convert API UTC time → ET on arrival, compare in ET
-                    from datetime import timezone as _tz
-                    ct_aware = ct if ct.tzinfo else ct.replace(tzinfo=_tz.utc)
+                    ct_aware = ct if ct.tzinfo else ct.replace(tzinfo=UTC)
                     ct_et    = ct_aware.astimezone(_ET)
                     if ct_et > cutoff:
                         continue
@@ -655,7 +653,6 @@ def save_snapshots_to_db(all_events: dict[str, list[dict]]) -> None:
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
     from dateutil.parser import parse as _parse
-    from datetime import timezone
     from zoneinfo import ZoneInfo as _ZoneInfo
 
     with get_db() as db:
@@ -670,7 +667,7 @@ def save_snapshots_to_db(all_events: dict[str, list[dict]]) -> None:
                     try:
                         ct = _parse(ct_raw).replace(tzinfo=None) if isinstance(ct_raw, str) else ct_raw
                     except Exception:
-                        ct = datetime.now(_ZoneInfo("America/New_York")).astimezone(timezone.utc).replace(tzinfo=None)
+                        ct = datetime.now(_ZoneInfo("America/New_York")).astimezone(UTC).replace(tzinfo=None)
                     game = Game(
                         external_id   = ext_id,
                         sport         = sport_key,
@@ -719,16 +716,15 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     """
     from src.db.session import get_db
     from src.db.models import OddsSnapshot, Game
-    from datetime import timedelta, timezone
+    from datetime import timedelta
     from zoneinfo import ZoneInfo
-    from src.core.timezone import et_naive as _et_naive
 
     _ET = ZoneInfo("America/New_York")
     # All time math anchored to ET.
     # commence_time is stored as naive UTC in the DB, so we convert ET→UTC for filters.
     now_et_aware = datetime.now(_ET)
     now_et       = now_et_aware.replace(tzinfo=None)          # naive ET (matches captured_at column)
-    now_utc      = now_et_aware.astimezone(timezone.utc).replace(tzinfo=None)   # naive UTC (matches commence_time column)
+    now_utc      = now_et_aware.astimezone(UTC).replace(tzinfo=None)   # naive UTC (matches commence_time column)
 
     # Snapshot freshness: captured within last 6 ET hours
     cutoff_lo = now_et - timedelta(hours=6)
@@ -737,7 +733,7 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     # through end of tomorrow so the full day+night slate is always covered.
     cutoff_started = now_utc - timedelta(hours=3)
     et_eod = now_et_aware.replace(hour=23, minute=59, second=59) + timedelta(days=1)
-    cutoff_hi = et_eod.astimezone(timezone.utc).replace(tzinfo=None)
+    cutoff_hi = et_eod.astimezone(UTC).replace(tzinfo=None)
 
     result: dict[int, list[dict]] = {}
     with get_db() as db:

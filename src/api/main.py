@@ -5,7 +5,7 @@ REST API for the web dashboard and external integrations.
 """
 import logging
 import os
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from src.api.routers import picks, analytics, portfolio, discussion, health, personalization, feedback

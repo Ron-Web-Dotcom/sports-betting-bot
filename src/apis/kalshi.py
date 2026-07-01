@@ -17,11 +17,10 @@ Set env vars:
   KALSHI_PRIVATE_KEY    — RSA private key (PEM string or path to .pem file)
 """
 import base64
-import hashlib
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import UTC
 
 from src.apis.base import get_json
 
@@ -224,9 +223,9 @@ def _kalshi_is_game_day(close_time: str) -> bool:
     if not close_time:
         return True  # no close_time = treat as current/live
     try:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return timedelta(-1) <= (dt - now) <= timedelta(hours=36)
     except Exception:
         return True  # unparseable = include rather than drop
@@ -504,17 +503,17 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         exp_raw = m.get("expected_expiration_time") or m.get("expiration_time") or ""
         if exp_raw:
             try:
-                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                from datetime import datetime as _dt, timedelta as _td
                 import zoneinfo as _zi
                 _ET      = _zi.ZoneInfo("America/New_York")
                 _exp_utc = _dt.fromisoformat(exp_raw.replace("Z", "+00:00"))
-                _now_utc = _dt.now(_tz.utc)
+                _now_utc = _dt.now(UTC)
                 _now_et  = _now_utc.astimezone(_ET)
                 # Next 3 AM ET cutoff
                 _cutoff_et = _now_et.replace(hour=3, minute=0, second=0, microsecond=0)
                 if _cutoff_et <= _now_et:
                     _cutoff_et = _cutoff_et + _td(days=1)  # tomorrow 3 AM
-                _cutoff_utc = _cutoff_et.astimezone(_tz.utc)
+                _cutoff_utc = _cutoff_et.astimezone(UTC)
                 if _exp_utc < _now_utc - _td(hours=3):
                     continue  # game ended more than 3h ago
                 if _exp_utc > _cutoff_utc:
@@ -549,12 +548,12 @@ def get_sports_events(limit: int = 500) -> list[dict]:
             if not raw:
                 return ""
             try:
-                from datetime import datetime as _dt2, timezone as _tz2
+                from datetime import datetime as _dt2
                 import zoneinfo as _zi2
                 _ET2 = _zi2.ZoneInfo("America/New_York")
                 _dt_utc = _dt2.fromisoformat(raw.replace("Z", "+00:00"))
                 if _dt_utc.tzinfo is None:
-                    _dt_utc = _dt_utc.replace(tzinfo=_tz2.utc)
+                    _dt_utc = _dt_utc.replace(tzinfo=UTC)
                 return _dt_utc.astimezone(_ET2).isoformat()
             except Exception:
                 return raw

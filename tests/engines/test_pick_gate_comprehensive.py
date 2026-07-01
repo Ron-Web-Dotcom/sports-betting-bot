@@ -9,7 +9,7 @@ def _make_pick(
     ev_pct=0.10,
     reasoning="A" * 100,   # 100 chars — above minimum
     key_factors=["Factor 1", "Factor 2"],
-    confidence_pct=70.0,
+    confidence_pct=80.0,
     risk_score=40.0,
     units=3,
 ):
@@ -108,13 +108,13 @@ def test_risk_score_75_1_blocked():
 
 # ── Confidence boundary ───────────────────────────────────────────────────────
 
-def test_confidence_exactly_50_passes():
-    pick = _make_pick(confidence_pct=50.0)
+def test_confidence_exactly_min_passes():
+    pick = _make_pick(confidence_pct=MIN_CONFIDENCE * 100)
     result = check(pick)
     assert not any("Confidence too low" in r for r in result.reasons)
 
 
-def test_confidence_49_9_blocked():
-    pick = _make_pick(confidence_pct=49.9)
+def test_confidence_below_min_blocked():
+    pick = _make_pick(confidence_pct=(MIN_CONFIDENCE * 100) - 1.0)
     result = check(pick)
     assert any("Confidence too low" in r for r in result.reasons)

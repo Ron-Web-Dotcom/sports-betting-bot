@@ -1,6 +1,7 @@
 """Alert worker — routes all Discord notifications asynchronously."""
 import asyncio
 import logging
+from datetime import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +278,8 @@ def send_hardrock_entry(games: list[dict]):
 
 def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
     """Embed builder for Kalshi prediction market entries."""
-    import hashlib, zoneinfo
+    import hashlib
+    import zoneinfo
     from datetime import datetime
 
     _SPORT_BADGE = {
@@ -589,14 +591,14 @@ def send_pregame_alerts():
     from src.engines.timing_engine import upcoming_games_by_window, should_fire_alert, minutes_to_game
     from src.db.session import get_db
     from src.db.models import Game, AlertRecord
-    from datetime import datetime, timezone
+    from datetime import datetime
     from src.core.timezone import et_naive, ET
 
     # Extract plain values inside session — avoids DetachedInstanceError after close
     with get_db() as db:
         rows = db.query(
             Game.id, Game.home_team, Game.away_team, Game.commence_time
-        ).filter(Game.commence_time >= datetime.now(ET).astimezone(timezone.utc).replace(tzinfo=None)).all()
+        ).filter(Game.commence_time >= datetime.now(ET).astimezone(UTC).replace(tzinfo=None)).all()
 
     events = [
         {

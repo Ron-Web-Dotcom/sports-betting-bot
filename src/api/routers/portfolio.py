@@ -15,7 +15,7 @@ def portfolio_summary(period: str = Query("daily", enum=["daily", "weekly", "mon
 def bankroll_history(days: int = Query(30, ge=1, le=365)):
     from src.db.session import get_db
     from src.db.models import BankrollSnapshot
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     cutoff = et_naive() - timedelta(days=days)
     with get_db() as db:

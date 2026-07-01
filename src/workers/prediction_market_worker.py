@@ -13,6 +13,7 @@ Two entries in Discord every day:
 """
 import json
 import logging
+from datetime import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,8 @@ def _fetch_todays_games() -> list[dict]:
     try:
         from src.engines.odds_engine import get_latest_snapshots_by_game
         from src.core.config import REDIS_URL
-        import redis as _redis, json as _json2
+        import redis as _redis
+        import json as _json2
 
         # Load Sofascore's confirmed today list (populated by scan_todays_games at 8 AM + 2 PM)
         sofascore_teams: set[str] = set()
@@ -156,7 +158,8 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     kalshi_full: list[dict] = []
     try:
         from src.core.config import REDIS_URL
-        import redis as _rc, json as _jc
+        import redis as _rc
+        import json as _jc
         _r = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         _cached = _r.get("kalshi:live_markets")
         if _cached:
@@ -178,7 +181,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
     # Build candidate list — Kalshi full markets preferred, Odds API games as fallback
     import zoneinfo as _zi
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
     _ET      = _zi.ZoneInfo("America/New_York")
     _now_et  = _dt.now(_ET)
 
@@ -271,9 +274,9 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     candidates: list[dict] = []
     if kalshi_full:
         from dateutil.parser import parse as _dp
-        from datetime import datetime as _dt2, timezone as _tz
+        from datetime import datetime as _dt2
         from zoneinfo import ZoneInfo as _ZI3
-        _now_utc = _dt2.now(_tz.utc)
+        _now_utc = _dt2.now(UTC)
 
         def _to_naive_et(raw: str) -> str:
             if not raw:
@@ -317,7 +320,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     if _kdt.tzinfo is None:
                         _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
                     from datetime import timedelta as _td2
-                    if _kdt.astimezone(_tz.utc) < _now_utc - _td2(minutes=20):
+                    if _kdt.astimezone(UTC) < _now_utc - _td2(minutes=20):
                         continue
                 except Exception:
                     pass  # can't parse — allow through, Kalshi close_time gate below handles it
@@ -336,7 +339,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                         _close_dt = _dp(_close_raw)
                         if _close_dt.tzinfo is None:
                             _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
-                        if _close_dt.astimezone(_tz.utc) < _now_utc:
+                        if _close_dt.astimezone(UTC) < _now_utc:
                             continue  # market already closed
                     except Exception:
                         pass
@@ -635,7 +638,8 @@ _PLATFORM_LABEL  = {"kalshi": "Kalshi"}
 
 
 def _post_prediction_entry(period: str, picks: list[dict]) -> None:
-    import asyncio, hashlib, json
+    import hashlib
+    import json
     from src.discord_bot.bot import _post
 
     if not picks:
@@ -900,7 +904,8 @@ def _generate_entry(period: str) -> dict:
             pass
 
         try:
-            import hashlib as _hl, zoneinfo as _zi
+            import hashlib as _hl
+            import zoneinfo as _zi
             from datetime import datetime as _dt
             _date_str = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%b %-d, %Y")
             _ticket_id = _hl.md5(f"pred{period}{_date_str}".encode()).hexdigest()[:8].upper()

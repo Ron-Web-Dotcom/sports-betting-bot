@@ -1,7 +1,6 @@
 """Data quality engine — assess event/odds data quality and adjust confidence."""
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, UTC
 from src.core.timezone import et_now, et_naive
 
 
@@ -41,7 +40,7 @@ def assess_event_quality(event: dict, odds_snapshots: list, injuries: list) -> D
                     continue
             if isinstance(ts, datetime):
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
                 if latest_ts is None or ts > latest_ts:
                     latest_ts = ts
         if latest_ts:

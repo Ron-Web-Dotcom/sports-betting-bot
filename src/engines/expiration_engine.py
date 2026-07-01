@@ -1,6 +1,6 @@
 """Pick expiration engine — assess urgency of placing a bet based on line movement."""
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, UTC
 from typing import Literal
 from src.core.timezone import et_now
 
@@ -29,7 +29,7 @@ def assess_expiration(pick_id: int, current_odds: int, line_movements: list[dict
             if game and game.commence_time:
                 ct = game.commence_time
                 if ct.tzinfo is None:
-                    ct = ct.replace(tzinfo=timezone.utc)
+                    ct = ct.replace(tzinfo=UTC)
                 diff = (ct - now).total_seconds() / 60
                 minutes_to_game = max(0.0, diff)
 

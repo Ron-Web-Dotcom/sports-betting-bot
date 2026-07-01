@@ -47,22 +47,22 @@ def test_american_odds_minus_zero():
 
 # ── Canceled / postponed settlement ──────────────────────────────────────────
 
-def test_settlement_canceled_game_returns_void():
+def test_settlement_canceled_game_returns_none():
     pick = MagicMock()
     pick.selection = "Lakers"
     pick.units = 2
     score = {"completed": True, "status": "canceled"}
     result = _determine_result(pick, None, score)
-    assert result == "void"
+    assert result is None
 
 
-def test_settlement_postponed_game_returns_void():
+def test_settlement_postponed_game_returns_none():
     pick = MagicMock()
     pick.selection = "Lakers"
     pick.units = 2
     score = {"completed": True, "status": "postponed"}
     result = _determine_result(pick, None, score)
-    assert result == "void"
+    assert result is None
 
 
 # ── Voided bets P&L ───────────────────────────────────────────────────────────

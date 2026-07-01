@@ -5,7 +5,7 @@ Manages pre-game alert windows and determines when to fire each alert tier.
 Tracks time-to-game for all upcoming events.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from src.core.config import PREGAME_ALERT_WINDOWS
 from src.core.timezone import et_naive
 

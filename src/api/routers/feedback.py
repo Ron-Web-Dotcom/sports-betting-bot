@@ -1,7 +1,6 @@
 """Feedback endpoints — submit ratings and query quality scores."""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from datetime import datetime
 from src.core.timezone import et_naive
 
 router = APIRouter()

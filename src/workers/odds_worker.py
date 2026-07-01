@@ -1,6 +1,6 @@
 """Odds worker — scans all sports and persists snapshots."""
 import logging
-from src.engines.odds_engine import run_full_odds_scan, get_latest_snapshots_by_game
+from src.engines.odds_engine import run_full_odds_scan
 from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def scan_and_save_odds():
             from src.engines.line_movement_engine import detect_movements, save_movement
             from src.db.session import get_db
             from src.db.models import OddsSnapshot, Game
-            from datetime import datetime, timedelta
+            from datetime import timedelta
 
             # Group snapshots by game_id inside session to avoid DetachedInstanceError
             by_game: dict[int, dict] = {}

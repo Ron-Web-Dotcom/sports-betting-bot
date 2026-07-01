@@ -8,7 +8,6 @@ Used for MMA prop and ML pick enrichment when TheSportsDB player profile
 doesn't have enough fight stats.
 """
 import logging
-from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,6 @@ def search_fighter(name: str) -> dict:
             return {}
 
         # Find the fighter row — look for their name as a link
-        name_lower = name.lower()
         # Pattern: <a href="/fighter-details/...">First Last</a>
         pattern = re.compile(
             r'href="(/fighter-details/[^"]+)"[^>]*>\s*([^<]*' +

@@ -12,7 +12,7 @@ def _pick(
     ev_pct=0.05,
     reasoning="Lakers have a significant rest advantage with 3 days off vs Celtics on a back-to-back. Sharp money moved the line 2.5 points.",
     key_factors=("Rest advantage", "Sharp line movement"),
-    confidence_pct=65.0,
+    confidence_pct=80.0,
     risk_score=30.0,
     units=2,
     recommendation="BET",

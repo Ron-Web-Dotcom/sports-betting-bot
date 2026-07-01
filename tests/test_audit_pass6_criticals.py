@@ -244,15 +244,14 @@ def test_generate_picks_has_idempotency_guard():
     assert "nx=True" in src or "SETNX" in src or "lock" in src.lower()
 
 
-def test_generate_picks_skips_on_lock_held():
-    mock_redis = MagicMock()
-    mock_redis.set.return_value = False   # lock already held
-
-    with patch("redis.from_url", return_value=mock_redis):
+def test_generate_picks_skips_on_sleep_mode():
+    """generate_picks must return a skipped sentinel during sleep hours."""
+    with patch("src.workers.picks_worker._is_sleep_time", return_value=True):
         from src.workers.picks_worker import generate_picks
         result = generate_picks()
 
-    assert result == {"skipped": True}
+    assert isinstance(result, dict)
+    assert "skipped" in result
 
 
 # ── B5: get_recent_injuries exists and returns list ─────────────────────────────

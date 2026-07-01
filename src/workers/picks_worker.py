@@ -9,8 +9,6 @@ For each upcoming event:
   5. Route BET picks to alert queue
 """
 import logging
-from src.db.session import get_db
-from src.db.models import Game
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +44,10 @@ def generate_picks():
         return {"skipped": "sleep_mode"}
     try:
         from src.core.config import REDIS_URL
-        import redis as _redis, json, hashlib, zoneinfo
+        import redis as _redis
+        import json
+        import hashlib
+        import zoneinfo
         from datetime import datetime
         from src.engines.odds_engine import get_latest_snapshots_by_game
         from src.engines.news_engine import get_recent_injuries
@@ -461,8 +462,8 @@ def scan_todays_games():
     from src.core.timezone import et_naive
     from src.core.config import REDIS_URL
     from concurrent.futures import ThreadPoolExecutor
-    import json, zoneinfo
-    from datetime import datetime
+    import json
+    import zoneinfo
     import redis as _redis
 
     ET = zoneinfo.ZoneInfo("America/New_York")
@@ -532,7 +533,8 @@ def scan_todays_games():
 def _load_todays_games(period: str) -> list[dict]:
     """Load day or night games from Redis cache (populated by scan_todays_games)."""
     from src.core.config import REDIS_URL
-    import json, redis as _redis
+    import json
+    import redis as _redis
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw = r.get(f"sofascore:{period}_games")
@@ -583,7 +585,8 @@ def _build_hardrock_candidates(
     _sf_index: dict[str, dict] = {}
     try:
         from src.core.config import REDIS_URL as _RURL_SF
-        import redis as _redis_sf, json as _json_sf
+        import redis as _redis_sf
+        import json as _json_sf
         _rsf = _redis_sf.from_url(_RURL_SF, decode_responses=True, socket_connect_timeout=2)
         _raw_idx = _rsf.get("sofascore:today_index")
         if _raw_idx:
@@ -780,7 +783,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     from src.engines.ai_engine import analyse_pick
     from src.apis.data_hub import build_player_context
     from src.engines.odds_engine import get_latest_snapshots_by_game
-    import json, redis as _redis
+    import json
+    import redis as _redis
 
     # ── Source 1 & 2: Player props + Team props (Redis) ──────────────────────
     try:
@@ -1021,7 +1025,7 @@ def _detect_correlation(p1: dict, p2: dict) -> str | None:
         "shots", "shots on target", "corners", "goals", "assists",
         "fouls", "touches", "possession", "total shots", "offsides",
         "saves", "blocks", "hits", "strikeouts", "rushing yards",
-        "receiving yards", "rebounds", "assists", "points",
+        "receiving yards", "rebounds", "points",
     }
     is_attack1 = any(s in stat1 for s in attack_stats) or "total" in stat1
     is_attack2 = any(s in stat2 for s in attack_stats) or "total" in stat2
@@ -1110,7 +1114,8 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
     from src.core.sport_labels import get_emoji
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
-    import zoneinfo, hashlib
+    import zoneinfo
+    import hashlib
     from datetime import datetime
 
     ET           = zoneinfo.ZoneInfo("America/New_York")
@@ -1428,7 +1433,6 @@ def _generate_hardrock_entry(period: str) -> dict:
                     from src.apis.websearch import search_game_news, search_player_news
                     from src.engines.ai_engine import analyse_pick as _analyse
                     from src.engines.confidence_engine import compute_confidence as _conf
-                    from src.engines.ev_engine import evaluate as _ev, decimal_to_american as _d2a
                     from datetime import datetime as _dt
                     import zoneinfo as _zi
                     _today = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%B %d, %Y")
@@ -1543,7 +1547,8 @@ def _generate_hardrock_entry(period: str) -> dict:
         _post_hardrock_embed(period, entry)
 
         try:
-            import hashlib as _hl, zoneinfo as _zi
+            import hashlib as _hl
+            import zoneinfo as _zi
             from datetime import datetime as _dt2
             _date_str = _dt2.now(_zi.ZoneInfo("America/New_York")).strftime("%b %-d, %Y")
             _slip_ticket = _hl.md5(f"{period}{_date_str}".encode()).hexdigest()[:8].upper()

@@ -57,7 +57,6 @@ _LEAGUE_HINT: dict[str, str] = {
     "soccer_brazil_campeonato":             "Brazilian Série A",
     "soccer_spl":                           "Scottish Premiership",
     "soccer_africa_cup_of_nations":         "African Cup of Nations",
-    "soccer_conmebol_copa_libertadores":    "Copa Libertadores",
     # ── Rugby ─────────────────────────────────────────────────────────────────
     "rugbyleague_nrl":                      "NRL",
     "rugbyunion_world_cup":                 "Rugby World Cup",
@@ -103,8 +102,7 @@ def _get(path: str) -> dict | None:
     If blocked (403/None), automatically retry through Decodo proxy,
     rotating across ports 10001-10010 for each retry.
     """
-    import httpx
-    from src.apis.base import _HEADERS, _get_direct_client, _get_proxy_client
+    from src.apis.base import _get_direct_client, _get_proxy_client
 
     url = f"{_BASE}{path}"
 

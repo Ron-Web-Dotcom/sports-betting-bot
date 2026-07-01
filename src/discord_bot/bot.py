@@ -5,7 +5,6 @@ All alerts are sent as HTTP POST to DISCORD_WEBHOOK_URL.
 No bot token, no slash commands, no discord.py bot process needed.
 """
 import asyncio
-import json
 import logging
 import httpx
 from src.core.config import DISCORD_WEBHOOK_URL
@@ -486,7 +485,7 @@ async def post_parlay(parlay: dict) -> None:
     except (TypeError, ValueError):
         _co_str = str(_co) if _co else "—"
     embed = _embed(
-        title="Parlay ({} legs) — {}".format(len(legs), _co_str),
+        title=f"Parlay ({len(legs)} legs) — {_co_str}",
         description=desc,
         color=0xFDD835,
         fields=[

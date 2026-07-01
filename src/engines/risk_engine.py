@@ -12,7 +12,7 @@ Also implements fractional Kelly position sizing.
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from src.core.config import MAX_DAILY_UNITS, MAX_SINGLE_UNITS, MAX_SPORT_EXPOSURE_PCT
+from src.core.config import MAX_DAILY_UNITS, MAX_SINGLE_UNITS
 
 logger = logging.getLogger(__name__)
 

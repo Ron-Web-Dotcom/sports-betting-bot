@@ -82,7 +82,7 @@ def _wnba_form(team_name: str, n: int = 10) -> dict:
 
     for ev in events[:n]:
         home = (ev.get("strHomeTeam") or "").lower()
-        away = (ev.get("strAwayTeam") or "").lower()
+        _away = (ev.get("strAwayTeam") or "").lower()
         hs   = ev.get("intHomeScore")
         as_  = ev.get("intAwayScore")
         if hs is None or as_ is None:

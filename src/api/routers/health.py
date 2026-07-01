@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-from datetime import datetime
 from src.core.timezone import et_naive
 
 router = APIRouter()

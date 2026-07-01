@@ -9,7 +9,6 @@ Provides:
 - Head-to-head record
 """
 import logging
-from datetime import datetime, timezone
 import httpx
 from src.core.timezone import et_now
 
