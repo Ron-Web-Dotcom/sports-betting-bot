@@ -257,18 +257,18 @@ def _calculate_pnl(pick: Pick, result: str) -> float:
         return round((dec - 1) * units, 2)
     elif result_lower in ("lost", "dead"):
         return -units
-    return 0.0  # push or void
+    return 0.0  # unexpected result state — treated as break-even
 
 
 def record_closing_lines():
-    """Only record closing lines when games are active — 8 AM to midnight ET."""
+    """Snapshot current odds for open picks — used later for CLV calculation.
+    Only runs when games are active (8 AM–midnight ET)."""
     from datetime import datetime
     import zoneinfo
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     if not (8 <= et.hour < 24):
         logger.debug("record_closing_lines: no active games outside 8 AM–midnight ET, skipping")
         return {"skipped": "outside_window"}
-    """Snapshot current odds for open picks — used later for CLV calculation."""
     from src.engines.clv_engine import record_clv
     from src.engines.odds_engine import get_latest_snapshots_by_game
 
