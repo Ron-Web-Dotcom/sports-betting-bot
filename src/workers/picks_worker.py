@@ -599,17 +599,17 @@ def _build_hardrock_candidates(
     except Exception:
         pass
 
-    def _sf_odds_for_game(home: str, away: str) -> dict:
-        """Fetch Sofascore bookmaker odds for this game — used to cross-check Odds API implied probs."""
+    def _sf_odds_for_game(home: str, away: str) -> tuple[dict, str]:
+        """Fetch Sofascore bookmaker odds for this game. Returns (odds_dict, sofascore_id)."""
         for name in (home.lower(), away.lower()):
             ev = _sf_index.get(name)
             if ev and ev.get("id"):
                 try:
                     from src.apis.sofascore import get_event_odds as _gso
-                    return _gso(ev["id"]) or {}
+                    return _gso(ev["id"]) or {}, str(ev["id"])
                 except Exception:
-                    return {}
-        return {}
+                    return {}, str(ev.get("id", ""))
+        return {}, ""
 
     logger.info("HardRock [%s]: %d games in DB window", period, len(snapshots))
 
@@ -666,7 +666,7 @@ def _build_hardrock_candidates(
         hub_news     = ctx.get("news_espn", [])
 
         # Sofascore odds — bookmaker-implied probabilities for cross-reference
-        sf_odds = _sf_odds_for_game(home_team, away_team)
+        sf_odds, _sf_id = _sf_odds_for_game(home_team, away_team)
         if sf_odds:
             ctx["sofascore_odds"] = sf_odds  # picked up by analyse_pick → AI sees it
 
@@ -690,8 +690,23 @@ def _build_hardrock_candidates(
 
             market    = ai.get("market", mkt)
             selection = ai.get("selection", "")
-            ai_prob   = float(ai.get("win_probability", 0.5))
-            opp_prob  = float(ai.get("opponent_probability") or (1 - ai_prob))
+            _raw_prob = float(ai.get("win_probability", 0.5))
+            opp_prob  = float(ai.get("opponent_probability") or (1 - _raw_prob))
+
+            # Calibrate confidence via confidence engine (factors: line movement, news, sport, market)
+            try:
+                from src.engines.confidence_engine import compute_confidence as _cc
+                _cal = _cc(
+                    ai_win_prob         = _raw_prob,
+                    model_consensus     = ai.get("confidence", _raw_prob),
+                    line_movement_score = ctx.get("sharp_action", {}).get("score", 0.5),
+                    news_impact_score   = ctx.get("news_impact_score", 0.5),
+                    sport               = sport_key,
+                    market              = market,
+                )
+                ai_prob = _cal.calibrated_score
+            except Exception:
+                ai_prob = _raw_prob  # fallback to raw if engine unavailable
 
             # Resolve odds for selected side
             books = {s["book"]: s["best_odds"] for s in snaps
@@ -762,6 +777,7 @@ def _build_hardrock_candidates(
                 "units":        ev_full.units,
                 "reasoning":    ai.get("reasoning", ""),
                 "key_factors":  ai.get("key_factors", []),
+                "sofascore_id": _sf_id,
                 "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
             })
 
@@ -1355,9 +1371,31 @@ def _generate_hardrock_entry(period: str) -> dict:
                 combined_dec      *= _american_to_dec(round(p["best_odds"]))
             return combined_win_prob * combined_dec > 1.0
 
-        # Candidates already passed all gates inside their builders.
-        # Here: just deduplicate (no same game twice, no same player twice)
-        # and take the top 1-2 picks by score.
+        # Final gate: enforce EV ≥ 3%, reasoning ≥ 80 chars, ≥ 2 key factors.
+        # This mirrors pick_gate.check() thresholds for dict-based candidates.
+        _MIN_EV_GATE = 0.03
+        _MIN_REASON  = 80
+        _MIN_FACTORS = 2
+        _gated_pool  = []
+        for _p in pool:
+            _ev  = _p.get("ev_pct", 0)
+            _rsn = (_p.get("reasoning") or "").strip()
+            _fct = [f for f in (_p.get("key_factors") or []) if f and str(f).strip()]
+            if _ev < _MIN_EV_GATE:
+                logger.info("GATE BLOCK EV [%s %s]: ev=%.2f%% < 3%%",
+                            _p.get("home_team"), _p.get("away_team"), _ev * 100)
+                continue
+            if len(_rsn) < _MIN_REASON:
+                logger.info("GATE BLOCK REASONING [%s %s]: %d chars < %d",
+                            _p.get("home_team"), _p.get("away_team"), len(_rsn), _MIN_REASON)
+                continue
+            if len(_fct) < _MIN_FACTORS:
+                logger.info("GATE BLOCK FACTORS [%s %s]: %d < %d",
+                            _p.get("home_team"), _p.get("away_team"), len(_fct), _MIN_FACTORS)
+                continue
+            _gated_pool.append(_p)
+        pool = _gated_pool
+
         # Favorite-first: -odds picks always rank ahead of +odds picks.
         # +odds underdogs only make the slip when no -odds alternative exists.
         _favs    = [p for p in pool if p.get("best_odds", 0) < 0]

@@ -595,6 +595,19 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
                 return []
         except Exception:
             pass
+    # Gate: EV ≥ 3%, reasoning ≥ 80 chars, ≥ 2 key factors (mirrors pick_gate thresholds)
+    _reasoning = (result.get("reasoning") or "").strip()
+    _factors   = [f for f in (result.get("key_factors") or []) if f and str(f).strip()]
+    if ev_pct < 0.03:
+        logger.info("Kalshi GATE BLOCK EV: ev=%.2f%% < 3%%", ev_pct * 100)
+        return []
+    if len(_reasoning) < 80:
+        logger.info("Kalshi GATE BLOCK REASONING: %d chars < 80", len(_reasoning))
+        return []
+    if len(_factors) < 2:
+        logger.info("Kalshi GATE BLOCK FACTORS: %d < 2", len(_factors))
+        return []
+
     true_prob = float(result.get("true_prob") or confidence)
     yes_prob  = pick["yes_prob"]
     no_prob   = pick["no_prob"]
