@@ -883,6 +883,19 @@ def _generate_entry(period: str) -> dict:
             logger.info("Kalshi %s entry already posted today — skipping", period)
             return {"skipped": "already_posted", "period": period}
 
+        # Ensure Sofascore cache is warm before building entry
+        from src.core.config import REDIS_URL as _RU
+        import redis as _redis_mod
+        _rc = _redis_mod.from_url(_RU, decode_responses=True, socket_connect_timeout=2)
+        _sf_key = f"sofascore:{period}_games"
+        if not _rc.exists(_sf_key):
+            logger.info("Sofascore cache cold — running scan before %s entry", period)
+            try:
+                from src.workers.picks_worker import scan_todays_games as _stg
+                _stg()
+            except Exception as _se:
+                logger.warning("Pre-entry Sofascore rescan failed: %s", _se)
+
         picks = _build_entry([], max_picks=1, period=period)
         if not picks:
             logger.info("Prediction market %s entry: no qualifying picks — staying silent", period)

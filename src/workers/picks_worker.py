@@ -505,7 +505,7 @@ def scan_todays_games():
                             t = t.astimezone(ET)
                         else:
                             t = t.replace(tzinfo=ET)
-                        if t.hour >= 18:
+                        if t.hour >= 16:  # night entry posts at 4:30 PM — anything 4 PM+ is "night"
                             is_night = True
                 except Exception:
                     pass
@@ -531,13 +531,18 @@ def scan_todays_games():
 
 
 def _load_todays_games(period: str) -> list[dict]:
-    """Load day or night games from Redis cache (populated by scan_todays_games)."""
+    """Load day or night games from Redis cache (populated by scan_todays_games).
+    If cache is cold, triggers a fresh scan so Sofascore is always the source of truth."""
     from src.core.config import REDIS_URL
     import json
     import redis as _redis
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw = r.get(f"sofascore:{period}_games")
+        if not raw:
+            logger.info("Sofascore %s cache cold — running scan now", period)
+            scan_todays_games()
+            raw = r.get(f"sofascore:{period}_games")
         return json.loads(raw) if raw else []
     except Exception as e:
         logger.warning("Could not load %s games from Redis: %s", period, e)
