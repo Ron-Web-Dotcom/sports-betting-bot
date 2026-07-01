@@ -244,3 +244,34 @@ def test_line_movement_cutoff_used():
     assert "cutoff_str" in after_def or (
         after_def.count("cutoff") > 1
     ), "cutoff is defined but never used to filter snapshots in detect_movements"
+
+
+# ── HardRock entry: 2-pick cap and 77% floor for all markets ─────────────────
+
+def test_hardrock_entry_cap_is_2():
+    """HardRock entry must cap at exactly 2 picks, never 5."""
+    src = (ROOT / "src/workers/picks_worker.py").read_text()
+    assert 'if len(entry) == 5:' not in src, (
+        "HardRock entry cap is still 5 — must be 2"
+    )
+    assert 'if len(entry) == 2:' in src, (
+        "HardRock entry cap of 2 not found in picks_worker.py"
+    )
+
+
+def test_hardrock_conf_floor_all_markets():
+    """CONF_FLOOR must apply to all markets, not just h2h (no 0.65 fallback)."""
+    src = (ROOT / "src/workers/picks_worker.py").read_text()
+    for line in src.splitlines():
+        if '_min_prob' in line and '0.65' in line:
+            pytest.fail(
+                f"picks_worker uses 0.65 floor for non-h2h markets — all markets must use CONF_FLOOR (0.765): {line.strip()}"
+            )
+
+
+def test_hardrock_paused_until_july_10():
+    """generate_hardrock_day/night must be gated until July 10, 2026."""
+    src = (ROOT / "src/workers/picks_worker.py").read_text()
+    assert '2026, 7, 10' in src, (
+        "HardRock pause until July 10, 2026 not found in picks_worker.py"
+    )

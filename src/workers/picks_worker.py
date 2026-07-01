@@ -149,9 +149,9 @@ def generate_picks():
                 sport               = sport_key,
                 market              = market,
             )
-            # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ (h2h) or 65%+
+            # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ all markets
             _cal = confidence.calibrated_score
-            _min_prob = CONF_FLOOR if market == "h2h" else 0.65
+            _min_prob = CONF_FLOOR
             if best_odds_val > 0:
                 _implied = 100 / (100 + best_odds_val)
                 if _cal < 0.42 or (_cal - _implied) < 0.05:
@@ -271,7 +271,7 @@ def generate_picks():
         blocked_game_keys = set()
         seen_players      = set()
         for pick in pool:
-            if len(entry) == 5:
+            if len(entry) == 2:
                 break
             if pick["type"] == "prop":
                 if pick["game_key"] and pick["game_key"] in blocked_game_keys:
@@ -706,9 +706,8 @@ def _build_hardrock_candidates(
 
             # ── Simple gate ───────────────────────────────────────────────────
             # h2h (game winner) requires full 77% — it's the hardest market to edge.
-            # All other markets (totals, spreads, btts, team_totals, props) use 65%
-            # because variance is higher but edges are more frequent.
-            _min_prob = CONF_FLOOR if market == "h2h" else 0.65
+            # All markets require the same 77% floor — no exceptions
+            _min_prob = CONF_FLOOR
             _top_seen_conf = max(_top_seen_conf, ai_prob)
             if best_odds > 0:
                 implied = 100 / (100 + best_odds)
@@ -1261,8 +1260,8 @@ def _generate_hardrock_entry(period: str) -> dict:
     Builds a unified pool of game picks + player props. Applies uniqueness:
     - Same game can only appear once (no ML + prop from same game)
     - No player appears twice
-    Ranks by confidence score, takes 2–5 picks.
-    Posts to Discord if at least 1 qualifying pick exists (max 5).
+    Ranks by confidence score, takes exactly 2 picks (hard cap).
+    Posts to Discord only if 2 qualifying picks exist.
     """
     if _is_sleep_time():
         return {"skipped": "sleep_mode"}
@@ -1360,7 +1359,7 @@ def _generate_hardrock_entry(period: str) -> dict:
         seen_players: set[str]       = set()
 
         for pick in pool:
-            if len(entry) == 5:
+            if len(entry) == 2:
                 break
 
             if pick["type"] == "sgp":
@@ -1531,6 +1530,15 @@ def _generate_hardrock_entry(period: str) -> dict:
                 except Exception:
                     pass
                 return {"picks": 0, "period": period, "posted": False}
+
+        if len(entry) < 2:
+            logger.info("HardRock %s: only %d qualifying pick(s) — need 2 to post", period, len(entry))
+            try:
+                if _r_dedup and _dedup_key:
+                    _r_dedup.delete(_dedup_key)  # release lock so next scan can retry
+            except Exception:
+                pass
+            return {"picks": len(entry), "period": period, "posted": False, "reason": "need_2_picks"}
 
         _post_hardrock_embed(period, entry)
 
