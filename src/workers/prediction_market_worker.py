@@ -595,6 +595,21 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
         return []
 
     pick      = candidates[idx]
+
+    # Hard gate: never post a pick for a game that already started > 30 min ago
+    _ct = pick.get("commence_time")
+    if _ct:
+        try:
+            from dateutil.parser import parse as _dpp
+            _ct_dt = _dpp(str(_ct)) if not hasattr(_ct, "tzinfo") else _ct
+            if hasattr(_ct_dt, "tzinfo") and _ct_dt.tzinfo is None:
+                _ct_dt = _ct_dt.replace(tzinfo=_ZI3("America/New_York"))
+            from datetime import timedelta as _tdg
+            if _ct_dt.astimezone(UTC) < _now_utc - _tdg(minutes=30):
+                logger.warning("Kalshi pick skipped — game started >30 min ago: %s at %s", pick.get("title"), _ct)
+                return []
+        except Exception:
+            pass
     true_prob = float(result.get("true_prob") or confidence)
     yes_prob  = pick["yes_prob"]
     no_prob   = pick["no_prob"]
