@@ -324,30 +324,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                         continue
                 except Exception:
                     pass  # can't parse — allow through, Kalshi close_time gate below handles it
-            elif _sf_games:
-                # Sofascore cache is populated but no match found — game is unknown,
-                # skip it to avoid betting on something that may have already started
+            else:
+                # Sofascore is the source of truth for game timing.
+                # No Sofascore match = no confirmed kickoff time = skip.
+                # This covers both: cache populated but no match, and cold-start cache.
+                # We never fall back to Kalshi close_time (it stays open after games end).
                 continue
-            # else: Sofascore cache is empty (cold start / restart before 8 AM scan)
-            # — fall through and rely on Kalshi's own close_time instead
 
-            # If no Sofascore kickoff, use Kalshi close_time to verify market is still open
-            if not sf_kickoff:
-                _close_raw = m.get("close_time") or m.get("expiration_time") or ""
-                if _close_raw:
-                    try:
-                        _close_dt = _dp(_close_raw)
-                        if _close_dt.tzinfo is None:
-                            _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
-                        if _close_dt.astimezone(UTC) < _now_utc:
-                            continue  # market already closed
-                    except Exception:
-                        pass
-
-            # commence_time = Sofascore kickoff if available, else Kalshi close_time
-            _kickoff_et = _to_naive_et(sf_kickoff) if sf_kickoff else _to_naive_et(
-                m.get("close_time") or m.get("expiration_time") or ""
-            )
+            # commence_time = Sofascore kickoff (only path that reaches here)
+            _kickoff_et = _to_naive_et(sf_kickoff)
 
             # Sofascore odds — cross-reference against Kalshi price for edge detection
             _sf_odds: dict = {}
