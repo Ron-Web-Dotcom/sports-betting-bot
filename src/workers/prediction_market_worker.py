@@ -271,6 +271,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         except Exception:
             pass
 
+    logger.info("Kalshi _build_entry: %d sf_games loaded, %d kalshi markets", len(_sf_games), len(kalshi_full))
     candidates: list[dict] = []
     if kalshi_full:
         from dateutil.parser import parse as _dp
@@ -327,8 +328,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             else:
                 # Sofascore is the source of truth for game timing.
                 # No Sofascore match = no confirmed kickoff time = skip.
-                # This covers both: cache populated but no match, and cold-start cache.
-                # We never fall back to Kalshi close_time (it stays open after games end).
+                logger.debug("Kalshi: no Sofascore match for subtitle '%s' — skipping", subtitle)
                 continue
 
             # commence_time = Sofascore kickoff (only path that reaches here)
@@ -367,6 +367,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "expiration_time": m.get("expiration_time", ""),
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
+        logger.info("Kalshi candidates after Sofascore gate: %d from %d markets", len(candidates), len(kalshi_full))
     else:
         # Odds API fallback — game winners only
         for g in games:
