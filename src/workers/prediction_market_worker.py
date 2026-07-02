@@ -598,8 +598,8 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
     # Gate: EV ≥ 3%, reasoning ≥ 80 chars, ≥ 2 key factors (mirrors pick_gate thresholds)
     _reasoning = (result.get("reasoning") or "").strip()
     _factors   = [f for f in (result.get("key_factors") or []) if f and str(f).strip()]
-    if ev_pct < 0.03:
-        logger.info("Kalshi GATE BLOCK EV: ev=%.2f%% < 3%%", ev_pct * 100)
+    if ev_pct < _EV_FLOOR:  # Kalshi is a single exchange — 0.5% EV floor, confidence does the heavy lifting
+        logger.info("Kalshi GATE BLOCK EV: ev=%.2f%% < %.1f%%", ev_pct * 100, _EV_FLOOR * 100)
         return []
     if len(_reasoning) < 80:
         logger.info("Kalshi GATE BLOCK REASONING: %d chars < 80", len(_reasoning))
