@@ -323,7 +323,6 @@ def analyse_pick(
         if game_context.get("kalshi_markets"):
             payload["kalshi_markets"] = game_context["kalshi_markets"][:10]
         # Player-level Sofascore data for props
-        # sofascore_player removed — Cloudflare blocks even residential proxy
         # Pinnacle sharp-money anchor — world's most accurate book
         if game_context.get("pinnacle_signal"):
             payload["pinnacle_signal"] = game_context["pinnacle_signal"]

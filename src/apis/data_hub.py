@@ -65,7 +65,8 @@ def build_game_context(
         "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
         # TheSportsDB — confirmed working on VPS, free, 800+ leagues
         "thesportsdb":         (_fetch_thesportsdb,       (sport_key, home_team, away_team)),
-        # REMOVED: Sofascore — Cloudflare blocks even residential proxy
+        # Sofascore — standings, H2H, form, last-5 (workers use it successfully via Decodo proxy)
+        "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
         # REMOVED: RotoWire — HTML scraping blocked on VPS datacenter IPs
         # REMOVED: BallDontLie — requires API key, none configured
         # REMOVED: PrizePicks — partner-api endpoint unreliable from VPS
@@ -330,9 +331,21 @@ def _fetch_sleeper_injuries(sport_key: str) -> list:
     from src.apis.sleeper import get_trending_players
     return get_trending_players(sport_key, trend_type="drop", limit=15)
 
+def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_time: str) -> dict:
+    """Standings, H2H, form, last-5 results from Sofascore via Decodo residential proxy."""
+    try:
+        from src.apis.sofascore import enrich_game_context
+        result = enrich_game_context(sport_key, home_team, away_team, game_time)
+        if result.get("available"):
+            return result
+        logger.warning("_fetch_sofascore_game: not available for %s %s vs %s", sport_key, home_team, away_team)
+        return {}
+    except Exception as e:
+        logger.warning("_fetch_sofascore_game failed [%s %s vs %s]: %s", sport_key, home_team, away_team, e)
+        return {}
+
 # _fetch_rotowire_injuries removed — HTML scraping blocked on VPS datacenter IPs
-# _fetch_sofascore_game removed — Cloudflare blocks even residential proxy
-# _fetch_sofascore_player removed — same bot-detection block
+# _fetch_sofascore_player removed — Sofascore player search not reliable enough for props
 
 def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.sportsdataio import enrich_game_context

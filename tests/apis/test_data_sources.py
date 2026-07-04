@@ -250,6 +250,7 @@ class TestDataHub:
             "src.apis.data_hub._fetch_kalshi_markets",
             "src.apis.data_hub._fetch_sportradar_game",
             "src.apis.data_hub._fetch_thesportsdb",
+            "src.apis.data_hub._fetch_sofascore_game",
         ]
         from contextlib import ExitStack
         with ExitStack() as stack:
