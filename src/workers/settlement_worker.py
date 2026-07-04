@@ -213,8 +213,9 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
         away_score = score.get("away_score")
         home_team  = score.get("home_team", "")
         if home_score is None or away_score is None or not spread_match:
-            # Fall through to moneyline matching below
-            pass
+            if market == "spreads":
+                return None  # cannot settle spreads without scores and spread value
+            # Fall through to moneyline matching below for ambiguous selections
         else:
             spread = float(spread_match.group(1))
             team_part = _re.sub(r'[+-]?\d+(?:\.\d+)?\s*$', '', selection).strip()

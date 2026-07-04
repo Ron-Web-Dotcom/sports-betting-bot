@@ -643,7 +643,7 @@ def _build_hardrock_candidates(
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
             if _mins_since_start > 180:
                 continue  # game started 3+ hours ago — likely finished, skip
-            _is_night = _ct_et.hour >= 18
+            _is_night = _ct_et.hour >= 16
             if period == "day"   and _is_night:     continue
             if period == "night" and not _is_night: continue
         except Exception:
@@ -721,10 +721,7 @@ def _build_hardrock_candidates(
                          and (sl in (s.get("selection") or "").lower() or
                           (s.get("selection") or "").lower() in sl)}
             if not books:
-                books = {s["book"]: s["best_odds"] for s in snaps
-                         if s.get("book") and s.get("best_odds") is not None}
-            if not books:
-                continue
+                continue  # no matching selection odds — skip rather than use wrong team's odds
 
             # Best odds = highest payout: max by raw value (least negative for -odds, highest for +odds)
             best_odds = max(books.values())

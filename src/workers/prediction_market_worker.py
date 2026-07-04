@@ -667,9 +667,7 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
     if len(_reasoning) < 80:
         logger.info("Kalshi GATE BLOCK REASONING: %d chars < 80", len(_reasoning))
         return []
-    if len(_factors) < 2:
-        logger.info("Kalshi GATE BLOCK FACTORS: %d < 2", len(_factors))
-        return []
+    # key_factors is not in the Kalshi AI response schema — do not gate on it
 
     true_prob = float(result.get("true_prob") or confidence)
     yes_prob  = pick["yes_prob"]
@@ -964,8 +962,9 @@ def _generate_entry(period: str) -> dict:
         import redis as _redis_mod
         _rc = _redis_mod.from_url(_RU, decode_responses=True, socket_connect_timeout=2)
         _sf_key = f"sofascore:{period}_games"
-        if not _rc.exists(_sf_key):
-            logger.info("Sofascore cache cold — running scan before %s entry", period)
+        _sf_raw = _rc.get(_sf_key)
+        if not _sf_raw or not json.loads(_sf_raw):
+            logger.info("Sofascore cache cold or empty — running scan before %s entry", period)
             try:
                 from src.workers.picks_worker import scan_todays_games as _stg
                 _stg()

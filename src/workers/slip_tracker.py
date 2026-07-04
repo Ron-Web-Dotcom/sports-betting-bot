@@ -607,7 +607,7 @@ def track_slips() -> dict:
                         _mark_alerted(r, soon_key)
 
                     live_key = f"game:live:{gid}"
-                    if -180 <= mins <= 5 and not _alerted(r, live_key):
+                    if -15 <= mins <= 5 and not _alerted(r, live_key):
                         all_live.append(f"🔴 **{name}**  {tag}")
                         _mark_alerted(r, live_key)
 
