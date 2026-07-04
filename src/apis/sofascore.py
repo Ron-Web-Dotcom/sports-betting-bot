@@ -30,19 +30,35 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.sofascore.com/api/v1"
 
-# ── Rate limiter — max 1 request per 1.5s to avoid triggering IP bans ─────────
-_sf_lock      = threading.Lock()
-_sf_last_call = 0.0
-_SF_MIN_GAP   = 1.5   # seconds between Sofascore requests
+# ── Circuit breaker — trip after 3 consecutive 403s, reset after 30 min ────────
+_cb_lock         = threading.Lock()
+_cb_failures     = 0
+_cb_tripped_at   = 0.0
+_CB_THRESHOLD    = 3      # trip after this many consecutive 403s
+_CB_RESET_SECS   = 1800   # try again after 30 minutes
 
-def _rate_limit():
-    global _sf_last_call
-    with _sf_lock:
-        now  = time.monotonic()
-        wait = _SF_MIN_GAP - (now - _sf_last_call)
-        if wait > 0:
-            time.sleep(wait)
-        _sf_last_call = time.monotonic()
+def _cb_is_open() -> bool:
+    """Return True if circuit is tripped (Sofascore is blocked)."""
+    with _cb_lock:
+        if _cb_failures >= _CB_THRESHOLD:
+            if time.monotonic() - _cb_tripped_at < _CB_RESET_SECS:
+                return True
+            # Reset after cooldown
+            return False
+        return False
+
+def _cb_record_failure():
+    global _cb_failures, _cb_tripped_at
+    with _cb_lock:
+        _cb_failures += 1
+        if _cb_failures >= _CB_THRESHOLD:
+            _cb_tripped_at = time.monotonic()
+            logger.warning("Sofascore circuit breaker TRIPPED — skipping all calls for %ds", _CB_RESET_SECS)
+
+def _cb_record_success():
+    global _cb_failures
+    with _cb_lock:
+        _cb_failures = 0
 
 # ── Sofascore-specific proxy port pool (ports 10011–10020, separate from base) ─
 # Using a dedicated port range keeps Sofascore IPs isolated from other sources.
@@ -231,15 +247,18 @@ def _slug(sport_key: str) -> str | None:
 
 
 def _get(path: str) -> dict | list | None:
-    """Rate-limited Sofascore request via dedicated proxy port pool."""
-    _rate_limit()
+    """Sofascore request with circuit breaker — fails fast when IP is blocked."""
+    if _cb_is_open():
+        return None   # circuit tripped — don't waste a request
     url = f"{_BASE}{path}"
     try:
         client = _get_sf_client()
         r = client.get(url, headers=_HEADERS)
         if r.status_code == 200:
+            _cb_record_success()
             return r.json()
         if r.status_code in (403, 429):
+            _cb_record_failure()
             logger.warning("Sofascore %s from %s — proxy IP may be blocked", r.status_code, path)
         else:
             logger.warning("Sofascore HTTP %s from %s", r.status_code, path)
