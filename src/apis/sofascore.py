@@ -398,9 +398,15 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
         tasks.append((slug, f"/sport/{slug}/scheduled-events/{date}"))
         tasks.append((slug, f"/sport/{slug}/events/live"))
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    # ScraperAPI is slower than direct proxy — use 4 workers and generous per-future timeout
+    import os as _os
+    using_scraper = bool(_os.getenv("SOFASCORE_PROXY_URL", ""))
+    max_workers   = 3 if using_scraper else 6
+    fut_timeout   = 45 if using_scraper else 20
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch, slug, endpoint): (slug, endpoint) for slug, endpoint in tasks}
-        for fut in as_completed(futures):
+        for fut in as_completed(futures, timeout=fut_timeout * len(tasks)):
             slug, endpoint = futures[fut]
             try:
                 for ev in fut.result():
