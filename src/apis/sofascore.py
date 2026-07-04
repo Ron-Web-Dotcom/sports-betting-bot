@@ -296,17 +296,18 @@ def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
 
 def get_all_scheduled_events(date: str | None = None) -> list[dict]:
     """
-    Return ALL today's events across every sport in ONE batched scan.
+    Return ALL of today's events (scheduled + live) across every sport worldwide.
 
-    Makes 15 requests (one per unique Sofascore slug) instead of 110
-    (one per sport_key). Each response is mapped back to all matching
-    sport_keys so downstream code still receives the full sport_key field.
+    Makes 30 requests (15 slugs × 2 endpoints: scheduled + live) instead of
+    110+ per-sport_key calls. Covers every sport Sofascore tracks globally:
+    soccer (World Cup, all leagues), NFL, NBA, MLB, NHL, tennis, cricket,
+    rugby, MMA, motorsport, golf, aussie rules, and more.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     date = date or et_naive().strftime("%Y-%m-%d")
 
-    # Build slug → [sport_keys] reverse map
+    # slug → [sport_keys] reverse map
     slug_to_keys: dict[str, list[str]] = {}
     for sk, slug in SPORT_MAP.items():
         slug_to_keys.setdefault(slug, []).append(sk)
@@ -314,20 +315,26 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
     all_events: list[dict] = []
     seen_ids: set[str] = set()
 
-    def _fetch_slug(slug: str) -> list[dict]:
+    def _fetch(slug: str, endpoint: str) -> list[dict]:
         if _cb_is_open():
             return []
-        data = _get(f"/sport/{slug}/scheduled-events/{date}")
+        data = _get(endpoint)
         if not data:
             return []
-        raw = data if isinstance(data, list) else data.get("events", [])
-        # Map each raw event to the first matching sport_key for this slug
+        raw  = data if isinstance(data, list) else data.get("events", [])
         keys = slug_to_keys.get(slug, [slug])
         return [_normalise_event(e, keys[0]) for e in raw]
 
+    # Build task list: scheduled events + live events per slug
+    tasks: list[tuple[str, str]] = []
+    for slug in slug_to_keys:
+        tasks.append((slug, f"/sport/{slug}/scheduled-events/{date}"))
+        tasks.append((slug, f"/sport/{slug}/events/live"))
+
     with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {pool.submit(_fetch_slug, slug): slug for slug in slug_to_keys}
+        futures = {pool.submit(_fetch, slug, endpoint): (slug, endpoint) for slug, endpoint in tasks}
         for fut in as_completed(futures):
+            slug, endpoint = futures[fut]
             try:
                 for ev in fut.result():
                     eid = ev.get("id", "")
@@ -337,9 +344,12 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
                         seen_ids.add(eid)
                     all_events.append(ev)
             except Exception as e:
-                logger.warning("get_all_scheduled_events [%s]: %s", futures[fut], e)
+                logger.warning("Sofascore batch [%s %s]: %s", slug, endpoint, e)
 
-    logger.info("Sofascore batch scan: %d events across %d slugs", len(all_events), len(slug_to_keys))
+    scheduled = sum(1 for e in all_events if not e.get("status_type", "").startswith("inprogress"))
+    live      = len(all_events) - scheduled
+    logger.info("Sofascore batch scan: %d scheduled + %d live = %d total events across %d sports",
+                scheduled, live, len(all_events), len(slug_to_keys))
     return all_events
 
 
