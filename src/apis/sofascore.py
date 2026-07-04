@@ -34,8 +34,8 @@ _BASE = "https://api.sofascore.com/api/v1"
 _cb_lock         = threading.Lock()
 _cb_failures     = 0
 _cb_tripped_at   = 0.0
-_CB_THRESHOLD    = 3      # trip after this many consecutive 403s
-_CB_RESET_SECS   = 1800   # try again after 30 minutes
+_CB_THRESHOLD    = 5      # trip after this many consecutive 403s (wider pool = more tolerance)
+_CB_RESET_SECS   = 900    # try again after 15 minutes (was 30)
 
 def _cb_is_open() -> bool:
     """Return True if circuit is tripped (Sofascore is blocked)."""
@@ -60,11 +60,25 @@ def _cb_record_success():
     with _cb_lock:
         _cb_failures = 0
 
-# ── Sofascore-specific proxy port pool (ports 10011–10020, separate from base) ─
-# Using a dedicated port range keeps Sofascore IPs isolated from other sources.
-# If Sofascore bans one IP, other sources are unaffected and vice versa.
+# ── Sofascore-specific proxy port pool ───────────────────────────────────────
+# Decodo sticky residential endpoints: ports 10001-10050 (50 unique IPs).
+# General sources use 10001-10010.  Sofascore gets its own wider slice:
+#   Primary:  10021-10050  (30 fresh IPs, never used for Sofascore before)
+#   Fallback: 10011-10020  (original 10 — may be temporarily banned)
+# Env override: SOFASCORE_PROXY_PORTS=10021,10025,10030 (comma-separated ints)
 import itertools as _itertools
-_SF_PORTS      = list(range(10011, 10021))
+import os as _os
+
+def _build_sf_ports() -> list[int]:
+    env = _os.getenv("SOFASCORE_PROXY_PORTS", "")
+    if env:
+        try:
+            return [int(p.strip()) for p in env.split(",") if p.strip()]
+        except ValueError:
+            pass
+    return list(range(10021, 10051))   # 30 fresh ports by default
+
+_SF_PORTS      = _build_sf_ports()
 _sf_port_cycle = _itertools.cycle(_SF_PORTS)
 _sf_port_lock  = threading.Lock()
 
@@ -74,9 +88,10 @@ def _next_sf_port() -> int:
 
 def _get_sf_client():
     """
-    Sofascore HTTP client via Decodo residential proxy (dedicated port pool 10011-10020).
-    Residential proxy is required — VPS datacenter IP (DigitalOcean) is blocked by Sofascore.
-    Set SOFASCORE_USE_PROXY=0 in .env to bypass proxy (not recommended).
+    Sofascore HTTP client via Decodo residential proxy.
+    Uses ports 10021-10050 (30 fresh sticky IPs) by default.
+    Override with SOFASCORE_PROXY_PORTS env var (comma-separated port list).
+    Set SOFASCORE_USE_PROXY=0 to bypass proxy entirely (not recommended).
     """
     import httpx
     import os
