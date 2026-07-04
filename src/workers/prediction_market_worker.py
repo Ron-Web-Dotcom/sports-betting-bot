@@ -189,24 +189,43 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     _sf_games: list[dict] = []
     try:
         import redis as _rc
+        import json as _jc
         from src.core.config import REDIS_URL
         _rr = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        # today_index has every game across all sports (populated by scan_todays_games at 8 AM)
-        _idx_raw = _rr.get("sofascore:today_index")
-        if _idx_raw:
-            import json as _jc  # ensure _jc is defined even if first try block failed
-            _seen_ids: set[str] = set()
-            for _ev in _jc.loads(_idx_raw).values():
-                _eid = _ev.get("id", "")
-                if _eid not in _seen_ids:
-                    _seen_ids.add(_eid)
-                    _sf_games.append(_ev)
-        else:
-            # fallback to day/night split if index not built yet
-            for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
-                _sfraw = _rr.get(_sfkey)
-                if _sfraw:
-                    _sf_games.extend(_jc.loads(_sfraw))
+
+        def _load_sf_games() -> list[dict]:
+            _idx_raw = _rr.get("sofascore:today_index")
+            _games: list[dict] = []
+            if _idx_raw:
+                _idx = _jc.loads(_idx_raw)
+                if _idx:
+                    _seen: set[str] = set()
+                    for _ev in _idx.values():
+                        _eid = _ev.get("id", "")
+                        if _eid not in _seen:
+                            _seen.add(_eid)
+                            _games.append(_ev)
+            if not _games:
+                for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
+                    _sfraw = _rr.get(_sfkey)
+                    if _sfraw:
+                        _games.extend(_jc.loads(_sfraw))
+            return _games
+
+        _sf_games = _load_sf_games()
+
+        # If cache is empty (Sofascore returned 0 games at 8 AM scan), force a fresh scan
+        if not _sf_games:
+            logger.info("Sofascore cache empty before %s entry — triggering rescan", period)
+            try:
+                from src.workers.picks_worker import scan_todays_games as _stg2
+                _stg2()
+                _sf_games = _load_sf_games()
+            except Exception as _se2:
+                logger.warning("Sofascore rescan failed: %s", _se2)
+
+        logger.info("Kalshi _build_entry [%s]: %d Sofascore games, %d Kalshi markets",
+                    period, len(_sf_games), len(kalshi_full))
     except Exception:
         pass
 
@@ -271,7 +290,6 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         except Exception:
             pass
 
-    logger.info("Kalshi _build_entry: %d sf_games loaded, %d kalshi markets", len(_sf_games), len(kalshi_full))
     candidates: list[dict] = []
     if kalshi_full:
         from dateutil.parser import parse as _dp
@@ -326,9 +344,51 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 except Exception:
                     pass  # can't parse — allow through, Kalshi close_time gate below handles it
             else:
-                # Sofascore is the source of truth for game timing.
-                # No Sofascore match = no confirmed kickoff time = skip.
-                logger.debug("Kalshi: no Sofascore match for subtitle '%s' — skipping", subtitle)
+                if _sf_games:
+                    # Sofascore loaded but no match — game not confirmed, skip
+                    logger.debug("Kalshi: no Sofascore match for '%s' — skipping", subtitle)
+                    continue
+                # Sofascore unavailable — fall back to Kalshi close_time gate
+                _close_raw = m.get("close_time") or m.get("expiration_time") or ""
+                if _close_raw:
+                    try:
+                        _close_dt = _dp(_close_raw)
+                        if _close_dt.tzinfo is None:
+                            _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
+                        if _close_dt.astimezone(UTC) < _now_utc:
+                            continue  # market already closed
+                        if _close_dt.astimezone(UTC) < _now_utc - _td2(minutes=20):
+                            continue  # started more than 20 min ago
+                    except Exception:
+                        pass
+                else:
+                    continue  # no timing info at all — skip
+                _kickoff_et = _to_naive_et(_close_raw)
+                # Build candidate without Sofascore enrichment
+                candidates.append({
+                    "source":        "kalshi_only",
+                    "title":         m.get("title", ""),
+                    "event_title":   subtitle or m.get("title", ""),
+                    "subtitle":      subtitle,
+                    "event_ticker":  m.get("event_ticker", ""),
+                    "market_id":     m.get("market_id", ""),
+                    "home_team":     "",
+                    "away_team":     "",
+                    "sport_key":     "",
+                    "sofascore_id":  "",
+                    "sf_home_odds":  "",
+                    "sf_draw_odds":  "",
+                    "sf_away_odds":  "",
+                    "sf_home_impl":  0,
+                    "sf_away_impl":  0,
+                    "yes_prob":      yes_prob,
+                    "no_prob":       no_prob,
+                    "yes_american":  m.get("yes_american", 0),
+                    "no_american":   m.get("no_american", 0),
+                    "volume":        m.get("volume", 0),
+                    "commence_time": _kickoff_et,
+                    "expiration_time": m.get("expiration_time", ""),
+                })
                 continue
 
             # commence_time = Sofascore kickoff (only path that reaches here)
@@ -367,8 +427,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "expiration_time": m.get("expiration_time", ""),
             })
         candidates.sort(key=lambda x: x["volume"], reverse=True)
-        logger.info("Kalshi candidates after Sofascore gate: %d from %d markets", len(candidates), len(kalshi_full))
-    else:
+    logger.info("Kalshi [%s]: %d candidates from %d markets (%d sf_games)",
+                period, len(candidates), len(kalshi_full), len(_sf_games))
+    if not candidates and kalshi_full:
+
         # Odds API fallback — game winners only
         for g in games:
             if not (0.20 <= g["home_prob"] <= 0.80):

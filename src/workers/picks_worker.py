@@ -532,18 +532,20 @@ def scan_todays_games():
 
 def _load_todays_games(period: str) -> list[dict]:
     """Load day or night games from Redis cache (populated by scan_todays_games).
-    If cache is cold, triggers a fresh scan so Sofascore is always the source of truth."""
+    Rescans if cache is missing OR empty — guards against Sofascore returning 0 games at 8 AM."""
     from src.core.config import REDIS_URL
     import json
     import redis as _redis
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw = r.get(f"sofascore:{period}_games")
-        if not raw:
-            logger.info("Sofascore %s cache cold — running scan now", period)
+        games = json.loads(raw) if raw else []
+        if not games:
+            logger.info("Sofascore %s cache empty — running fresh scan", period)
             scan_todays_games()
             raw = r.get(f"sofascore:{period}_games")
-        return json.loads(raw) if raw else []
+            games = json.loads(raw) if raw else []
+        return games
     except Exception as e:
         logger.warning("Could not load %s games from Redis: %s", period, e)
         return []
