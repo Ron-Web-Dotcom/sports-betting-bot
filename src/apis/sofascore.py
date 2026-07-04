@@ -88,22 +88,23 @@ def _next_sf_port() -> int:
 
 def _get_sf_client():
     """
-    Sofascore HTTP client via Decodo residential proxy.
-    Uses ports 10021-10050 (30 fresh sticky IPs) by default.
-    Override with SOFASCORE_PROXY_PORTS env var (comma-separated port list).
-    Set SOFASCORE_USE_PROXY=0 to bypass proxy entirely (not recommended).
+    Sofascore HTTP client via Decodo rotating residential proxy (port 7777).
+    Port 7777 = new IP on every request — avoids sticky-IP bans from Sofascore.
+    Sticky ports (10001-10050) share a fixed IP per port and get banned after heavy use.
+    Set SOFASCORE_USE_PROXY=0 to bypass proxy (not recommended — VPS IP is banned).
     """
     import httpx
     import os
     from src.core.config import DECODO_PROXY_URL
     use_proxy = os.getenv("SOFASCORE_USE_PROXY", "1") != "0"
     if use_proxy and DECODO_PROXY_URL:
-        port = _next_sf_port()
+        # Port 7777 = Decodo rotating endpoint (fresh residential IP per request)
+        rotating_port = int(os.getenv("SOFASCORE_PROXY_PORT", "7777"))
         return httpx.Client(
             timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
             follow_redirects=True,
             verify=False,
-            proxy=f"{DECODO_PROXY_URL}:{port}",
+            proxy=f"{DECODO_PROXY_URL}:{rotating_port}",
         )
     return httpx.Client(
         timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
