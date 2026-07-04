@@ -960,17 +960,29 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         line      = prop["line"]
         prop_type = prop.get("prop_type", "player")
 
-        opponent = prop.get("away_team") or prop.get("home_team") or ""
+        home_team = prop.get("home_team", "")
+        away_team = prop.get("away_team", "")
+        opponent  = away_team or home_team or ""
+        commence  = prop.get("commence_time", "")
         try:
             player_ctx = build_player_context(player, sport_key, opponent=opponent, n_games=5)
         except Exception:
             player_ctx = {}
 
+        # Merge game-level context (injuries, H2H, weather) into prop analysis
+        try:
+            from src.apis.data_hub import build_game_context as _bgc
+            _game_ctx = _bgc(sport_key=sport_key, home_team=home_team,
+                             away_team=away_team, game_time=commence) if home_team else {}
+        except Exception:
+            _game_ctx = {}
+        merged_ctx = {**_game_ctx, **player_ctx}
+
         event = {
             "sport_key":      sport_key,
-            "home_team":      prop.get("home_team", ""),
-            "away_team":      prop.get("away_team", ""),
-            "commence_time":  "",
+            "home_team":      home_team,
+            "away_team":      away_team,
+            "commence_time":  commence,
             "prop_player":    player,
             "prop_stat":      stat,
             "prop_line":      line,
@@ -978,7 +990,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             "prop_type":      prop_type,
             "description":    f"{player} · {stat} {direction} {line}",
         }
-        ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, player_ctx)
+        ai = analyse_pick(event, [], [], {direction: prop["best_odds"]}, merged_ctx)
 
         if not ai:
             continue

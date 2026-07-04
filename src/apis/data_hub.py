@@ -132,8 +132,9 @@ def build_player_context(
     }
 
     tasks = {
-        "season_stats":  (_fetch_player_season, (player_name, sport_key)),
-        "recent_form":   (_fetch_player_recent, (player_name, sport_key, n_games)),
+        "season_stats":    (_fetch_player_season,    (player_name, sport_key)),
+        "recent_form":     (_fetch_player_recent,    (player_name, sport_key, n_games)),
+        "sofascore_player":(_fetch_sofascore_player, (player_name, sport_key)),
     }
     if opponent:
         tasks["vs_opponent"] = (_fetch_player_vs_team, (player_name, opponent, sport_key))
@@ -213,6 +214,17 @@ def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_t
     from src.apis.sofascore import enrich_game_context
     result = enrich_game_context(sport_key, home_team, away_team, game_time)
     return result if result.get("available") else {}
+
+def _fetch_sofascore_player(player_name: str, sport_key: str) -> dict:
+    """Search Sofascore for a player and return their profile + team."""
+    try:
+        from src.apis.sofascore import search_player
+        hits = search_player(player_name, sport_key)
+        if hits:
+            return {"player": hits[0], "source": "sofascore"}
+    except Exception:
+        pass
+    return {}
 
 def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.sportsdataio import enrich_game_context

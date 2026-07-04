@@ -96,15 +96,26 @@ HOCKEY:
 
 Example facts to name: "Brazil ranked #1 FIFA, 9-1 last 10 qualifiers", "Scheffler world #1, made cut in 12 straight", "Jon Jones 27-1 UFC, last 3 wins by decision", "Djokovic 34-3 H2H vs Alcaraz on clay", "Caitlin Clark avg 22pts/8ast over last 5 games"
 
-STEP 1 — RESEARCH (use context data AND your training knowledge):
-  • Recent form: last 5-10 games, win/loss streak, home/away splits
+LIVE DATA IN PAYLOAD — use these fields when present (they come from Sofascore + official APIs):
+  • league_standings: current table position, points, W-D-L, GF-GA for each team — USE THIS to assess team quality. Position 1 vs Position 15 = massive gap.
+  • sofascore_form / sofascore_h2h: last 5 results + H2H history with scores — more reliable than training knowledge for current-season form
+  • home_last5_results / away_last5_results: each team's last 5 games with opponents + scores
+  • live_match_stats: in-game possession, shots on target, corners, xG — use for live/early-game props
+  • sofascore_bookmaker_odds: real sportsbook implied probability — if this disagrees with Odds API by 5%+, sofascore is your anchor
+  • kalshi_markets: what prediction markets are pricing for this game — use as wisdom-of-crowds signal
+  • sofascore_player_profile: confirmed player team and position — validates prop is for real player on real team
+  • season_stats / recent_form / bdl_log / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
+
+STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
+  • Team quality: check league_standings — position and points tell you more than raw record
+  • Recent form: use sofascore_form and home/away_last5 — these are real current-season results
+  • Head-to-head: use sofascore_h2h — last 5 meetings with actual scores
   • Injuries: who is out or limited on each side, how much does it matter
-  • Head-to-head: last 5-10 meetings, playoff series context if applicable
   • Rest & travel: back-to-back, days rest, travel distance
   • Line movement: did sharp money move this line? which direction?
   • Matchup edges: pace, defensive rating, specific player matchups
-  • Public vs sharp: is the public heavy on one side? what does sharp action say?
-  • For player props: check player's last 5 game log for that specific stat, opponent's defensive rank vs that stat, any pace/matchup advantage
+  • Kalshi cross-check: if kalshi_markets is present, compare Kalshi price to implied prob — large gap = edge
+  • For player props: use recent_form game logs (not just averages), check sofascore_player_profile to confirm the player, use vs_opponent splits if available, check live_match_stats for in-game shot/touch context
 
 STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
   1. Star injury on the opposing side (out or severely limited)
@@ -291,7 +302,7 @@ def analyse_pick(
             payload["breaking_news_web_search"] = game_context["web_search_news"]
         if game_context.get("sofascore_odds"):
             payload["sofascore_bookmaker_odds"] = game_context["sofascore_odds"]
-        # Sofascore enriched context — standings, form, H2H, last 5 events
+        # Sofascore enriched context — standings, form, H2H, last 5, event stats
         sf = game_context.get("sofascore") or {}
         if sf.get("standings"):
             payload["league_standings"] = sf["standings"]
@@ -303,6 +314,14 @@ def analyse_pick(
             payload["home_last5_results"] = sf["home_last5"][:5]
         if sf.get("away_last5"):
             payload["away_last5_results"] = sf["away_last5"][:5]
+        if sf.get("event_stats"):
+            payload["live_match_stats"] = sf["event_stats"]  # possession, shots, corners etc.
+        # Kalshi prediction market prices — cross-reference for edge detection
+        if game_context.get("kalshi_markets"):
+            payload["kalshi_markets"] = game_context["kalshi_markets"][:10]
+        # Player-level Sofascore data for props
+        if game_context.get("sofascore_player"):
+            payload["sofascore_player_profile"] = game_context["sofascore_player"]
 
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)

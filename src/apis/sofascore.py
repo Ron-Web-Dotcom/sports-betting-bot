@@ -597,18 +597,13 @@ def enrich_game_context(
 
     from concurrent.futures import ThreadPoolExecutor
 
-    def _safe(fn, *args):
-        try:
-            return fn(*args)
-        except Exception:
-            return fn.__annotations__.get("return", None) and [] or {}
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         f_h2h       = pool.submit(get_h2h, eid)
         f_form      = pool.submit(get_team_form, eid)
         f_standings = pool.submit(get_team_standings_for_event, matched)
         f_home_last = pool.submit(get_team_last_events, matched.get("home_team_id", ""))
         f_away_last = pool.submit(get_team_last_events, matched.get("away_team_id", ""))
+        f_stats     = pool.submit(get_event_statistics, eid)
         # pool.__exit__ waits for all futures — safe to call .result() below
 
     def _get_result(f, default):
@@ -627,6 +622,7 @@ def enrich_game_context(
         "standings":    _get_result(f_standings, {}),
         "home_last5":   _get_result(f_home_last, []),
         "away_last5":   _get_result(f_away_last, []),
+        "event_stats":  _get_result(f_stats, {}),  # possession, shots, corners etc.
         "source":       "sofascore",
     }
     return context
