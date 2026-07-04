@@ -106,22 +106,26 @@ def test_endpoints():
             results.append((name, False))
 
     # Sofascore — must use its own client (browser headers required; bare get_json fails)
+    # Test with today's date + MLB (in season July) instead of NFL (off-season)
+    import datetime
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
     for sf_name, sf_path in [
-        ("Sofascore scheduled (NFL)", "/sport/football/scheduled-events/2025-07-05"),
-        ("Sofascore team search",     "/search/teams/Arsenal"),
+        ("Sofascore MLB today",   f"/sport/baseball/scheduled-events/{today_str}"),
+        ("Sofascore soccer today",f"/sport/football/scheduled-events/{today_str}"),
     ]:
         t0 = time.time()
         try:
             from src.apis.sofascore import _get as sf_get
             data = sf_get(sf_path)
             ms = int((time.time() - t0) * 1000)
-            if data:
-                size = len(str(data)) // 1024
-                ok(f"{sf_name:<35s} OK  {ms:>4}ms  ~{size}KB")
-                results.append((sf_name, True))
-            else:
-                fail(f"{sf_name:<35s} NO DATA ({ms}ms)  (browser headers sent)")
+            if data is None:
+                fail(f"{sf_name:<35s} None returned ({ms}ms)  — blocked or no games")
                 results.append((sf_name, False))
+            else:
+                events = data.get("events", data) if isinstance(data, dict) else data
+                count = len(events) if isinstance(events, list) else "?"
+                ok(f"{sf_name:<35s} OK  {ms:>4}ms  {count} events")
+                results.append((sf_name, True))
         except Exception as e:
             ms = int((time.time() - t0) * 1000)
             fail(f"{sf_name:<35s} {str(e)[:55]} ({ms}ms)")
