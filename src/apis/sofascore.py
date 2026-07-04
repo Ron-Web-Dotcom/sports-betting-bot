@@ -74,25 +74,22 @@ def _next_sf_port() -> int:
 
 def _get_sf_client():
     """
-    Sofascore HTTP client — tries VPS direct IP first, then Decodo proxy.
-    Decodo residential IPs get banned by Sofascore; the VPS datacenter IP
-    is often less aggressively filtered for API endpoints (not the website).
-    Falls back to proxy if SOFASCORE_USE_PROXY=1 is set in env.
+    Sofascore HTTP client via Decodo residential proxy (dedicated port pool 10011-10020).
+    Residential proxy is required — VPS datacenter IP (DigitalOcean) is blocked by Sofascore.
+    Set SOFASCORE_USE_PROXY=0 in .env to bypass proxy (not recommended).
     """
     import httpx
     import os
-    force_proxy = os.getenv("SOFASCORE_USE_PROXY", "0") == "1"
-    if force_proxy:
-        from src.core.config import DECODO_PROXY_URL
-        if DECODO_PROXY_URL:
-            port = _next_sf_port()
-            return httpx.Client(
-                timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
-                follow_redirects=True,
-                verify=False,
-                proxy=f"{DECODO_PROXY_URL}:{port}",
-            )
-    # Default: VPS direct IP (no proxy) — cleaner fingerprint, less likely banned
+    from src.core.config import DECODO_PROXY_URL
+    use_proxy = os.getenv("SOFASCORE_USE_PROXY", "1") != "0"
+    if use_proxy and DECODO_PROXY_URL:
+        port = _next_sf_port()
+        return httpx.Client(
+            timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
+            follow_redirects=True,
+            verify=False,
+            proxy=f"{DECODO_PROXY_URL}:{port}",
+        )
     return httpx.Client(
         timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
         follow_redirects=True,
