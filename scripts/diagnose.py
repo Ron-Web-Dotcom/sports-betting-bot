@@ -59,9 +59,6 @@ def test_endpoints():
         ("Sleeper trending NFL",   "https://api.sleeper.app/v1/players/nfl/trending/add",                        {"limit": 5},          "",          ""),
         # Open-Meteo — free weather, no key
         ("Open-Meteo weather",     "https://api.open-meteo.com/v1/forecast",                                     {"latitude": 40.8, "longitude": -73.9, "hourly": "temperature_2m", "forecast_days": 1}, "hourly", ""),
-        # Sofascore — via Decodo proxy (results vary by season/endpoint)
-        ("Sofascore scheduled",    "https://api.sofascore.com/api/v1/sport/football/scheduled-events/2025-07-05", None,                 "",          "seasonal"),
-        ("Sofascore search",       "https://api.sofascore.com/api/v1/search/teams/Arsenal",                      None,                  "",          "team search"),
     ]
 
     # Kalshi — uses RSA-signed auth, test via our own client
@@ -107,6 +104,28 @@ def test_endpoints():
             ms = int((time.time() - t0) * 1000)
             fail(f"{name:<35s} {str(e)[:55]} ({ms}ms)")
             results.append((name, False))
+
+    # Sofascore — must use its own client (browser headers required; bare get_json fails)
+    for sf_name, sf_path in [
+        ("Sofascore scheduled (NFL)", "/sport/football/scheduled-events/2025-07-05"),
+        ("Sofascore team search",     "/search/teams/Arsenal"),
+    ]:
+        t0 = time.time()
+        try:
+            from src.apis.sofascore import _get as sf_get
+            data = sf_get(sf_path)
+            ms = int((time.time() - t0) * 1000)
+            if data:
+                size = len(str(data)) // 1024
+                ok(f"{sf_name:<35s} OK  {ms:>4}ms  ~{size}KB")
+                results.append((sf_name, True))
+            else:
+                fail(f"{sf_name:<35s} NO DATA ({ms}ms)  (browser headers sent)")
+                results.append((sf_name, False))
+        except Exception as e:
+            ms = int((time.time() - t0) * 1000)
+            fail(f"{sf_name:<35s} {str(e)[:55]} ({ms}ms)")
+            results.append((sf_name, False))
 
     passed = sum(1 for _, r in results if r)
     total  = len(results)
