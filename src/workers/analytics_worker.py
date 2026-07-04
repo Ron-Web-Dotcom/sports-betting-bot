@@ -366,21 +366,6 @@ def enter_sleep_mode():
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 
-    # Pull today's settled results from Redis slip tracker
-    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
-    total = wins + losses
-
-    if total == 0:
-        record_str = "No settled picks today — results appear as games finish."
-        color = 0x1A237E
-    else:
-        pct = round(wins / total * 100) if total else 0
-        record_str = f"**{wins}W – {losses}L** ({pct}% hit rate)"
-        color = 0x1A237E
-
-    win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
-    loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
-
     # ── Weekly summary — Sunday night only (fires 3 AM Monday morning) ───────
     if et.weekday() == 0:  # 0 = Monday; 3 AM Monday = Sunday night rollover
         try:
@@ -435,35 +420,15 @@ def enter_sleep_mode():
         except Exception as _we:
             logger.warning("3 AM weekly summary failed: %s", _we)
 
-    import hashlib
-    date_str = et.strftime("%b %-d, %Y")
-    slip_id  = hashlib.md5(f"daily{date_str}".encode()).hexdigest()[:8].upper()
-    color    = 0x1B5E20 if wins > losses and total > 0 else (0xB71C1C if losses > wins and total > 0 else 0x1A237E)
-
+    # Sleep mode announcement — no W/L summary here, recap moves to 5 AM wake-up
     embed = {
-        "title": f"📊  DAILY SUMMARY  ·  {et.strftime('%A, %b %-d')}",
+        "title": "😴  Sleep Mode Activated  —  3:00 AM ET",
         "description": (
-            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "Bot pausing all scanning & alerts until 5:00 AM ET.\n"
+            "Existing positions are safe — no changes during sleep.  ᶻᶻᶻ"
         ),
-        "color": color,
-        "fields": [
-            {"name": "TODAY'S RECORD", "value": record_str,  "inline": True},
-            {"name": "TOTAL PICKS",    "value": str(total),  "inline": True},
-            {"name": "​",         "value": "​",     "inline": True},
-            {"name": "✅  CASHED",     "value": win_text,    "inline": True},
-            {"name": "❌  DEAD",       "value": loss_text,   "inline": True},
-            {"name": "​",         "value": "​",     "inline": True},
-            {
-                "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value": (
-                    "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**\n"
-                    "Scanning paused  ·  Back online at 5 AM ET"
-                ),
-                "inline": False,
-            },
-        ],
-        "footer": {"text": f"Daily recap  ·  3:00 AM ET  ·  {date_str}  ·  See you at 5 AM"},
+        "color": 0x1A237E,
+        "footer": {"text": "See you at 5 AM  ·  Morning recap will include yesterday's results"},
     }
     _run_async(_post({"embeds": [embed]}))
     logger.info("Sleep mode entered at %s ET", et.strftime("%H:%M"))
@@ -475,49 +440,68 @@ def enter_sleep_mode():
     except Exception as e:
         logger.warning("Self-improvement failed during sleep: %s", e)
 
-    return {"sleep_entered": et.isoformat(), "wins": wins, "losses": losses, "pushes": pushes}
+    return {"sleep_entered": et.isoformat()}
 
 
 def wake_up_brief():
-    """5 AM Eastern — slip-style wake-up post."""
+    """5 AM Eastern — bot back online + yesterday's recap."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
-    from datetime import datetime
+    from datetime import datetime, date
     import zoneinfo
     import hashlib
 
-    ET      = zoneinfo.ZoneInfo("America/New_York")
-    now_et  = datetime.now(ET)
-    date_str = now_et.strftime("%b %-d, %Y")
-    slip_id  = hashlib.md5(f"wakeup{date_str}".encode()).hexdigest()[:8].upper()
+    ET       = zoneinfo.ZoneInfo("America/New_York")
+    now_et   = datetime.now(ET)
+    today_str    = now_et.strftime("%b %-d, %Y")
+    yesterday_str = (now_et.strftime("%A, %b %-d"))
+    slip_id  = hashlib.md5(f"wakeup{today_str}".encode()).hexdigest()[:8].upper()
+
+    # Pull yesterday's settled results
+    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
+    total = wins + losses
+
+    if total == 0:
+        record_str = "No settled picks yesterday."
+        color = 0x1A237E
+    else:
+        pct = round(wins / total * 100) if total else 0
+        record_str = f"**{wins}W – {losses}L** ({pct}% hit rate)"
+        color = 0x1B5E20 if wins > losses else (0xB71C1C if losses > wins else 0x1A237E)
+
+    win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
+    loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:5]) or "—"
+
+    is_paused = date.today() < date(2026, 7, 10)
+    entry_day   = "**10:35 AM ET**  ·  Kalshi only" if is_paused else "**10:30 AM ET**  ·  HardRock + Kalshi"
+    entry_night = "**4:35 PM ET**  ·  Kalshi only"  if is_paused else "**4:30 PM ET**  ·  HardRock + Kalshi"
 
     embed = {
-        "title": "🟢  BOT IS LIVE  ·  Let's Get It",
+        "title": "☀️  Good Morning — Bot Back Online  ·  5:00 AM ET",
         "description": (
-            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
+            f"**{today_str}**  ·  Slip `#{slip_id}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
+        "color": color,
         "fields": [
-            {"name": "STATUS",      "value": "🟢  Scanning all sports",                    "inline": True},
-            {"name": "MODE",        "value": "High-confidence picks only",                  "inline": True},
-            {"name": "​", "value": "​",                                            "inline": True},
-            *([
-                {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  Kalshi only  ·  HardRock resumes Jul 10", "inline": True},
-                {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  Kalshi only  ·  HardRock resumes Jul 10",  "inline": True},
-            ] if __import__('datetime').date.today() < __import__('datetime').date(2026, 7, 10) else [
-                {"name": "☀️  DAY ENTRY",   "value": "**10:30 AM ET**  ·  HardRock + Kalshi", "inline": True},
-                {"name": "🌙  NIGHT ENTRY", "value": "**4:30 PM ET**  ·  HardRock + Kalshi",  "inline": True},
-            ]),
-            {"name": "​", "value": "​",                                            "inline": True},
-            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-             "value": "Picks post automatically when edge is found.\nAll picks require positive EV + 77%+ confidence.",
-             "inline": False},
+            {"name": f"📊  {yesterday_str.upper()} RECAP", "value": record_str, "inline": False},
+            {"name": "✅  CASHED",     "value": win_text,    "inline": True},
+            {"name": "❌  DEAD",       "value": loss_text,   "inline": True},
+            {"name": "​",             "value": "​",         "inline": True},
+            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "value": "​", "inline": False},
+            {"name": "☀️  DAY ENTRY",   "value": entry_day,   "inline": True},
+            {"name": "🌙  NIGHT ENTRY", "value": entry_night, "inline": True},
+            {"name": "​",             "value": "​",         "inline": True},
+            {
+                "name": "STATUS",
+                "value": "🟢  Scanning all sports  ·  77%+ confidence required  ·  Positive EV only",
+                "inline": False,
+            },
         ],
-        "color": 0x00C851,
-        "footer": {"text": f"5:00 AM ET  ·  {date_str}  ·  Bot online"},
+        "footer": {"text": f"5:00 AM ET  ·  {today_str}  ·  Bot online"},
     }
     _run_async(_post({"embeds": [embed]}))
-    logger.info("Wake-up brief sent (5 AM)")
+    logger.info("Wake-up brief sent (5 AM) with yesterday's recap")
     return {"woke_up": True}
 
 
