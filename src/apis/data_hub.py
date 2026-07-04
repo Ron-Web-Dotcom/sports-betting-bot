@@ -183,15 +183,27 @@ def _fetch_scoreboard_espn(sport_key: str) -> list:
     return fetch_scoreboard(sport_key)
 
 
+_PUBLIC_BOOKS = {"draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"}
+_SHARP_BOOKS  = {"pinnacle"}
+
+
 def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
-    """Detect sharp money and steam moves from our own line movement DB."""
+    """Detect sharp money, steam moves, and public betting % from our odds DB.
+
+    Public % is derived by comparing implied probability on public books
+    (DraftKings, FanDuel, Caesars…) vs Pinnacle (sharp book). When public
+    books have a lower implied prob on a side than Pinnacle, that side has
+    sharp money; the opposite means public money is loading that side.
+    """
     try:
         from src.db.session import get_db
-        from src.db.models import LineMovement, Game
+        from src.db.models import LineMovement, OddsSnapshot, Game
         from src.core.timezone import et_naive
         from datetime import timedelta
 
-        cutoff = et_naive() - timedelta(hours=6)
+        cutoff_moves    = et_naive() - timedelta(hours=6)
+        cutoff_snapshots = et_naive() - timedelta(hours=2)
+
         with get_db() as db:
             # Find game_ids for this matchup
             games = db.query(Game).filter(
@@ -207,9 +219,11 @@ def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
                 return {}
 
             game_ids = [g.id for g in games]
+
+            # ── Line movement rows ─────────────────────────────────────────
             rows = db.query(LineMovement).filter(
                 LineMovement.game_id.in_(game_ids),
-                LineMovement.detected_at >= cutoff,
+                LineMovement.detected_at >= cutoff_moves,
             ).all()
             move_data = [
                 {
@@ -224,7 +238,52 @@ def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
                 for m in rows
             ]
 
-        if not move_data:
+            # ── Public % from current h2h odds snapshots ───────────────────
+            snap_rows = db.query(OddsSnapshot).filter(
+                OddsSnapshot.game_id.in_(game_ids),
+                OddsSnapshot.market == "h2h",
+                OddsSnapshot.captured_at >= cutoff_snapshots,
+            ).all()
+
+        # Compute average implied probability by book type for home side
+        def _to_implied(american: int) -> float:
+            if american >= 0:
+                return 100 / (american + 100)
+            return -american / (-american + 100)
+
+        home_kw = home.split()[-1].lower()
+        public_implieds, sharp_implieds = [], []
+        for snap in snap_rows:
+            if home_kw not in (snap.selection or "").lower():
+                continue
+            try:
+                imp = _to_implied(snap.american_odds)
+            except Exception:
+                continue
+            bk = (snap.book or "").lower()
+            if bk in _SHARP_BOOKS:
+                sharp_implieds.append(imp)
+            elif bk in _PUBLIC_BOOKS:
+                public_implieds.append(imp)
+
+        public_pct_home: float | None = None
+        sharp_pct_home:  float | None = None
+        public_vs_sharp: str | None   = None
+
+        if public_implieds:
+            public_pct_home = round(sum(public_implieds) / len(public_implieds), 4)
+        if sharp_implieds:
+            sharp_pct_home = round(sum(sharp_implieds) / len(sharp_implieds), 4)
+        if public_pct_home is not None and sharp_pct_home is not None:
+            gap = public_pct_home - sharp_pct_home
+            if gap > 0.04:
+                public_vs_sharp = f"PUBLIC loading home ({gap:+.1%} vs Pinnacle)"
+            elif gap < -0.04:
+                public_vs_sharp = f"SHARP on home ({gap:+.1%} vs public books)"
+            else:
+                public_vs_sharp = "aligned"
+
+        if not move_data and public_pct_home is None:
             return {}
 
         sharp = [m for m in move_data if m["type"] in ("sharp", "steam")]
@@ -237,15 +296,24 @@ def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
             score = 0.5 + (len(sharp) - len(public)) / total * 0.4
             score = max(0.1, min(0.9, round(score, 2)))
 
-        return {
-            "score":          score,
-            "sharp_moves":    len(sharp),
-            "public_moves":   len(public),
-            "reverse_moves":  len(reverse),
-            "steam_detected": any(m["type"] == "steam" for m in move_data),
-            "movements":      move_data[:10],
-            "source":         "line_movement_db",
+        result = {
+            "score":           score,
+            "sharp_moves":     len(sharp),
+            "public_moves":    len(public),
+            "reverse_moves":   len(reverse),
+            "steam_detected":  any(m["type"] == "steam" for m in move_data),
+            "movements":       move_data[:10],
+            "source":          "line_movement_db + odds_snapshots",
         }
+        if public_pct_home is not None:
+            result["public_implied_home"]  = public_pct_home
+            result["public_implied_away"]  = round(1 - public_pct_home, 4)
+        if sharp_pct_home is not None:
+            result["pinnacle_implied_home"] = sharp_pct_home
+            result["pinnacle_implied_away"] = round(1 - sharp_pct_home, 4)
+        if public_vs_sharp:
+            result["public_vs_sharp"] = public_vs_sharp
+        return result
     except Exception as e:
         logger.warning("_fetch_sharp_action failed [%s %s vs %s]: %s", sport_key, home, away, e)
         return {}

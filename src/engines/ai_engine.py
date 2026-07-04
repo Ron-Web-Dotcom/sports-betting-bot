@@ -106,6 +106,9 @@ LIVE DATA IN PAYLOAD — use these fields when present (they come from Sofascore
   • sofascore_player_profile: confirmed player team and position — validates prop is for real player on real team
   • season_stats / recent_form / bdl_log / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
   • pinnacle_signal: Pinnacle's implied probability for home/away — the sharpest book in the world. If home_implied or away_implied disagrees with Odds API implied by 5%+, Pinnacle is your anchor
+  • sharp_action.public_implied_home/away: average implied probability across public books (DraftKings, FanDuel, Caesars) — derived from our own odds DB, no paid API needed
+  • sharp_action.pinnacle_implied_home/away: Pinnacle's implied prob (sharp money anchor)
+  • sharp_action.public_vs_sharp: "PUBLIC loading home", "SHARP on home", or "aligned" — gap > 4% is meaningful. Public loading = fade signal; Sharp on home = follow signal
   • ufc_fighter_stats: fighter_1 / fighter_2 records, reach, stance — use for UFC style matchup analysis
 
 STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
@@ -118,6 +121,7 @@ STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
   • Matchup edges: pace, defensive rating, specific player matchups
   • Kalshi cross-check: if kalshi_markets is present, compare Kalshi price to implied prob — large gap = edge
   • Pinnacle cross-check: if pinnacle_signal is present, compare home_implied/away_implied to Odds API implied — Pinnacle is the sharpest book, its line is the true price. A 5%+ gap means the other book is wrong
+  • Public % from our odds DB: sharp_action.public_vs_sharp tells you where retail money is going vs Pinnacle. "PUBLIC loading home" = fade the home side or at minimum expect juice. "SHARP on home" = follow sharp money signal
   • UFC matchup: if ufc_fighter_stats is present, use record, reach, and stance for style analysis (wrestler vs striker, reach advantage, etc.)
   • For player props: use recent_form game logs (not just averages), check sofascore_player_profile to confirm the player, use vs_opponent splits if available, check live_match_stats for in-game shot/touch context
 
