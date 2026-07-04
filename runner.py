@@ -119,6 +119,8 @@ CRON_TASKS = [
     (2,  55, "cleanup_old_snapshots",   None, None),
     (2,  58, "flush_memory",            None, None),
     (12, 0,  "health_check",            None, None),  # midday system health
+    (12, 5,  "cleanup_old_snapshots",   None, None),  # midday prune — prevents rows piling up if 3 AM missed
+    (18, 5,  "cleanup_old_snapshots",   None, None),  # evening prune — keeps DB lean on heavy game days
     (3,  0,  "enter_sleep_mode",        None, None),
     (5,  0,  "wake_up_brief",            None, None),
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan

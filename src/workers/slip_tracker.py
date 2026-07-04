@@ -135,7 +135,7 @@ def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | No
     if ticket_id:
         slip["ticket_id"] = ticket_id
     r.hset(_SLIP_KEY, slip_id, json.dumps(slip))
-    r.persist(_SLIP_KEY)  # never auto-expire; cleanup_old_slips handles removal
+    r.persist(_SLIP_KEY)  # never auto-expire — cleanup_old_slips removes individual fields; TTL would wipe all slips
     logger.info("Slip saved: %s (%d picks)", slip_id, len(picks))
     return slip_id
 
@@ -182,7 +182,7 @@ def _update_ratio(r, result: str) -> dict:
         r.hincrby(_RATIO_KEY, "wins",   1)
     else:
         r.hincrby(_RATIO_KEY, "losses", 1)
-    r.persist(_RATIO_KEY)
+    r.persist(_RATIO_KEY)  # W/L ratio is permanent running total — never auto-expire
     return _get_ratio(r)
 
 

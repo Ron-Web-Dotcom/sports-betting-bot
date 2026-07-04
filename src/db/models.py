@@ -119,7 +119,7 @@ class Game(Base):
     updated_at    = Column(DateTime, default=et_naive, onupdate=et_naive)
 
     sport_ref = relationship("Sport", back_populates="games", foreign_keys=[sport_id])
-    odds      = relationship("OddsSnapshot", back_populates="game")
+    odds      = relationship("OddsSnapshot", back_populates="game", lazy="select")
     picks     = relationship("Pick", back_populates="game")
 
     __table_args__ = (Index("ix_games_commence", "commence_time"),)

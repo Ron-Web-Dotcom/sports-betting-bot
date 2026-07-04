@@ -769,6 +769,7 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
                 Game.commence_time >= cutoff_started,  # include games started <3h ago
                 Game.commence_time <  cutoff_hi,       # within ET end-of-tomorrow
             )
+            .limit(5000)  # guard: 8 books × ~5 markets × ~100 games = ~4000 max
             .all()
         )
         for snap, game in rows:
@@ -841,6 +842,7 @@ def get_opening_line_by_game() -> dict[int, list[dict]]:
                 (OddsSnapshot.book      == subq.c.book)      &
                 (OddsSnapshot.captured_at == subq.c.first_at),
             )
+            .limit(5000)  # opening-line set is same size as current — cap matches
             .all()
         )
         for snap, game in rows:
