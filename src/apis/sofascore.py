@@ -162,7 +162,7 @@ _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
+        "Chrome/137.0.0.0 Safari/537.36"
     ),
     "Accept":           "application/json, text/plain, */*",
     "Accept-Language":  "en-US,en;q=0.9",
@@ -171,7 +171,7 @@ _HEADERS = {
     "Origin":           "https://www.sofascore.com",
     "Cache-Control":    "no-cache",
     "Pragma":           "no-cache",
-    "sec-ch-ua":        '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "sec-ch-ua":        '"Google Chrome";v="137", "Chromium";v="137", "Not.A/Brand";v="24"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
     "Sec-Fetch-Dest":   "empty",
