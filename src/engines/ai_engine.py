@@ -273,50 +273,22 @@ def analyse_pick(
         # rotowire_injuries removed — HTML scraping blocked on VPS datacenter IPs
         if game_context.get("sleeper_injuries"):
             payload["sleeper_trending_drops"] = game_context["sleeper_injuries"]
-        # MLB: official free stats API — pitchers, form, IL
+        # WNBA: NBA Stats API uses TheSportsDB internally (VPS-confirmed)
         if game_context.get("nba_stats_api"):
             nba = game_context["nba_stats_api"]
             if nba.get("nba_home_form"):
-                payload["home_recent_form"]    = nba["nba_home_form"]
+                payload["home_recent_form"]  = nba["nba_home_form"]
             if nba.get("nba_away_form"):
-                payload["away_recent_form"]    = nba["nba_away_form"]
+                payload["away_recent_form"]  = nba["nba_away_form"]
             if nba.get("nba_home_ratings"):
-                payload["home_team_ratings"]   = nba["nba_home_ratings"]
+                payload["home_team_ratings"] = nba["nba_home_ratings"]
             if nba.get("nba_away_ratings"):
-                payload["away_team_ratings"]   = nba["nba_away_ratings"]
-        if game_context.get("mlb_stats"):
-            mlb = game_context["mlb_stats"]
-            if mlb.get("mlb_pitchers"):
-                payload["starting_pitchers"] = mlb["mlb_pitchers"]
-            if mlb.get("mlb_home_pitcher_stats"):
-                payload["home_pitcher_stats"] = mlb["mlb_home_pitcher_stats"]
-            if mlb.get("mlb_away_pitcher_stats"):
-                payload["away_pitcher_stats"] = mlb["mlb_away_pitcher_stats"]
-            if mlb.get("mlb_home_form"):
-                payload["home_recent_form"] = mlb["mlb_home_form"]
-            if mlb.get("mlb_away_form"):
-                payload["away_recent_form"] = mlb["mlb_away_form"]
-            if mlb.get("mlb_home_injuries"):
-                payload["home_il_injuries"] = mlb["mlb_home_injuries"]
-            if mlb.get("mlb_away_injuries"):
-                payload["away_il_injuries"] = mlb["mlb_away_injuries"]
+                payload["away_team_ratings"] = nba["nba_away_ratings"]
+        # mlb_stats removed — statsapi.mlb.com blocked on VPS (confirmed 403)
+        # sofascore removed — api.sofascore.com returns NO DATA via VPS proxy (confirmed)
         # Perplexity web search results — breaking news injected when borderline
         if game_context.get("web_search_news"):
             payload["breaking_news_web_search"] = game_context["web_search_news"]
-        if game_context.get("sofascore_odds"):
-            payload["sofascore_bookmaker_odds"] = game_context["sofascore_odds"]
-        # Sofascore enriched context — standings, form, H2H, last 5, event stats
-        sf = game_context.get("sofascore") or {}
-        if sf.get("standings"):
-            payload["league_standings"] = sf["standings"]
-        if sf.get("form"):
-            payload["sofascore_form"] = sf["form"]
-        if sf.get("h2h"):
-            payload["sofascore_h2h"] = sf["h2h"][:5]
-        if sf.get("home_last5"):
-            payload["home_last5_results"] = sf["home_last5"][:5]
-        if sf.get("away_last5"):
-            payload["away_last5_results"] = sf["away_last5"][:5]
         if sf.get("event_stats"):
             payload["live_match_stats"] = sf["event_stats"]  # possession, shots, corners etc.
         # Kalshi prediction market prices — cross-reference for edge detection

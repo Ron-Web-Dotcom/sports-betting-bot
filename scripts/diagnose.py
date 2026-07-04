@@ -3,17 +3,16 @@
 Diagnostic script — run on the VPS to check:
   1. All external data-source endpoints (live HTTP tests via Decodo proxy)
   2. Redis memory usage and key sizes
-  3. Database table row counts and estimated disk usage
-  4. Process memory (RAM)
+  3. Database table row counts
+  4. Process / system memory
 
 Usage:
-    cd /home/user/sports-betting-bot
+    cd /root/sports-bot
     python3 scripts/diagnose.py
 """
-import os, sys, json, time
+import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Load .env
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -27,71 +26,101 @@ CYAN   = "\033[96m"
 BOLD   = "\033[1m"
 RESET  = "\033[0m"
 
-def ok(msg):  print(f"  {GREEN}✅ {msg}{RESET}")
+def ok(msg):   print(f"  {GREEN}✅ {msg}{RESET}")
 def fail(msg): print(f"  {RED}❌ {msg}{RESET}")
 def warn(msg): print(f"  {YELLOW}⚠️  {msg}{RESET}")
 def info(msg): print(f"  {CYAN}   {msg}{RESET}")
-
-# ── 1. ENDPOINT TESTS ─────────────────────────────────────────────────────────
-
-def test_endpoints():
+def hdr(title):
     print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  ENDPOINT TESTS{RESET}")
+    print(f"{BOLD}  {title}{RESET}")
     print(f"{BOLD}{'='*60}{RESET}")
 
+
+# ── 1. ENDPOINTS ──────────────────────────────────────────────────────────────
+
+def test_endpoints():
+    hdr("ENDPOINT TESTS")
     from src.apis.base import get_json
 
+    # (label, url, params, required_key, notes)
+    # required_key=None means any non-empty response is fine
+    # required_key="" means just check HTTP 200 + non-empty body
     tests = [
-        # (name, url, params, key_in_response)
-        ("ESPN injuries NBA",      "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",   None,                 "injuries"),
-        ("ESPN injuries NFL",      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",     None,                 "injuries"),
-        ("ESPN news NBA",          "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news",       {"limit": 3},         "articles"),
-        ("ESPN scoreboard NBA",    "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", None,                 "events"),
-        ("ESPN scoreboard NFL",    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",   None,                 "events"),
-        ("TheSportsDB search",     "https://www.thesportsdb.com/api/v1/json/3/searchteams.php",               {"t": "Arsenal"},     "teams"),
-        ("TheSportsDB events",     "https://www.thesportsdb.com/api/v1/json/3/eventslast.php",                {"id": "133604"},     "results"),
-        ("Sleeper trending",       "https://api.sleeper.app/v1/players/nfl/trending/add",                     {"limit": 3},         None),
-        ("MLB Stats teams",        "https://statsapi.mlb.com/api/v1/teams",                                   {"sportId": 1},       "teams"),
-        ("Open-Meteo forecast",    "https://api.open-meteo.com/v1/forecast",                                  {"latitude": 40.8, "longitude": -73.9, "hourly": "temperature_2m", "forecast_days": 1}, "hourly"),
-        ("Kalshi markets",         "https://trading-api.kalshi.com/trade-api/v2/markets",                     {"limit": 3},         "markets"),
-        ("Sofascore live",         "https://api.sofascore.com/api/v1/sport/basketball/events/live",           None,                 "events"),
-        ("Sofascore scheduled",    "https://api.sofascore.com/api/v1/sport/football/scheduled-events/2025-07-05", None,             "events"),
+        # ESPN — semi-public, works via Decodo residential proxy
+        ("ESPN injuries NFL",      "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",        None,                  "injuries",  ""),
+        ("ESPN injuries NBA",      "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",      None,                  "injuries",  "off-season → may be empty"),
+        ("ESPN news NFL",          "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news",            {"limit": 3},          "articles",  ""),
+        ("ESPN scoreboard NFL",    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",      None,                  "",          ""),
+        ("ESPN scoreboard MLB",    "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",      None,                  "",          ""),
+        # TheSportsDB — free, confirmed VPS-working
+        ("TheSportsDB search",     "https://www.thesportsdb.com/api/v1/json/3/searchteams.php",                  {"t": "Arsenal"},      "teams",     ""),
+        ("TheSportsDB last events","https://www.thesportsdb.com/api/v1/json/3/eventslast.php",                   {"id": "133604"},      "results",   ""),
+        # Sleeper — free, no key
+        ("Sleeper trending NFL",   "https://api.sleeper.app/v1/players/nfl/trending/add",                        {"limit": 5},          "",          ""),
+        # Open-Meteo — free weather, no key
+        ("Open-Meteo weather",     "https://api.open-meteo.com/v1/forecast",                                     {"latitude": 40.8, "longitude": -73.9, "hourly": "temperature_2m", "forecast_days": 1}, "hourly", ""),
+        # Sofascore — via Decodo proxy (results vary by season/endpoint)
+        ("Sofascore scheduled",    "https://api.sofascore.com/api/v1/sport/football/scheduled-events/2025-07-05", None,                 "",          "seasonal"),
+        ("Sofascore search",       "https://api.sofascore.com/api/v1/search/teams/Arsenal",                      None,                  "",          "team search"),
     ]
 
-    results = []
-    for name, url, params, key in tests:
+    # Kalshi — uses RSA-signed auth, test via our own client
+    kalshi_ok = False
+    t0 = time.time()
+    try:
+        from src.apis.kalshi import get_markets
+        markets = get_markets(limit=3)
+        ms = int((time.time() - t0) * 1000)
+        if markets:
+            ok(f"{'Kalshi markets (authed)':<35s} OK  {ms:>4}ms  {len(markets)} markets")
+            kalshi_ok = True
+        else:
+            warn(f"{'Kalshi markets (authed)':<35s} 0 markets returned ({ms}ms) — check KALSHI_API_KEY_ID")
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        fail(f"{'Kalshi markets (authed)':<35s} {str(e)[:55]} ({ms}ms)")
+
+    results = [("Kalshi markets", kalshi_ok)]
+
+    for name, url, params, key, note in tests:
         t0 = time.time()
         try:
             data = get_json(url, params=params or {})
             ms = int((time.time() - t0) * 1000)
             if data is None:
-                fail(f"{name:<35s} NO DATA ({ms}ms)")
+                fail(f"{name:<35s} NO DATA ({ms}ms)  {note}")
                 results.append((name, False))
-            elif key and not data.get(key):
-                warn(f"{name:<35s} 200 but '{key}' empty ({ms}ms)")
-                results.append((name, False))
+            elif key and not data.get(key) and key != "":
+                # empty list for off-season is still OK
+                if isinstance(data.get(key), list):
+                    ok(f"{name:<35s} OK (empty list — {note})  {ms}ms")
+                    results.append((name, True))
+                else:
+                    warn(f"{name:<35s} 200 but '{key}' missing ({ms}ms)  {note}")
+                    results.append((name, False))
             else:
-                size = len(str(data))
-                ok(f"{name:<35s} OK  {ms:>4}ms  ~{size//1024}KB")
+                size = len(str(data)) // 1024
+                suffix = f"  [{note}]" if note else ""
+                ok(f"{name:<35s} OK  {ms:>4}ms  ~{size}KB{suffix}")
                 results.append((name, True))
         except Exception as e:
             ms = int((time.time() - t0) * 1000)
-            fail(f"{name:<35s} ERROR: {str(e)[:60]} ({ms}ms)")
+            fail(f"{name:<35s} {str(e)[:55]} ({ms}ms)")
             results.append((name, False))
 
     passed = sum(1 for _, r in results if r)
     total  = len(results)
     print(f"\n  {BOLD}Endpoints: {passed}/{total} working{RESET}")
+    if passed < total:
+        bad = [n for n, r in results if not r]
+        print(f"  {RED}Failed: {', '.join(bad)}{RESET}")
     return results
 
 
-# ── 2. REDIS HEALTH ───────────────────────────────────────────────────────────
+# ── 2. REDIS ──────────────────────────────────────────────────────────────────
 
 def test_redis():
-    print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  REDIS MEMORY & KEYS{RESET}")
-    print(f"{BOLD}{'='*60}{RESET}")
-
+    hdr("REDIS MEMORY & KEYS")
     try:
         import redis as _redis
         from src.core.config import REDIS_URL
@@ -102,97 +131,90 @@ def test_redis():
         fail(f"Redis connection failed: {e}")
         return
 
-    # Memory info
     try:
-        info_raw = r.info("memory")
-        used_mb  = info_raw["used_memory"] / 1024 / 1024
-        peak_mb  = info_raw["used_memory_peak"] / 1024 / 1024
-        rss_mb   = info_raw.get("used_memory_rss", 0) / 1024 / 1024
-        maxmem   = info_raw.get("maxmemory", 0)
-        maxmem_s = f"{maxmem/1024/1024:.0f}MB" if maxmem else "unlimited"
-
-        label = ok if used_mb < 100 else (warn if used_mb < 200 else fail)
-        label(f"RAM used: {used_mb:.1f}MB  peak: {peak_mb:.1f}MB  RSS: {rss_mb:.1f}MB  max: {maxmem_s}")
+        m       = r.info("memory")
+        used_mb = m["used_memory"] / 1024 / 1024
+        peak_mb = m["used_memory_peak"] / 1024 / 1024
+        rss_mb  = m.get("used_memory_rss", 0) / 1024 / 1024
+        maxmem  = m.get("maxmemory", 0)
+        max_s   = f"{maxmem/1024/1024:.0f}MB" if maxmem else "unlimited"
+        pct     = used_mb / (maxmem / 1024 / 1024) * 100 if maxmem else 0
+        lbl     = ok if (not maxmem or pct < 60) else (warn if pct < 85 else fail)
+        lbl(f"RAM: {used_mb:.1f}MB used  peak {peak_mb:.1f}MB  RSS {rss_mb:.1f}MB  limit {max_s}" +
+            (f"  ({pct:.0f}% of limit)" if maxmem else ""))
     except Exception as e:
-        fail(f"Memory info failed: {e}")
-
-    # Key inventory
-    KEY_PATTERNS = [
-        ("slips:active",          "Active slips hash"),
-        ("slips:ratio",           "W/L ratio hash"),
-        ("slips:alerted",         "Alerted set"),
-        ("sf:games:*",            "Sofascore game cache"),
-        ("props:odds_api",        "Props odds blob"),
-        ("props:all",             "All props blob"),
-        ("odds:snapshot:*",       "Odds snapshots"),
-    ]
+        fail(f"Memory info: {e}")
 
     print()
-    total_keys = r.dbsize()
-    info(f"Total Redis keys: {total_keys}")
+    info(f"Total keys: {r.dbsize()}")
 
-    for pattern, label in KEY_PATTERNS:
+    KEY_PATTERNS = [
+        ("slips:active",    "Active slips hash",     "INTENTIONAL — cleanup removes individual fields"),
+        ("slips:ratio",     "W/L ratio hash",        "INTENTIONAL — permanent running total"),
+        ("slips:alerted",   "Alerted slip IDs",      ""),
+        ("sf:games:*",      "Sofascore game cache",  ""),
+        ("props:odds_api",  "Props odds blob",       ""),
+        ("props:all",       "All props blob",        ""),
+        ("sf:scan:*",       "Sofascore scan cache",  ""),
+        ("odds:*",          "Odds cache keys",       ""),
+    ]
+
+    for pattern, label, note in KEY_PATTERNS:
         try:
-            if "*" in pattern:
-                keys = r.keys(pattern)
-                count = len(keys)
-                if count == 0:
-                    info(f"{label:<30s} 0 keys")
-                    continue
-                # sample one key for size
-                sample = keys[0]
-            else:
-                if not r.exists(pattern):
-                    info(f"{label:<30s} not set")
-                    continue
-                sample = pattern
-                count  = 1
+            keys = r.keys(pattern) if "*" in pattern else ([pattern] if r.exists(pattern) else [])
+            if not keys:
+                info(f"{label:<28s} — not set")
+                continue
+            sample = keys[0]
+            ktype  = r.type(sample)
+            ttl    = r.ttl(sample)
+            ttl_s  = f"TTL {ttl//86400}d {(ttl%86400)//3600}h" if ttl > 0 else f"NO TTL {'(by design)' if note else '⚠️'}"
 
-            # measure size
-            ktype = r.type(sample)
             if ktype == "hash":
-                size  = r.hlen(sample)
-                ttl   = r.ttl(sample)
-                ttl_s = f"TTL {ttl//86400}d" if ttl > 0 else "NO TTL ⚠️"
-                lbl   = ok if ttl > 0 else warn
-                lbl(f"{label:<30s} {count} key(s)  {size} fields  {ttl_s}")
+                fields = r.hlen(sample)
+                mem_kb = int(r.memory_usage(sample) or 0) // 1024
+                lbl = ok if (ttl > 0 or note) else warn
+                lbl(f"{label:<28s} {len(keys)} key(s)  {fields} fields  {mem_kb}KB  {ttl_s}")
             elif ktype == "string":
-                raw   = r.get(sample) or ""
-                kb    = len(raw) // 1024
-                ttl   = r.ttl(sample)
-                ttl_s = f"TTL {ttl//3600}h" if ttl > 0 else "NO TTL ⚠️"
-                lbl   = ok if ttl > 0 else warn
-                lbl(f"{label:<30s} {count} key(s)  {kb}KB  {ttl_s}")
+                raw    = r.get(sample) or ""
+                kb     = len(raw) // 1024
+                lbl    = ok if (ttl > 0 or note) else warn
+                lbl(f"{label:<28s} {len(keys)} key(s)  {kb}KB  {ttl_s}")
             else:
-                ttl = r.ttl(sample)
-                ttl_s = f"TTL {ttl}s" if ttl > 0 else "NO TTL"
-                info(f"{label:<30s} {count} key(s)  type={ktype}  {ttl_s}")
+                info(f"{label:<28s} {len(keys)} key(s)  type={ktype}  {ttl_s}")
         except Exception as e:
-            warn(f"{label:<30s} error: {e}")
+            warn(f"{label:<28s} error: {e}")
 
 
-# ── 3. DATABASE HEALTH ────────────────────────────────────────────────────────
+# ── 3. DATABASE ───────────────────────────────────────────────────────────────
 
 def test_database():
-    print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  DATABASE TABLE SIZES{RESET}")
-    print(f"{BOLD}{'='*60}{RESET}")
-
+    hdr("DATABASE TABLE SIZES")
     try:
         from src.db.session import get_db
-        from src.db.models import OddsSnapshot, Game, LineMovement, Pick, Alert
+        from src.db.models import OddsSnapshot, Game, LineMovement, Pick
         ok("Database connected")
     except Exception as e:
-        fail(f"Database import failed: {e}")
+        fail(f"DB import: {e}")
         return
 
+    # Try to import optional models
+    extra_models = {}
+    for name in ["AlertRecord", "Sport", "BankrollSnapshot"]:
+        try:
+            mod = __import__("src.db.models", fromlist=[name])
+            extra_models[name] = getattr(mod, name)
+        except Exception:
+            pass
+
     tables = [
-        ("OddsSnapshot",  OddsSnapshot,  2_000_000, "Prune if >2M rows — run cleanup_old_snapshots"),
-        ("Game",          Game,          50_000,    "Should stay small"),
-        ("LineMovement",  LineMovement,  500_000,   "Prune if >500K rows"),
-        ("Pick",          Pick,          10_000,    "Normal growth"),
-        ("Alert",         Alert,         50_000,    "Normal growth"),
+        ("OddsSnapshot",  OddsSnapshot,   2_000_000, "🚨 PRUNE NOW — run cleanup_old_snapshots"),
+        ("LineMovement",  LineMovement,    500_000,   "🚨 PRUNE — run cleanup_old_snapshots"),
+        ("Game",          Game,            50_000,    "OK — games accumulate slowly"),
+        ("Pick",          Pick,            20_000,    "OK — normal growth"),
     ]
+    for mname, model in extra_models.items():
+        tables.append((mname, model, 50_000, "OK"))
 
     try:
         with get_db() as db:
@@ -200,112 +222,135 @@ def test_database():
                 try:
                     count = db.query(model).count()
                     pct   = count / limit * 100
-                    label = ok if pct < 50 else (warn if pct < 90 else fail)
-                    label(f"{name:<20s} {count:>10,} rows  ({pct:.0f}% of limit)  — {note if pct >= 50 else 'OK'}")
+                    lbl   = ok if pct < 50 else (warn if pct < 85 else fail)
+                    lbl(f"{name:<20s} {count:>10,} rows  ({pct:.0f}% of {limit:,} limit)" +
+                        (f"  ← {note}" if pct >= 50 else ""))
                 except Exception as e:
-                    warn(f"{name:<20s} count failed: {e}")
+                    warn(f"{name:<20s} count error: {e}")
     except Exception as e:
-        fail(f"DB session failed: {e}")
+        fail(f"DB session: {e}")
+        return
 
-    # Check for DB file size if SQLite
+    # DB size
     db_url = os.getenv("DATABASE_URL", "")
     if "sqlite" in db_url:
-        path = db_url.replace("sqlite:///", "")
+        path = db_url.replace("sqlite:///", "").replace("sqlite://", "")
         if os.path.exists(path):
             mb = os.path.getsize(path) / 1024 / 1024
-            label = ok if mb < 500 else (warn if mb < 1000 else fail)
-            label(f"SQLite file size: {mb:.1f}MB")
-    elif "postgresql" in db_url or "postgres" in db_url:
+            lbl = ok if mb < 500 else (warn if mb < 1000 else fail)
+            lbl(f"SQLite file: {mb:.1f}MB  ({path})")
+    elif "postgres" in db_url:
         try:
+            from sqlalchemy import text
             with get_db() as db:
-                result = db.execute(
-                    "SELECT pg_size_pretty(pg_database_size(current_database())) as size"
-                ).fetchone()
-                ok(f"Postgres DB size: {result[0]}")
+                row = db.execute(text("SELECT pg_size_pretty(pg_database_size(current_database()))")).fetchone()
+                ok(f"Postgres size: {row[0]}")
         except Exception as e:
-            warn(f"Could not get Postgres size: {e}")
+            warn(f"Postgres size: {e}")
 
 
-# ── 4. PROCESS MEMORY ─────────────────────────────────────────────────────────
+# ── 4. SYSTEM MEMORY ──────────────────────────────────────────────────────────
 
-def test_process_memory():
-    print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  PROCESS MEMORY (this Python process){RESET}")
-    print(f"{BOLD}{'='*60}{RESET}")
+def test_memory():
+    hdr("SYSTEM MEMORY")
 
+    # /proc/meminfo — always available on Linux, no psutil needed
     try:
-        import psutil
-        proc  = psutil.Process()
-        rss   = proc.memory_info().rss / 1024 / 1024
-        label = ok if rss < 150 else (warn if rss < 300 else fail)
-        label(f"RSS: {rss:.1f}MB")
+        mem = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    mem[parts[0].rstrip(":")] = int(parts[1])
 
-        # System RAM
-        vm = psutil.virtual_memory()
-        used_pct = vm.percent
-        avail_mb = vm.available / 1024 / 1024
-        label2 = ok if used_pct < 70 else (warn if used_pct < 85 else fail)
-        label2(f"System RAM: {used_pct:.0f}% used  {avail_mb:.0f}MB free  total {vm.total//1024//1024}MB")
+        total_mb = mem.get("MemTotal", 0) / 1024
+        free_mb  = mem.get("MemFree",  0) / 1024
+        avail_mb = mem.get("MemAvailable", free_mb) / 1024
+        used_mb  = total_mb - avail_mb
+        pct      = used_mb / total_mb * 100 if total_mb else 0
 
-        # Top processes by RAM
-        print()
-        info("Top processes by RAM:")
-        procs = sorted(psutil.process_iter(["pid","name","memory_info"]),
-                       key=lambda p: p.info["memory_info"].rss if p.info["memory_info"] else 0,
-                       reverse=True)[:6]
-        for p in procs:
-            mb = p.info["memory_info"].rss / 1024 / 1024 if p.info["memory_info"] else 0
-            info(f"  {p.info['name'][:25]:<25s} PID {p.info['pid']:>6}  {mb:>6.1f}MB")
+        lbl = ok if pct < 70 else (warn if pct < 85 else fail)
+        lbl(f"RAM: {used_mb:.0f}MB used / {total_mb:.0f}MB total  ({pct:.0f}%)  {avail_mb:.0f}MB available")
 
-    except ImportError:
-        warn("psutil not installed — run: pip install psutil")
+        swap_total = mem.get("SwapTotal", 0) / 1024
+        swap_free  = mem.get("SwapFree",  0) / 1024
+        swap_used  = swap_total - swap_free
+        if swap_total > 0:
+            swap_pct = swap_used / swap_total * 100
+            lbl2 = ok if swap_pct < 20 else warn
+            lbl2(f"Swap: {swap_used:.0f}MB used / {swap_total:.0f}MB total  ({swap_pct:.0f}%)")
+        else:
+            info("Swap: not configured")
     except Exception as e:
-        warn(f"Memory check failed: {e}")
+        warn(f"/proc/meminfo unavailable: {e}")
+
+    # Top memory processes from /proc
+    try:
+        print()
+        info("Top processes by RSS:")
+        procs = []
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                with open(f"/proc/{pid}/status") as f:
+                    lines = {l.split(":")[0]: l.split(":")[1].strip() for l in f if ":" in l}
+                name = lines.get("Name", "?")
+                rss  = int(lines.get("VmRSS", "0 kB").split()[0]) / 1024
+                procs.append((rss, name, pid))
+            except Exception:
+                continue
+        procs.sort(reverse=True)
+        for rss, name, pid in procs[:8]:
+            lbl = ok if rss < 200 else (warn if rss < 400 else fail)
+            lbl(f"  {name[:22]:<22s} PID {pid:>6}  {rss:>6.0f}MB")
+    except Exception as e:
+        warn(f"Process list: {e}")
+
+    # This script's own footprint
+    try:
+        with open(f"/proc/{os.getpid()}/status") as f:
+            lines = {l.split(":")[0]: l.split(":")[1].strip() for l in f if ":" in l}
+        rss = int(lines.get("VmRSS", "0 kB").split()[0]) / 1024
+        info(f"This diagnostic script: {rss:.0f}MB RSS")
+    except Exception:
+        pass
 
 
-# ── 5. THREAD POOL CHECK ──────────────────────────────────────────────────────
+# ── 5. THREAD POOLS ───────────────────────────────────────────────────────────
 
-def test_thread_config():
-    print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  THREAD POOL CONFIGURATION{RESET}")
-    print(f"{BOLD}{'='*60}{RESET}")
-
+def test_threads():
+    hdr("THREAD POOL LIMITS")
     checks = [
-        ("data_hub build_game_context",    4,  "max_workers=4 — safe for 1GB VPS"),
-        ("data_hub build_player_context",  4,  "max_workers=4"),
-        ("odds_engine parallel fetch",     4,  "max_workers=4"),
-        ("picks_worker candidates",        4,  "max_workers=4"),
-        ("prediction_market_worker",       4,  "max_workers=4"),
-        ("sofascore enrich_game_context",  6,  "max_workers=6 — 6 parallel Sofascore calls"),
+        ("data_hub.build_game_context",   4, 4),
+        ("data_hub.build_player_context", 4, 4),
+        ("odds_engine parallel fetch",    4, 4),
+        ("picks_worker candidates",       4, 4),
+        ("prediction_market_worker",      4, 4),
+        ("sofascore.enrich_game_context", 6, 6),
     ]
-    for name, workers, note in checks:
-        label = ok if workers <= 6 else warn
-        label(f"{name:<40s} {workers} workers  — {note}")
-
-    ok("Runner is single-process (no Celery) — no worker amplification risk")
+    for name, actual, limit in checks:
+        lbl = ok if actual <= limit else fail
+        lbl(f"{name:<40s} {actual} workers  (limit {limit})")
+    ok("Single-process runner — no Celery concurrency amplification")
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  SPORTS-BOT DIAGNOSTIC  {RESET}")
-    print(f"{BOLD}{'='*60}{RESET}")
-
-    endpoint_results = test_endpoints()
+    hdr("SPORTS-BOT DIAGNOSTIC")
+    ep = test_endpoints()
     test_redis()
     test_database()
-    test_process_memory()
-    test_thread_config()
+    test_memory()
+    test_threads()
 
-    # Summary
-    passed = sum(1 for _, r in endpoint_results if r)
-    total  = len(endpoint_results)
-    print(f"\n{BOLD}{'='*60}{RESET}")
-    print(f"{BOLD}  SUMMARY{RESET}")
-    print(f"{BOLD}{'='*60}{RESET}")
-    print(f"  Endpoints: {passed}/{total} working")
+    passed = sum(1 for _, r in ep if r)
+    total  = len(ep)
+    hdr("SUMMARY")
+    lbl = ok if passed == total else (warn if passed >= total * 0.7 else fail)
+    lbl(f"Endpoints: {passed}/{total} working")
     if passed < total:
-        failed = [n for n, r in endpoint_results if not r]
-        print(f"  {RED}Failed: {', '.join(failed)}{RESET}")
+        bad = [n for n, r in ep if not r]
+        print(f"  {RED}Failed: {', '.join(bad)}{RESET}")
     print()

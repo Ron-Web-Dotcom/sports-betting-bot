@@ -90,7 +90,6 @@ _ALL_FETCHER_PATCHES = [
     "src.apis.data_hub._fetch_kalshi_markets",
     "src.apis.data_hub._fetch_sportradar_game",
     "src.apis.data_hub._fetch_thesportsdb",
-    "src.apis.data_hub._fetch_sofascore_game",
 ]
 
 

@@ -65,8 +65,7 @@ def build_game_context(
         "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
         # TheSportsDB — confirmed working on VPS, free, 800+ leagues
         "thesportsdb":         (_fetch_thesportsdb,       (sport_key, home_team, away_team)),
-        # Sofascore — standings, H2H, form, last-5 (workers use it successfully via Decodo proxy)
-        "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
+        # REMOVED: Sofascore — api.sofascore.com returns NO DATA via VPS proxy (confirmed in diagnose.py)
         # REMOVED: RotoWire — HTML scraping blocked on VPS datacenter IPs
         # REMOVED: BallDontLie — requires API key, none configured
         # REMOVED: PrizePicks — partner-api endpoint unreliable from VPS
@@ -78,9 +77,7 @@ def build_game_context(
     if sport_key in ("americanfootball_nfl", "basketball_nba"):
         tasks["sleeper_injuries"] = (_fetch_sleeper_injuries, (sport_key,))
 
-    # MLB: official MLB Stats API — pitchers, form, IL injuries (free, no key)
-    if sport_key == "baseball_mlb":
-        tasks["mlb_stats"] = (_fetch_mlb_stats, (home_team, away_team))
+    # REMOVED: MLB Stats API — statsapi.mlb.com returns 403 Forbidden from VPS IP (confirmed in diagnose.py)
 
     # WNBA: NBA Stats API uses TheSportsDB internally (VPS-confirmed)
     if sport_key == "basketball_wnba":
@@ -378,11 +375,7 @@ def _fetch_player_season(player_name: str, sport_key: str) -> dict:
     MMA/UFC Stats removed — HTTP-only endpoint blocked by VPS proxy.
     """
     try:
-        if sport_key == "baseball_mlb":
-            from src.apis.mlb_stats import get_player_season_stats
-            result = get_player_season_stats(player_name)
-            if result:
-                return result
+        # MLB Stats API removed — statsapi.mlb.com blocked on VPS (403)
         if sport_key in ("basketball_nba", "americanfootball_nfl", "icehockey_nhl"):
             from src.apis.sportradar import get_player_season_stats
             result = get_player_season_stats(player_name, sport_key)
