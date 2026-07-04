@@ -468,6 +468,12 @@ def wake_up_brief():
         kalshi_count = len(json.loads(kalshi_raw)) if kalshi_raw else 0
         services.append(f"✅  Kalshi  ({kalshi_count} markets)")
 
+        from datetime import date as _d
+        if _d.today() < _d(2026, 7, 10):
+            services.append("⏸️  HardRock  (resumes Jul 10)")
+        else:
+            services.append("✅  HardRock")
+
         slips_raw = r.hgetall("slips:active")
         open_pos = sum(
             1 for v in (slips_raw.values() if slips_raw else [])
@@ -901,11 +907,17 @@ def yesterday_recap():
             {"name": "📅  TODAY'S GAMES",   "value": today_games_text, "inline": False},
             {
                 "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value": "☀️  Day entry  **10:30 AM ET**  ·  🌙  Night entry  **4:30 PM ET**",
+                "value": (
+                    "☀️  Day entry  **10:35 AM ET** · Kalshi  ·  HardRock ⏸️ resumes Jul 10\n"
+                    "🌙  Night entry  **4:35 PM ET** · Kalshi  ·  HardRock ⏸️ resumes Jul 10"
+                ) if _date.today() < _date(2026, 7, 10) else (
+                    "☀️  Day entry  **10:30 AM ET** · Kalshi + HardRock\n"
+                    "🌙  Night entry  **4:30 PM ET** · Kalshi + HardRock"
+                ),
                 "inline": False,
             },
         ],
-        "footer": {"text": f"6:00 AM ET  ·  {date_str}  ·  Day entry at 10:30 AM ET"},
+        "footer": {"text": f"6:00 AM ET  ·  {date_str}  ·  Kalshi day entry at 10:35 AM ET"},
     }
 
     try:
