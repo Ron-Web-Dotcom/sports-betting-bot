@@ -444,64 +444,60 @@ def enter_sleep_mode():
 
 
 def wake_up_brief():
-    """5 AM Eastern — bot back online + yesterday's recap."""
+    """5 AM Eastern — bot back online with service health only. Recap is at 6 AM."""
     from src.workers.alert_worker import _run_async
     from src.discord_bot.bot import _post
-    from datetime import datetime, date
+    from datetime import datetime
     import zoneinfo
-    import hashlib
+    import json
 
-    ET       = zoneinfo.ZoneInfo("America/New_York")
-    now_et   = datetime.now(ET)
-    today_str    = now_et.strftime("%b %-d, %Y")
-    yesterday_str = (now_et.strftime("%A, %b %-d"))
-    slip_id  = hashlib.md5(f"wakeup{today_str}".encode()).hexdigest()[:8].upper()
+    ET      = zoneinfo.ZoneInfo("America/New_York")
+    now_et  = datetime.now(ET)
+    date_str = now_et.strftime("%b %-d, %Y")
 
-    # Pull yesterday's settled results
-    wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
-    total = wins + losses
+    # Check what's live
+    services: list[str] = []
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        r.ping()
+        services.append("✅  Redis")
 
-    if total == 0:
-        record_str = "No settled picks yesterday."
-        color = 0x1A237E
-    else:
-        pct = round(wins / total * 100) if total else 0
-        record_str = f"**{wins}W – {losses}L** ({pct}% hit rate)"
-        color = 0x1B5E20 if wins > losses else (0xB71C1C if losses > wins else 0x1A237E)
+        kalshi_raw = r.get("kalshi:live_markets")
+        kalshi_count = len(json.loads(kalshi_raw)) if kalshi_raw else 0
+        services.append(f"✅  Kalshi  ({kalshi_count} markets)")
 
-    win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
-    loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:5]) or "—"
+        slips_raw = r.hgetall("slips:active")
+        open_pos = sum(
+            1 for v in (slips_raw.values() if slips_raw else [])
+            if json.loads(v).get("status") == "active"
+        )
+    except Exception:
+        open_pos = 0
 
-    is_paused = date.today() < date(2026, 7, 10)
-    entry_day   = "**10:35 AM ET**  ·  Kalshi only" if is_paused else "**10:30 AM ET**  ·  HardRock + Kalshi"
-    entry_night = "**4:35 PM ET**  ·  Kalshi only"  if is_paused else "**4:30 PM ET**  ·  HardRock + Kalshi"
+    try:
+        from src.engines.health_engine import check_database
+        db_status = check_database()
+        services.append("✅  Database" if db_status.status == "ok" else "❌  Database")
+    except Exception:
+        pass
+
+    service_str = "\n".join(services) if services else "🟢  All systems go"
 
     embed = {
-        "title": "☀️  Good Morning — Bot Back Online  ·  5:00 AM ET",
-        "description": (
-            f"**{today_str}**  ·  Slip `#{slip_id}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ),
-        "color": color,
+        "title": "☀️  Good Morning — Bot Back Online  5:00 AM ET",
+        "description": "Scanning resuming now. 6AM summary coming up.",
+        "color": 0x00C851,
         "fields": [
-            {"name": f"📊  {yesterday_str.upper()} RECAP", "value": record_str, "inline": False},
-            {"name": "✅  CASHED",     "value": win_text,    "inline": True},
-            {"name": "❌  DEAD",       "value": loss_text,   "inline": True},
-            {"name": "​",             "value": "​",         "inline": True},
-            {"name": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "value": "​", "inline": False},
-            {"name": "☀️  DAY ENTRY",   "value": entry_day,   "inline": True},
-            {"name": "🌙  NIGHT ENTRY", "value": entry_night, "inline": True},
-            {"name": "​",             "value": "​",         "inline": True},
-            {
-                "name": "STATUS",
-                "value": "🟢  Scanning all sports  ·  77%+ confidence required  ·  Positive EV only",
-                "inline": False,
-            },
+            {"name": "Service Health", "value": service_str, "inline": False},
+            {"name": "​", "value": "​", "inline": True},
+            {"name": "Open positions holding", "value": f"**{open_pos}**", "inline": False},
         ],
-        "footer": {"text": f"5:00 AM ET  ·  {today_str}  ·  Bot online"},
+        "footer": {"text": f"5:00 AM ET  ·  {date_str}  ·  Bot online"},
     }
     _run_async(_post({"embeds": [embed]}))
-    logger.info("Wake-up brief sent (5 AM) with yesterday's recap")
+    logger.info("Wake-up brief sent (5 AM)")
     return {"woke_up": True}
 
 
