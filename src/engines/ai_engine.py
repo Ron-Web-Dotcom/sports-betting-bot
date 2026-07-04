@@ -103,13 +103,11 @@ LIVE DATA IN PAYLOAD — use these fields when present (they come from Sofascore
   • live_match_stats: in-game possession, shots on target, corners, xG — use for live/early-game props
   • sofascore_bookmaker_odds: real sportsbook implied probability — if this disagrees with Odds API by 5%+, sofascore is your anchor
   • kalshi_markets: what prediction markets are pricing for this game — use as wisdom-of-crowds signal
-  • sofascore_player_profile: confirmed player team and position — validates prop is for real player on real team
-  • season_stats / recent_form / bdl_log / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
+  • season_stats / recent_form / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
   • pinnacle_signal: Pinnacle's implied probability for home/away — the sharpest book in the world. If home_implied or away_implied disagrees with Odds API implied by 5%+, Pinnacle is your anchor
   • sharp_action.public_implied_home/away: average implied probability across public books (DraftKings, FanDuel, Caesars) — derived from our own odds DB, no paid API needed
   • sharp_action.pinnacle_implied_home/away: Pinnacle's implied prob (sharp money anchor)
   • sharp_action.public_vs_sharp: "PUBLIC loading home", "SHARP on home", or "aligned" — gap > 4% is meaningful. Public loading = fade signal; Sharp on home = follow signal
-  • ufc_fighter_stats: fighter_1 / fighter_2 records, reach, stance — use for UFC style matchup analysis
 
 STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
   • Team quality: check league_standings — position and points tell you more than raw record
@@ -122,7 +120,6 @@ STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
   • Kalshi cross-check: if kalshi_markets is present, compare Kalshi price to implied prob — large gap = edge
   • Pinnacle cross-check: if pinnacle_signal is present, compare home_implied/away_implied to Odds API implied — Pinnacle is the sharpest book, its line is the true price. A 5%+ gap means the other book is wrong
   • Public % from our odds DB: sharp_action.public_vs_sharp tells you where retail money is going vs Pinnacle. "PUBLIC loading home" = fade the home side or at minimum expect juice. "SHARP on home" = follow sharp money signal
-  • UFC matchup: if ufc_fighter_stats is present, use record, reach, and stance for style analysis (wrestler vs striker, reach advantage, etc.)
   • For player props: use recent_form game logs (not just averages), check sofascore_player_profile to confirm the player, use vs_opponent splits if available, check live_match_stats for in-game shot/touch context
 
 STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
@@ -270,12 +267,10 @@ def analyse_pick(
         if sr.get("injuries"):
             payload["sportradar_injuries"] = sr["injuries"]
         # Additional sources
-        if game_context.get("nba_stats"):
-            payload["nba_team_stats"] = game_context["nba_stats"]
+        # nba_stats (BallDontLie) removed — requires API key, none configured
         if game_context.get("sportsdataio"):
             payload["standings_injuries"] = game_context["sportsdataio"]
-        if game_context.get("rotowire_injuries"):
-            payload["rotowire_injuries"] = game_context["rotowire_injuries"]
+        # rotowire_injuries removed — HTML scraping blocked on VPS datacenter IPs
         if game_context.get("sleeper_injuries"):
             payload["sleeper_trending_drops"] = game_context["sleeper_injuries"]
         # MLB: official free stats API — pitchers, form, IL
@@ -328,14 +323,11 @@ def analyse_pick(
         if game_context.get("kalshi_markets"):
             payload["kalshi_markets"] = game_context["kalshi_markets"][:10]
         # Player-level Sofascore data for props
-        if game_context.get("sofascore_player"):
-            payload["sofascore_player_profile"] = game_context["sofascore_player"]
+        # sofascore_player removed — Cloudflare blocks even residential proxy
         # Pinnacle sharp-money anchor — world's most accurate book
         if game_context.get("pinnacle_signal"):
             payload["pinnacle_signal"] = game_context["pinnacle_signal"]
-        # UFC fighter stats — record, reach, stance, striking/grappling
-        if game_context.get("ufc_fighters"):
-            payload["ufc_fighter_stats"] = game_context["ufc_fighters"]
+        # ufc_fighter_stats removed — ufcstats.com HTTP-only, blocked by VPS proxy
 
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)

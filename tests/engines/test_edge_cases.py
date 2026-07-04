@@ -82,16 +82,14 @@ _ALL_FETCHER_PATCHES = [
     "src.apis.data_hub._fetch_news_espn",
     "src.apis.data_hub._fetch_scoreboard_espn",
     "src.apis.data_hub._fetch_sharp_action",
+    "src.apis.data_hub._fetch_pinnacle_signal",
     "src.apis.data_hub._fetch_weather",
     "src.apis.data_hub._fetch_trending",
-    "src.apis.data_hub._fetch_sofascore_game",
-    "src.apis.data_hub._fetch_sportsdataio",
-    "src.apis.data_hub._fetch_nba_stats",
     "src.apis.data_hub._fetch_sleeper_injuries",
-    "src.apis.data_hub._fetch_rotowire_injuries",
-    "src.apis.data_hub._fetch_prizepicks_props",
-    "src.apis.data_hub._fetch_underdog_props",
+    "src.apis.data_hub._fetch_sportsdataio",
     "src.apis.data_hub._fetch_kalshi_markets",
+    "src.apis.data_hub._fetch_sportradar_game",
+    "src.apis.data_hub._fetch_thesportsdb",
 ]
 
 

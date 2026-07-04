@@ -45,44 +45,43 @@ def build_game_context(
     }
 
     tasks = {
+        # ESPN — confirmed working via Decodo residential proxy
         "injuries_espn_home":  (_fetch_injuries_espn,   (sport_key,)),
         "news_espn":           (_fetch_news_espn,        (sport_key,)),
         "scoreboard":          (_fetch_scoreboard_espn,  (sport_key,)),
-        # StatMuse disabled — VPS datacenter IPs return 403; Sofascore + Sportradar cover H2H/form
+        # Line movement from our own DB — no external call
         "sharp_action":        (_fetch_sharp_action,     (sport_key, home_team, away_team)),
-        "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
-        "trending_players":    (_fetch_trending,          (sport_key,)),
-        "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
-        # SportsData.io — checks for its own API key, returns {} if unconfigured
-        "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
-        # Exchange / prediction markets
-        "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
-        # Pinnacle — sharpest book in the world; implied prob = true market price
+        # Pinnacle signal from our own DB — no external call
         "pinnacle_signal":     (_fetch_pinnacle_signal,   (sport_key, home_team, away_team)),
-        # Sportradar — real H2H, recent form, injuries (requires SPORTRADAR_API_KEY in .env)
+        # Weather — Open-Meteo, free, hardcoded NFL/MLB venues only
+        "weather":             (_fetch_weather,           (venue or home_team, game_time, sport_key)),
+        # Sleeper — free public API, no key required
+        "trending_players":    (_fetch_trending,          (sport_key,)),
+        # Kalshi — prediction market prices
+        "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
+        # SportsData.io — gated on SPORTSDATAIO_KEY, returns {} if not configured
+        "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
+        # Sportradar — gated on SPORTRADAR_API_KEY, returns {} if not configured
         "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
-        # TheSportsDB — universal form/record for all sports (free, VPS-friendly)
+        # TheSportsDB — confirmed working on VPS, free, 800+ leagues
         "thesportsdb":         (_fetch_thesportsdb,       (sport_key, home_team, away_team)),
+        # REMOVED: Sofascore — Cloudflare blocks even residential proxy
+        # REMOVED: RotoWire — HTML scraping blocked on VPS datacenter IPs
+        # REMOVED: BallDontLie — requires API key, none configured
+        # REMOVED: PrizePicks — partner-api endpoint unreliable from VPS
+        # REMOVED: Underdog — DFS props not relevant to our bet types
+        # REMOVED: UFC Stats — HTTP-only, blocked by HTTPS proxy
     }
 
-    # MMA: UFC Stats for fighter records, reach, stance, striking/grappling data
-    if sport_key == "mma_mixed_martial_arts":
-        tasks["ufc_fighters"] = (_fetch_ufc_fighters, (home_team, away_team))
-
-    # NBA-only: Ball Don't Lie for deeper player stats
-    if sport_key == "basketball_nba":
-        tasks["nba_stats"] = (_fetch_nba_stats, (home_team, away_team))
-
-    # NFL/NBA: Sleeper for real-time injury status
+    # NFL/NBA: Sleeper real-time injury drops (free public API)
     if sport_key in ("americanfootball_nfl", "basketball_nba"):
         tasks["sleeper_injuries"] = (_fetch_sleeper_injuries, (sport_key,))
-        tasks["rotowire_injuries"] = (_fetch_rotowire_injuries, (sport_key,))
 
-    # MLB: free official MLB Stats API — pitchers, form, IL injuries
+    # MLB: official MLB Stats API — pitchers, form, IL injuries (free, no key)
     if sport_key == "baseball_mlb":
         tasks["mlb_stats"] = (_fetch_mlb_stats, (home_team, away_team))
 
-    # WNBA: TheSportsDB for team form (free, VPS-friendly, confirmed working)
+    # WNBA: NBA Stats API uses TheSportsDB internally (VPS-confirmed)
     if sport_key == "basketball_wnba":
         tasks["nba_stats_api"] = (_fetch_nba_stats_api, (home_team, away_team, "wnba"))
 
@@ -140,12 +139,11 @@ def build_player_context(
     tasks = {
         "season_stats":    (_fetch_player_season,    (player_name, sport_key)),
         "recent_form":     (_fetch_player_recent,    (player_name, sport_key, n_games)),
-        "sofascore_player":(_fetch_sofascore_player, (player_name, sport_key)),
+        # Sofascore player search removed — Cloudflare blocks VPS proxy
     }
     if opponent:
         tasks["vs_opponent"] = (_fetch_player_vs_team, (player_name, opponent, sport_key))
-    if sport_key == "basketball_nba":
-        tasks["bdl_log"] = (_fetch_bdl_game_log, (player_name,))
+    # BallDontLie removed — requires API key, none configured
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, args) in tasks.items()}
@@ -328,41 +326,13 @@ def _fetch_trending(sport_key: str) -> list:
     from src.apis.sleeper import get_trending_players
     return get_trending_players(sport_key, trend_type="add", limit=10)
 
-def _fetch_nba_stats(home: str, away: str) -> dict:
-    from src.apis.balldontlie import get_teams
-    teams = get_teams()
-    result = {}
-    for t in teams:
-        if home.lower() in t.get("name", "").lower():
-            result["home_team"] = t
-        if away.lower() in t.get("name", "").lower():
-            result["away_team"] = t
-    return result
-
 def _fetch_sleeper_injuries(sport_key: str) -> list:
     from src.apis.sleeper import get_trending_players
     return get_trending_players(sport_key, trend_type="drop", limit=15)
 
-def _fetch_rotowire_injuries(sport_key: str) -> list:
-    from src.apis.rotowire import fetch_injuries
-    return fetch_injuries(sport_key)
-
-def _fetch_sofascore_game(sport_key: str, home_team: str, away_team: str, game_time: str) -> dict:
-    from src.apis.sofascore import enrich_game_context
-    result = enrich_game_context(sport_key, home_team, away_team, game_time)
-    return result if result.get("available") else {}
-
-def _fetch_sofascore_player(player_name: str, sport_key: str) -> dict:
-    """Search Sofascore for a player and return their profile + team."""
-    try:
-        from src.apis.sofascore import search_player
-        hits = search_player(player_name, sport_key)
-        if hits:
-            return {"player": hits[0], "source": "sofascore"}
-        return {}
-    except Exception as e:
-        logger.warning("_fetch_sofascore_player failed [%s / %s]: %s", player_name, sport_key, e)
-        return {}
+# _fetch_rotowire_injuries removed — HTML scraping blocked on VPS datacenter IPs
+# _fetch_sofascore_game removed — Cloudflare blocks even residential proxy
+# _fetch_sofascore_player removed — same bot-detection block
 
 def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.sportsdataio import enrich_game_context
@@ -382,43 +352,18 @@ def _fetch_thesportsdb(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.thesportsdb import enrich_game_context
     return enrich_game_context(sport_key, home_team, away_team)
 
-def _fetch_prizepicks_props(sport_key: str, home_team: str, away_team: str) -> list:
-    from src.apis.prizepicks import get_projections
-    props = get_projections(sport_key)
-    # Filter to players on either team in this game
-    h, a = home_team.lower(), away_team.lower()
-    return [
-        p for p in props
-        if h in (p.get("team") or "").lower()
-        or a in (p.get("team") or "").lower()
-        or h in (p.get("opponent") or "").lower()
-        or a in (p.get("opponent") or "").lower()
-    ] or props  # fallback: return all if no team match (team names may differ)
-
-def _fetch_underdog_props(sport_key: str, home_team: str, away_team: str) -> list:
-    from src.apis.underdog import get_over_under_lines
-    props = get_over_under_lines(sport_key)
-    h, a = home_team.lower(), away_team.lower()
-    return [
-        p for p in props
-        if h in (p.get("team") or "").lower()
-        or a in (p.get("team") or "").lower()
-        or h in (p.get("opponent") or "").lower()
-        or a in (p.get("opponent") or "").lower()
-    ] or props
-
-
-def _fetch_bdl_game_log(name: str) -> list:
-    from src.apis.balldontlie import search_player, player_game_log
-    players = search_player(name)
-    if not players:
-        return []
-    pid = players[0].get("id")
-    return player_game_log(pid, last_n=10)
+# _fetch_prizepicks_props removed — partner-api endpoint unreliable from VPS
+# _fetch_underdog_props removed — DFS props not relevant to our bet types
+# _fetch_bdl_game_log removed — BallDontLie requires API key, none configured
 
 
 def _fetch_player_season(player_name: str, sport_key: str) -> dict:
-    """Season stats for a player. Sources: Sportradar (NBA/NFL/NHL), MLB Stats API, UFC Stats (MMA), TheSportsDB fallback."""
+    """Season stats for a player.
+    MLB → official MLB Stats API (free, no key).
+    NBA/NFL/NHL → Sportradar (gated on SPORTRADAR_API_KEY).
+    All → TheSportsDB fallback (VPS-confirmed, free).
+    MMA/UFC Stats removed — HTTP-only endpoint blocked by VPS proxy.
+    """
     try:
         if sport_key == "baseball_mlb":
             from src.apis.mlb_stats import get_player_season_stats
@@ -430,14 +375,9 @@ def _fetch_player_season(player_name: str, sport_key: str) -> dict:
             result = get_player_season_stats(player_name, sport_key)
             if result:
                 return result
-        if sport_key == "mma_mixed_martial_arts":
-            from src.apis.ufcstats import search_fighter
-            result = search_fighter(player_name)
-            if result:
-                return result
     except Exception as e:
         logger.warning("_fetch_player_season primary source failed [%s / %s]: %s", player_name, sport_key, e)
-    # Universal fallback — TheSportsDB player search
+    # Universal fallback — TheSportsDB player search (VPS-confirmed)
     try:
         from src.apis.thesportsdb import get_player_stats
         return get_player_stats(player_name, sport_key)
@@ -447,14 +387,7 @@ def _fetch_player_season(player_name: str, sport_key: str) -> dict:
 
 
 def _fetch_player_recent(player_name: str, sport_key: str, n_games: int = 5) -> dict:
-    """Recent game log for a player. NBA → Ball Don't Lie. Others → TheSportsDB."""
-    try:
-        if sport_key == "basketball_nba":
-            log = _fetch_bdl_game_log(player_name)
-            if log:
-                return {"games": log[:n_games], "source": "balldontlie"}
-    except Exception as e:
-        logger.warning("_fetch_player_recent BDL failed [%s]: %s", player_name, e)
+    """Recent game log for a player — TheSportsDB (VPS-confirmed, free, 800+ leagues)."""
     try:
         from src.apis.thesportsdb import get_player_recent_events
         return get_player_recent_events(player_name, sport_key, n_games)
@@ -583,25 +516,4 @@ def _fetch_pinnacle_signal(sport_key: str, home: str, away: str) -> dict:
         return {}
 
 
-def _fetch_ufc_fighters(home: str, away: str) -> dict:
-    """Pull UFC fighter records and stats from ufcstats.com for both fighters."""
-    try:
-        from src.apis.ufcstats import search_fighter
-        result: dict = {}
-
-        home_data = search_fighter(home)
-        if home_data:
-            result["fighter_1"] = home_data
-        else:
-            logger.warning("_fetch_ufc_fighters: no UFCStats data for '%s'", home)
-
-        away_data = search_fighter(away)
-        if away_data:
-            result["fighter_2"] = away_data
-        else:
-            logger.warning("_fetch_ufc_fighters: no UFCStats data for '%s'", away)
-
-        return result if result else {}
-    except Exception as e:
-        logger.warning("_fetch_ufc_fighters failed [%s vs %s]: %s", home, away, e)
-        return {}
+# _fetch_ufc_fighters removed — ufcstats.com is HTTP-only, blocked by VPS HTTPS proxy
