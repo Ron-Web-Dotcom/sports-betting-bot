@@ -322,6 +322,8 @@ def _get(path: str) -> dict | list | None:
                 if r.status_code in (403, 429):
                     _cb_record_failure()
                     logger.warning("Sofascore %s via ScraperAPI from %s", r.status_code, path)
+                elif r.status_code == 404:
+                    logger.debug("Sofascore 404 via ScraperAPI from %s (no games)", path)
                 else:
                     logger.warning("Sofascore HTTP %s via ScraperAPI from %s", r.status_code, path)
                 return None
@@ -338,6 +340,8 @@ def _get(path: str) -> dict | list | None:
         if r.status_code in (403, 429):
             _cb_record_failure()
             logger.warning("Sofascore %s from %s — proxy IP may be blocked", r.status_code, path)
+        elif r.status_code == 404:
+            logger.debug("Sofascore 404 from %s (no games)", path)
         else:
             logger.warning("Sofascore HTTP %s from %s", r.status_code, path)
         return None
