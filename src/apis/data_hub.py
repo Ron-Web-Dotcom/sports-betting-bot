@@ -178,8 +178,71 @@ def _fetch_scoreboard_espn(sport_key: str) -> list:
 
 
 def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
-    # Action Network API is defunct — returns 404 on all endpoints
-    return {}
+    """Detect sharp money and steam moves from our own line movement DB."""
+    try:
+        from src.db.session import get_db
+        from src.db.models import LineMovement, Game
+        from src.core.timezone import et_naive
+        from datetime import timedelta
+
+        cutoff = et_naive() - timedelta(hours=6)
+        with get_db() as db:
+            # Find game_ids for this matchup
+            games = db.query(Game).filter(
+                Game.sport == sport_key,
+                Game.home_team.ilike(f"%{home.split()[-1]}%"),
+            ).all()
+            if not games:
+                games = db.query(Game).filter(
+                    Game.sport == sport_key,
+                    Game.away_team.ilike(f"%{away.split()[-1]}%"),
+                ).all()
+            if not games:
+                return {}
+
+            game_ids = [g.id for g in games]
+            rows = db.query(LineMovement).filter(
+                LineMovement.game_id.in_(game_ids),
+                LineMovement.detected_at >= cutoff,
+            ).all()
+            move_data = [
+                {
+                    "market":    m.market,
+                    "selection": m.selection,
+                    "book":      m.book,
+                    "type":      m.movement_type,
+                    "delta_pct": m.delta_pct,
+                    "before":    m.odds_before,
+                    "after":     m.odds_after,
+                }
+                for m in rows
+            ]
+
+        if not move_data:
+            return {}
+
+        sharp = [m for m in move_data if m["type"] in ("sharp", "steam")]
+        public = [m for m in move_data if m["type"] == "public"]
+        reverse = [m for m in move_data if m["type"] == "reverse"]
+
+        total = len(sharp) + len(public)
+        score = 0.5
+        if total > 0:
+            score = 0.5 + (len(sharp) - len(public)) / total * 0.4
+            score = max(0.1, min(0.9, round(score, 2)))
+
+        return {
+            "score":          score,
+            "sharp_moves":    len(sharp),
+            "public_moves":   len(public),
+            "reverse_moves":  len(reverse),
+            "steam_detected": any(m["type"] == "steam" for m in move_data),
+            "movements":      move_data[:10],
+            "source":         "line_movement_db",
+        }
+    except Exception as e:
+        logger.debug("_fetch_sharp_action failed: %s", e)
+        return {}
 
 def _fetch_weather(venue: str, game_time: str, sport_key: str) -> dict:
     from src.apis.weather import get_game_weather, WEATHER_RELEVANT

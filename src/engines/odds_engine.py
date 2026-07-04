@@ -695,9 +695,32 @@ def save_snapshots_to_db(all_events: dict[str, list[dict]]) -> None:
 
 
 def run_full_odds_scan() -> list[dict]:
-    """Scan all sports, save to DB, return flat list of snapshots."""
+    """Scan all sports, save to DB, detect line movements, return flat list of snapshots."""
     all_events = scan_all_sports()
     save_snapshots_to_db(all_events)
+
+    # Detect and persist line movements after each scan
+    try:
+        from src.engines.line_movement_engine import detect_movements, save_movement
+        current  = get_latest_snapshots_by_game()
+        opening  = get_opening_line_by_game()
+        for game_id, cur_snaps in current.items():
+            open_snaps = opening.get(game_id, [])
+            if not open_snaps:
+                continue
+            # Build combined list: opening snaps first (oldest), then current
+            combined = open_snaps + cur_snaps
+            game_label = f"{cur_snaps[0].get('away_team','')} @ {cur_snaps[0].get('home_team','')}"
+            alerts = detect_movements(game_id, game_label, combined, window_minutes=180)
+            for alert in alerts:
+                try:
+                    save_movement(alert)
+                except Exception:
+                    pass
+        logger.info("Line movement detection: %d games scanned", len(current))
+    except Exception as _lme:
+        logger.warning("Line movement detection failed: %s", _lme)
+
     flat = []
     for sport_key, events in all_events.items():
         for ev in events:
@@ -749,7 +772,6 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
             .all()
         )
         for snap, game in rows:
-            # commence_time stored as naive UTC — tag it so parsers can convert to ET correctly
             ct = game.commence_time
             ct_str = (ct.strftime("%Y-%m-%dT%H:%M:%SZ") if ct else "")
             result.setdefault(snap.game_id, []).append({
@@ -757,8 +779,81 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
                 "market":        snap.market,
                 "selection":     snap.selection,
                 "best_odds":     snap.american_odds,
+                "american_odds": snap.american_odds,
                 "decimal_odds":  snap.decimal_odds,
                 "line_value":    snap.line_value,
+                "captured_at":   snap.captured_at,   # needed by detect_movements
+                "sport_key":     game.sport,
+                "home_team":     game.home_team,
+                "away_team":     game.away_team,
+                "commence_time": ct_str,
+            })
+    return result
+
+
+def get_opening_line_by_game() -> dict[int, list[dict]]:
+    """Return the FIRST (opening) snapshot per game/market/selection across all books.
+    Used to compare opening line vs current line for steam/sharp detection.
+    """
+    from src.db.session import get_db
+    from src.db.models import OddsSnapshot, Game
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import func
+
+    _ET = ZoneInfo("America/New_York")
+    now_utc = datetime.now(_ET).astimezone(UTC).replace(tzinfo=None)
+    cutoff_started = now_utc - timedelta(hours=24)
+    cutoff_hi      = now_utc + timedelta(days=2)
+
+    result: dict[int, list[dict]] = {}
+    with get_db() as db:
+        # Subquery: earliest captured_at per (game_id, market, selection, book)
+        subq = (
+            db.query(
+                OddsSnapshot.game_id,
+                OddsSnapshot.market,
+                OddsSnapshot.selection,
+                OddsSnapshot.book,
+                func.min(OddsSnapshot.captured_at).label("first_at"),
+            )
+            .join(Game, Game.id == OddsSnapshot.game_id)
+            .filter(
+                Game.commence_time >= cutoff_started,
+                Game.commence_time <  cutoff_hi,
+            )
+            .group_by(
+                OddsSnapshot.game_id,
+                OddsSnapshot.market,
+                OddsSnapshot.selection,
+                OddsSnapshot.book,
+            )
+            .subquery()
+        )
+        rows = (
+            db.query(OddsSnapshot, Game)
+            .join(Game, Game.id == OddsSnapshot.game_id)
+            .join(
+                subq,
+                (OddsSnapshot.game_id   == subq.c.game_id)  &
+                (OddsSnapshot.market    == subq.c.market)    &
+                (OddsSnapshot.selection == subq.c.selection) &
+                (OddsSnapshot.book      == subq.c.book)      &
+                (OddsSnapshot.captured_at == subq.c.first_at),
+            )
+            .all()
+        )
+        for snap, game in rows:
+            ct = game.commence_time
+            ct_str = ct.strftime("%Y-%m-%dT%H:%M:%SZ") if ct else ""
+            result.setdefault(snap.game_id, []).append({
+                "book":          snap.book,
+                "market":        snap.market,
+                "selection":     snap.selection,
+                "american_odds": snap.american_odds,
+                "decimal_odds":  snap.decimal_odds,
+                "line_value":    snap.line_value,
+                "captured_at":   snap.captured_at,
                 "sport_key":     game.sport,
                 "home_team":     game.home_team,
                 "away_team":     game.away_team,

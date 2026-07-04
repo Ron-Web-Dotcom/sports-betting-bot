@@ -419,6 +419,19 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 except Exception:
                     pass
 
+            # Line movement from our DB — sharp/steam moves on this game
+            _line_move: dict = {}
+            if sf_game:
+                try:
+                    from src.apis.data_hub import _fetch_sharp_action as _fsa
+                    _line_move = _fsa(
+                        sport_key,
+                        sf_game.get("home_team", ""),
+                        sf_game.get("away_team", ""),
+                    ) or {}
+                except Exception:
+                    pass
+
             candidates.append({
                 "source":        "kalshi",
                 "market_id":     m.get("market_id", ""),
@@ -439,6 +452,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "sf_standings":  _sf_ctx.get("standings", {}),
                 "sf_h2h":        _sf_ctx.get("h2h", [])[:5],
                 "sf_form":       _sf_ctx.get("form", {}),
+                "line_movement": _line_move or None,
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
                 "yes_american":  m.get("yes_american", 0),
@@ -489,6 +503,7 @@ Each candidate includes live data from Sofascore — USE ALL OF IT:
 - "sf_standings": live league/tournament table — position, points, W-D-L, GF-GA for EACH team
 - "sf_form": last 5 results for each team e.g. {"home": "WWLDW", "away": "LLWDL"}
 - "sf_h2h": last 5 head-to-head meetings with scores
+- "line_movement": sharp money signals from sportsbook line tracking — steam_detected=True means rapid large move, sharp_moves > public_moves = smart money aligned, score > 0.6 = bullish signal
 
 MANDATORY CONTEXT RULES — apply these BEFORE picking:
 
@@ -565,6 +580,8 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "kalshi_yes_%":     f"{round(c['yes_prob']*100)}%",
             "kalshi_yes_odds":  f"{int(c['yes_american']):+d}" if c.get("yes_american") is not None else "—",
             "volume":           c.get("volume", 0),
+            # Line movement — sharp/steam signal from our sportsbook DB
+            "line_movement":    c.get("line_movement") or None,
             # Sofascore bookmaker odds — use to spot Kalshi mispricing
             "sf_home_odds":     c.get("sf_home_odds") or None,
             "sf_draw_odds":     c.get("sf_draw_odds") or None,
