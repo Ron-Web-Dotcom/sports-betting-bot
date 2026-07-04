@@ -416,16 +416,18 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
 
 def _get_active_sports_cached() -> set[str]:
     """
-    Get today's active sports from Redis cache.
-    If cache is empty, call Sofascore and cache result until midnight ET.
-    Returns ALL sport_keys that are active — including player prop variants.
+    Get today's active sports from Redis cache (populated by scan_todays_games).
+    Sofascore is 403-blocked on VPS — active sports are derived from ESPN scoreboard
+    results stored in sofascore:day_games / sofascore:night_games by scan_todays_games.
+    Falls back to all known sports if cache is empty.
     """
     import json
     from src.core.config import REDIS_URL
     try:
         import redis as _redis
-        from src.core.timezone import et_naive
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+        # Primary: read active sports from the game scan cache
         cached = r.get("sofascore:active_sports")
         if cached:
             try:
@@ -433,37 +435,37 @@ def _get_active_sports_cached() -> set[str]:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Cache miss — fetch from Sofascore
-        from src.apis.sofascore import get_active_sports_today
-        active_from_sofascore = get_active_sports_today()
+        # Derive from today's game lists populated by scan_todays_games (ESPN-backed)
+        active: set[str] = set()
+        for key in ("sofascore:day_games", "sofascore:night_games"):
+            raw = r.get(key)
+            if not raw:
+                continue
+            try:
+                for ev in json.loads(raw):
+                    sk = ev.get("sport")
+                    if sk:
+                        active.add(sk)
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-        from src.apis.sofascore import SPORT_MAP as _SM
-        slug_to_keys: dict[str, list[str]] = {}
-        for sk, slug in _SM.items():
-            slug_to_keys.setdefault(slug, []).append(sk)
-
-        active: set[str] = set(active_from_sofascore)
-        for sk in active_from_sofascore:
-            slug = _SM.get(sk)
-            if slug:
-                active.update(slug_to_keys.get(slug, []))
-
-        for sk in list(PLAYER_PROP_SPORTS):
-            slug = _SM.get(sk)
-            if slug and any(_SM.get(a) == slug for a in active_from_sofascore):
-                active.add(sk)
-
-        # Never cache an empty set — if Sofascore returned nothing, fall back to all known sports
         if not active:
-            logger.warning("Active sports: Sofascore returned empty — defaulting to all sports")
+            logger.warning("Active sports: game cache empty — defaulting to all sports")
             return set(PLAYER_PROP_SPORTS)
 
-        now_et = et_naive()
+        # Also include player-prop variants for active base sports
+        from src.apis.espn import SPORT_MAP as _EM
+        for sk in list(PLAYER_PROP_SPORTS):
+            if sk in active or any(sk.startswith(a.split("_")[0]) for a in active):
+                active.add(sk)
+
+        from src.core.timezone import et_naive
         from datetime import datetime as _dt, timedelta
+        now_et = et_naive()
         midnight = _dt.combine(now_et.date(), _dt.min.time()) + timedelta(days=1)
         ttl = max(int((midnight - now_et).total_seconds()), 3600)
         r.setex("sofascore:active_sports", ttl, json.dumps(list(active)))
-        logger.info("Active sports cached (%d): %s", len(active), sorted(active))
+        logger.info("Active sports derived from ESPN cache (%d): %s", len(active), sorted(active))
         return active
     except Exception as e:
         logger.warning("Active sports cache failed: %s — defaulting to all sports", e)

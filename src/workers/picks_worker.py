@@ -454,12 +454,12 @@ def _get_parlay_senders():
 
 def scan_todays_games():
     """
-    8 AM daily: full Sofascore scan across all sports.
-    Splits today's games into DAY (before 6 PM ET) and NIGHT (6 PM ET+).
+    8 AM daily: scan today's games across all sports via ESPN scoreboard.
+    Sofascore is 403-blocked on VPS — ESPN is the replacement game source.
+    Splits today's games into DAY (before 4 PM ET) and NIGHT (4 PM ET+).
     Caches both lists in Redis for the entry generators to use.
     """
-    from src.apis.sofascore import SPORT_MAP, get_scheduled_events
-    from src.core.timezone import et_naive
+    from src.apis.espn import SPORT_MAP, fetch_scoreboard
     from src.core.config import REDIS_URL
     from concurrent.futures import ThreadPoolExecutor
     import json
@@ -467,17 +467,17 @@ def scan_todays_games():
     import redis as _redis
 
     ET = zoneinfo.ZoneInfo("America/New_York")
-    today = et_naive().strftime("%Y-%m-%d")
 
     def _fetch(sport_key: str) -> list:
         try:
-            return get_scheduled_events(sport_key, today)
-        except Exception:
+            return fetch_scoreboard(sport_key)
+        except Exception as e:
+            logger.warning("scan_todays_games: ESPN fetch failed for %s — %s", sport_key, e)
             return []
 
     day_games: list[dict] = []
     night_games: list[dict] = []
-    seen_ids: set[str] = set()  # deduplicate — multiple sport_keys share same Sofascore slug
+    seen_ids: set[str] = set()
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
@@ -488,7 +488,7 @@ def scan_todays_games():
                 logger.warning("scan_todays_games: fetch failed for %s — %s", sk, _fe)
                 continue
             for ev in results_for_sport:
-                eid = ev.get("id", "")
+                eid = str(ev.get("id", ""))
                 if eid and eid in seen_ids:
                     continue
                 if eid:
@@ -499,13 +499,11 @@ def scan_todays_games():
                     from dateutil.parser import parse as _parse
                     t = _parse(ct) if ct else None
                     if t:
-                        # If tz-aware (isoformat with offset), convert to ET.
-                        # If naive (should not happen after _epoch_to_iso fix), assume ET.
                         if t.tzinfo is not None:
                             t = t.astimezone(ET)
                         else:
                             t = t.replace(tzinfo=ET)
-                        if t.hour >= 16:  # night entry posts at 4:30 PM — anything 4 PM+ is "night"
+                        if t.hour >= 16:
                             is_night = True
                 except Exception:
                     pass
