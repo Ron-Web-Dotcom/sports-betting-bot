@@ -291,6 +291,18 @@ def analyse_pick(
             payload["breaking_news_web_search"] = game_context["web_search_news"]
         if game_context.get("sofascore_odds"):
             payload["sofascore_bookmaker_odds"] = game_context["sofascore_odds"]
+        # Sofascore enriched context — standings, form, H2H, last 5 events
+        sf = game_context.get("sofascore") or {}
+        if sf.get("standings"):
+            payload["league_standings"] = sf["standings"]
+        if sf.get("form"):
+            payload["sofascore_form"] = sf["form"]
+        if sf.get("h2h"):
+            payload["sofascore_h2h"] = sf["h2h"][:5]
+        if sf.get("home_last5"):
+            payload["home_last5_results"] = sf["home_last5"][:5]
+        if sf.get("away_last5"):
+            payload["away_last5_results"] = sf["away_last5"][:5]
 
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)

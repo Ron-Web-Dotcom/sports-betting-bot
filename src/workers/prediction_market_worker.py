@@ -394,13 +394,28 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             # commence_time = Sofascore kickoff (only path that reaches here)
             _kickoff_et = _to_naive_et(sf_kickoff)
 
-            # Sofascore odds — cross-reference against Kalshi price for edge detection
+            # Sofascore odds + enriched context for AI
             _sf_odds: dict = {}
+            _sf_ctx: dict = {}
             _sf_id = sf_game.get("id", "") if sf_game else ""
             if _sf_id:
                 try:
-                    from src.apis.sofascore import get_event_odds as _get_sf_odds
-                    _sf_odds = _get_sf_odds(_sf_id) or {}
+                    from src.apis.sofascore import (
+                        get_event_odds as _get_sf_odds,
+                        get_team_standings_for_event as _get_standings,
+                        get_h2h as _get_h2h,
+                        get_team_form as _get_sf_form,
+                    )
+                    from concurrent.futures import ThreadPoolExecutor as _TPE
+                    with _TPE(max_workers=4) as _pool:
+                        _fo = _pool.submit(_get_sf_odds, _sf_id)
+                        _fs = _pool.submit(_get_standings, sf_game)
+                        _fh = _pool.submit(_get_h2h, _sf_id)
+                        _ff = _pool.submit(_get_sf_form, _sf_id)
+                    _sf_odds = _fo.result() or {}
+                    _sf_ctx["standings"]  = _fs.result() or {}
+                    _sf_ctx["h2h"]        = _fh.result() or []
+                    _sf_ctx["form"]       = _ff.result() or {}
                 except Exception:
                     pass
 
@@ -412,12 +427,18 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "event_title":   subtitle or m.get("event_title", m.get("title", "")),
                 "event_ticker":  m.get("event_ticker", ""),
                 "sport_key":     sport_key,
+                "home_team":     sf_game.get("home_team", "") if sf_game else "",
+                "away_team":     sf_game.get("away_team", "") if sf_game else "",
+                "tournament":    sf_game.get("tournament", "") if sf_game else "",
                 "sofascore_id":  _sf_id,
                 "sf_home_odds":  _sf_odds.get("home_odds", ""),
                 "sf_draw_odds":  _sf_odds.get("draw_odds", ""),
                 "sf_away_odds":  _sf_odds.get("away_odds", ""),
                 "sf_home_impl":  _sf_odds.get("home_implied", 0),
                 "sf_away_impl":  _sf_odds.get("away_implied", 0),
+                "sf_standings":  _sf_ctx.get("standings", {}),
+                "sf_h2h":        _sf_ctx.get("h2h", [])[:5],
+                "sf_form":       _sf_ctx.get("form", {}),
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
                 "yes_american":  m.get("yes_american", 0),
@@ -455,27 +476,46 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
     system = """You are an elite sports analyst and prediction market researcher specializing in Kalshi.
 
-Each candidate includes:
+Each candidate includes live data from Sofascore — USE ALL OF IT:
 - "market": the YES/NO question
-- "game": the specific matchup (e.g. "Jordan vs Algeria") — USE THIS to identify the sport and teams
-- "ticker": Kalshi event ticker (e.g. KXWCGAME = FIFA Club World Cup, KXMLBGAME = MLB, KXWNBAGAME = WNBA)
-- "game_time_et": when the game starts in ET
-- "kalshi_yes_%": what Kalshi is pricing YES at
-- "sf_home_odds" / "sf_away_odds": real sportsbook odds from Sofascore (American format) — when present, USE THESE to cross-check the Kalshi price
-- "sf_home_implied%" / "sf_away_implied%": sportsbook implied probability — compare to kalshi_yes_% to find mispricing
+- "home_team" / "away_team": exact team names from Sofascore — these are ground truth
+- "tournament": the competition name (e.g. "FIFA Club World Cup", "NBA", "MLB")
+- "game": matchup subtitle from Kalshi
+- "ticker": Kalshi event ticker (KXWCGAME=FIFA CWC, KXMLBGAME=MLB, KXWNBAGAME=WNBA, KXNBAGAME=NBA, KXNFLGAME=NFL)
+- "game_time_et": kickoff time
+- "kalshi_yes_%": Kalshi's current market price for YES
+- "sf_home_odds" / "sf_away_odds": real sportsbook odds (American) — ANCHOR for true probability
+- "sf_home_implied%" / "sf_away_implied%": sportsbook implied win probability
+- "sf_standings": live league/tournament table — position, points, W-D-L, GF-GA for EACH team
+- "sf_form": last 5 results for each team e.g. {"home": "WWLDW", "away": "LLWDL"}
+- "sf_h2h": last 5 head-to-head meetings with scores
 
-EDGE DETECTION: When Sofascore odds are available, calculate the gap between the sportsbook implied probability and the Kalshi yes_%. A large gap = mispriced market = strong edge. Example: sf_home_implied=65% but kalshi_yes_=52% → Kalshi is underpricing the home win by 13 points → strong YES edge.
+MANDATORY CONTEXT RULES — apply these BEFORE picking:
 
-CRITICAL: Base your reasoning on the ACTUAL game in the "game" field and "ticker" prefix.
-Do NOT invent or substitute different teams/sports. If "game" is "Jordan vs Algeria", that IS the game.
-Soccer markets use goals. Basketball markets use points. "Goals" markets are ALWAYS soccer.
+1. TEAM QUALITY: Always consider the objective quality gap between teams.
+   France, Brazil, England, Germany, Spain, Argentina = top-tier national teams.
+   Paraguay, Saudi Arabia, Jordan, Algeria = significantly weaker. A 90% YES on Paraguay to beat France
+   is WRONG regardless of recent form — team quality trumps short-term trends.
 
-For each contract research:
-- Recent form, stats, injuries, matchup edges for the ACTUAL listed teams
-- Whether the YES probability is mis-priced vs true probability — use Sofascore odds as your anchor when available
-- High volume = sharp money — respect it
+2. STANDINGS = TRUTH: sf_standings shows where teams actually sit in the table right now.
+   Position 1 vs Position 12 = massive quality gap. Use this to validate or reject Kalshi's price.
 
-Pick the SINGLE best contract where YES has the highest confidence edge.
+3. FORM MATTERS BUT CONTEXT MATTERS MORE: "WWWWW" against weak opponents ≠ "WWWWW" against
+   top-tier competition. Weight form by opponent quality. Recent H2H results are especially useful.
+
+4. EDGE DETECTION: Compare sf_home_implied% to kalshi_yes_% to find genuine mispricing.
+   Gap of 8%+ = strong edge. Gap of 3-7% = moderate edge. Gap < 3% = weak or no edge.
+
+5. HIGH VOLUME = SHARP MONEY: Kalshi markets with high volume have been stress-tested by smart bettors.
+   Do not fight the sharp money without a specific data-backed reason.
+
+6. SPORT-SPECIFIC RULES:
+   - Soccer: goals-based markets; draw is always a real outcome
+   - Basketball: higher scoring = tighter win margins; home court matters less in playoffs
+   - Baseball: starting pitcher is the single biggest variable — check sf_form for recent starts
+   - Tennis/MMA: head-to-head record is weighted heavily; recent form matters most
+
+Pick the SINGLE best contract where YES has the highest REAL confidence edge.
 
 Return ONLY valid JSON:
 {
@@ -485,14 +525,12 @@ Return ONLY valid JSON:
   "true_prob": <float 0.0-1.0 — your true probability of YES>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
-  "reasoning": "<3-4 sentences: cite the actual teams from 'game', recent form, and why the market is mis-priced>"
+  "reasoning": "<4-5 sentences: name both teams, cite standings position, form, H2H, and the specific Kalshi mispricing>"
 }
 
-HEAVY FAVORITE RULE: When a Kalshi YES price is 85%+ (e.g. 90¢, 95¢) or the Sofascore implied
-probability is -300 or shorter, that market is pricing a near-certain outcome. Do NOT overthink it —
-high-priced YES contracts on dominant favorites ARE the edge. Confirm the obvious and pick it.
-85-90% YES → confidence 0.85-0.90. 90-97% YES → confidence 0.90-0.97.
-When Sofascore AND Kalshi both agree on a heavy favorite — that is a lock. Take it.
+HEAVY FAVORITE RULE: When Kalshi YES price is 85%+ AND Sofascore implied confirms the favorite,
+do NOT overthink it — take the obvious lock. 85-90% YES → confidence 0.85-0.90. 90-97% → 0.90-0.97.
+But VERIFY the teams are actually the implied favorite — do not apply this rule blindly.
 
 Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if nothing qualifies."""
 
@@ -519,6 +557,9 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "index":            i,
             "market":           c.get("title", ""),
             "game":             c.get("subtitle") or c.get("event_title", ""),
+            "home_team":        c.get("home_team") or None,
+            "away_team":        c.get("away_team") or None,
+            "tournament":       c.get("tournament") or None,
             "ticker":           c.get("event_ticker", ""),
             "game_time_et":     _fmt_gt(c.get("commence_time", "")),
             "kalshi_yes_%":     f"{round(c['yes_prob']*100)}%",
@@ -530,6 +571,12 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "sf_away_odds":     c.get("sf_away_odds") or None,
             "sf_home_implied%": f"{round(c['sf_home_impl']*100)}%" if c.get("sf_home_impl") else None,
             "sf_away_implied%": f"{round(c['sf_away_impl']*100)}%" if c.get("sf_away_impl") else None,
+            # Standings — league/tournament position (positions are real: 1 = top of table)
+            "sf_standings":     c.get("sf_standings") if c.get("sf_standings") else None,
+            # Recent form — last 5 results e.g. {"home": "WWLDW", "away": "DLWWW"}
+            "sf_form":          c.get("sf_form") if c.get("sf_form") else None,
+            # H2H — last 5 head-to-head meetings
+            "sf_h2h":           c.get("sf_h2h") if c.get("sf_h2h") else None,
         }.items() if v is not None}
         for i, c in enumerate(candidates[:80])
     ]

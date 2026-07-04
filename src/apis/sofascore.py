@@ -227,23 +227,28 @@ def _normalise_event(e: dict, sport_key: str) -> dict:
     # e.g. Kalshi "Germany vs Ecuador" → Sofascore "Bayern Munich" (country: Germany)
     home_country = (home.get("country") or {}).get("name", "")
     away_country = (away.get("country") or {}).get("name", "") or ""
+    tournament = e.get("tournament", {})
+    season     = e.get("season", {})
     return {
-        "id":             str(e.get("id", "")),
-        "sport":          sport_key,
-        "home_team":      home.get("name", ""),
-        "home_team_id":   str(home.get("id", "")),
-        "home_country":   home_country,
-        "away_team":      away.get("name", ""),
-        "away_team_id":   str(away.get("id", "")),
-        "away_country":   away_country,
-        "home_score":     score[0].get("current"),
-        "away_score":     score[1].get("current"),
-        "status":         status.get("description", ""),
-        "status_type":    status.get("type", ""),
-        "commence_time":  _epoch_to_iso(e.get("startTimestamp")),
-        "tournament":     e.get("tournament", {}).get("name", ""),
-        "season":         e.get("season", {}).get("name", ""),
-        "source":         "sofascore",
+        "id":              str(e.get("id", "")),
+        "sport":           sport_key,
+        "home_team":       home.get("name", ""),
+        "home_team_id":    str(home.get("id", "")),
+        "home_country":    home_country,
+        "away_team":       away.get("name", ""),
+        "away_team_id":    str(away.get("id", "")),
+        "away_country":    away_country,
+        "home_score":      score[0].get("current"),
+        "away_score":      score[1].get("current"),
+        "status":          status.get("description", ""),
+        "status_type":     status.get("type", ""),
+        "commence_time":   _epoch_to_iso(e.get("startTimestamp")),
+        "tournament":      tournament.get("name", ""),
+        "tournament_id":   str(tournament.get("uniqueTournament", {}).get("id", "") or
+                              tournament.get("id", "")),
+        "season":          season.get("name", ""),
+        "season_id":       str(season.get("id", "")),
+        "source":          "sofascore",
     }
 
 
@@ -519,6 +524,44 @@ def get_standings(tournament_id: str, season_id: str) -> list[dict]:
     return result
 
 
+def get_team_standings_for_event(event: dict) -> dict:
+    """
+    Given a normalised event dict (with tournament_id + season_id), return
+    standings rows for the home and away team, including their league position,
+    points, wins, losses, and goals. Returns {} if standings unavailable.
+    """
+    tid = event.get("tournament_id", "")
+    sid = event.get("season_id", "")
+    if not tid or not sid:
+        return {}
+    try:
+        rows = get_standings(tid, sid)
+    except Exception:
+        return {}
+    if not rows:
+        return {}
+
+    home_name = (event.get("home_team") or "").lower()
+    away_name = (event.get("away_team") or "").lower()
+    home_row  = next((r for r in rows if home_name in r["team"].lower() or r["team"].lower() in home_name), None)
+    away_row  = next((r for r in rows if away_name in r["team"].lower() or r["team"].lower() in away_name), None)
+
+    result: dict = {"total_teams": len(rows)}
+    if home_row:
+        result["home_position"] = home_row.get("position")
+        result["home_points"]   = home_row.get("points")
+        result["home_played"]   = home_row.get("played")
+        result["home_w_d_l"]    = f"{home_row.get('wins',0)}-{home_row.get('draws',0)}-{home_row.get('losses',0)}"
+        result["home_gf_ga"]    = f"{home_row.get('goals_for',0)}-{home_row.get('goals_against',0)}"
+    if away_row:
+        result["away_position"] = away_row.get("position")
+        result["away_points"]   = away_row.get("points")
+        result["away_played"]   = away_row.get("played")
+        result["away_w_d_l"]    = f"{away_row.get('wins',0)}-{away_row.get('draws',0)}-{away_row.get('losses',0)}"
+        result["away_gf_ga"]    = f"{away_row.get('goals_for',0)}-{away_row.get('goals_against',0)}"
+    return result
+
+
 # ── Convenience: enrich a game context dict ───────────────────────────────────
 
 def enrich_game_context(
@@ -529,7 +572,7 @@ def enrich_game_context(
 ) -> dict:
     """
     Find the SofaScore event matching this game and return combined context:
-    h2h history, form, and match statistics when available.
+    h2h history, form, standings, and last 5 events per team.
 
     Matches by team name substring — best-effort.
     """
@@ -551,11 +594,39 @@ def enrich_game_context(
     eid = matched.get("id")
     if not eid:
         return {"available": False, "sport": sport_key, "source": "sofascore"}
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _safe(fn, *args):
+        try:
+            return fn(*args)
+        except Exception:
+            return fn.__annotations__.get("return", None) and [] or {}
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        f_h2h       = pool.submit(get_h2h, eid)
+        f_form      = pool.submit(get_team_form, eid)
+        f_standings = pool.submit(get_team_standings_for_event, matched)
+        f_home_last = pool.submit(get_team_last_events, matched.get("home_team_id", ""))
+        f_away_last = pool.submit(get_team_last_events, matched.get("away_team_id", ""))
+        # pool.__exit__ waits for all futures — safe to call .result() below
+
+    def _get_result(f, default):
+        try:
+            return f.result()
+        except Exception:
+            return default
+
     context = {
         "available":    True,
         "event":        matched,
-        "h2h":          get_h2h(eid),
-        "form":         get_team_form(eid),
+        "tournament":   matched.get("tournament", ""),
+        "season":       matched.get("season", ""),
+        "h2h":          _get_result(f_h2h, []),
+        "form":         _get_result(f_form, {}),
+        "standings":    _get_result(f_standings, {}),
+        "home_last5":   _get_result(f_home_last, []),
+        "away_last5":   _get_result(f_away_last, []),
         "source":       "sofascore",
     }
     return context
