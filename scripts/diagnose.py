@@ -105,48 +105,9 @@ def test_endpoints():
             fail(f"{name:<35s} {str(e)[:55]} ({ms}ms)")
             results.append((name, False))
 
-    # Sofascore — raw status check to see exactly what the server returns
-    import datetime
-    import httpx as _httpx
-    today_str = datetime.date.today().strftime("%Y-%m-%d")
-    _SF_BASE    = "https://api.sofascore.com/api/v1"
-    _SF_HEADERS = {
-        "User-Agent":        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-        "Accept":            "application/json, text/plain, */*",
-        "Accept-Language":   "en-US,en;q=0.9",
-        "Referer":           "https://www.sofascore.com/",
-        "Origin":            "https://www.sofascore.com",
-        "Cache-Control":     "no-cache",
-        "sec-ch-ua":         '"Google Chrome";v="137", "Chromium";v="137", "Not.A/Brand";v="24"',
-        "sec-ch-ua-mobile":  "?0",
-        "sec-ch-ua-platform":'"Windows"',
-        "Sec-Fetch-Dest":    "empty",
-        "Sec-Fetch-Mode":    "cors",
-        "Sec-Fetch-Site":    "same-origin",
-    }
-    for sf_name, sf_path in [
-        ("Sofascore MLB today",    f"/sport/baseball/scheduled-events/{today_str}"),
-        ("Sofascore soccer today", f"/sport/football/scheduled-events/{today_str}"),
-    ]:
-        t0 = time.time()
-        try:
-            from src.apis.base import get_client
-            client = get_client(_SF_BASE + sf_path)
-            r = client.get(_SF_BASE + sf_path, headers=_SF_HEADERS)
-            ms = int((time.time() - t0) * 1000)
-            if r.status_code == 200:
-                data = r.json()
-                events = data.get("events", data) if isinstance(data, dict) else data
-                count = len(events) if isinstance(events, list) else "?"
-                ok(f"{sf_name:<35s} OK  {ms:>4}ms  {count} events")
-                results.append((sf_name, True))
-            else:
-                fail(f"{sf_name:<35s} HTTP {r.status_code} ({ms}ms)  body: {r.text[:80]}")
-                results.append((sf_name, False))
-        except Exception as e:
-            ms = int((time.time() - t0) * 1000)
-            fail(f"{sf_name:<35s} {str(e)[:70]} ({ms}ms)")
-            results.append((sf_name, False))
+    # NOTE: Sofascore intentionally not tested here — repeated diagnostic hits
+    # triggered a temporary IP ban. The bot calls Sofascore infrequently on schedule
+    # and has ESPN fallback if blocked. Check bot logs for Sofascore status instead.
 
     passed = sum(1 for _, r in results if r)
     total  = len(results)

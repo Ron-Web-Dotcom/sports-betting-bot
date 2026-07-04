@@ -454,11 +454,13 @@ def _get_parlay_senders():
 
 def scan_todays_games():
     """
-    8 AM daily: full Sofascore scan across all sports.
-    Splits today's games into DAY (before 6 PM ET) and NIGHT (6 PM ET+).
+    8 AM daily: scan today's games across all sports.
+    Primary source: Sofascore (widest global coverage).
+    Fallback: ESPN scoreboard (if Sofascore is rate-limited/blocked).
+    Splits into DAY (before 4 PM ET) and NIGHT (4 PM ET+).
     Caches both lists in Redis for the entry generators to use.
     """
-    from src.apis.sofascore import SPORT_MAP, get_scheduled_events
+    from src.apis.sofascore import SPORT_MAP as SF_SPORT_MAP, get_scheduled_events
     from src.core.timezone import et_naive
     from src.core.config import REDIS_URL
     from concurrent.futures import ThreadPoolExecutor
@@ -469,7 +471,7 @@ def scan_todays_games():
     ET = zoneinfo.ZoneInfo("America/New_York")
     today = et_naive().strftime("%Y-%m-%d")
 
-    def _fetch(sport_key: str) -> list:
+    def _fetch_sofascore(sport_key: str) -> list:
         try:
             return get_scheduled_events(sport_key, today)
         except Exception:
@@ -477,39 +479,56 @@ def scan_todays_games():
 
     day_games: list[dict] = []
     night_games: list[dict] = []
-    seen_ids: set[str] = set()  # deduplicate — multiple sport_keys share same Sofascore slug
+    seen_ids: set[str] = set()
 
+    def _add_events(events: list):
+        for ev in events:
+            eid = str(ev.get("id", ""))
+            if eid and eid in seen_ids:
+                continue
+            if eid:
+                seen_ids.add(eid)
+            ct = ev.get("commence_time", "")
+            is_night = False
+            try:
+                from dateutil.parser import parse as _parse
+                t = _parse(ct) if ct else None
+                if t:
+                    if t.tzinfo is not None:
+                        t = t.astimezone(ET)
+                    else:
+                        t = t.replace(tzinfo=ET)
+                    if t.hour >= 16:
+                        is_night = True
+            except Exception:
+                pass
+            (night_games if is_night else day_games).append(ev)
+
+    # Primary: Sofascore — widest global coverage (World Cup, all leagues)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_fetch, sk): sk for sk in SPORT_MAP}
+        futures = {pool.submit(_fetch_sofascore, sk): sk for sk in SF_SPORT_MAP}
         for fut, sk in futures.items():
             try:
-                results_for_sport = fut.result()
+                _add_events(fut.result())
             except Exception as _fe:
-                logger.warning("scan_todays_games: fetch failed for %s — %s", sk, _fe)
-                continue
-            for ev in results_for_sport:
-                eid = ev.get("id", "")
-                if eid and eid in seen_ids:
-                    continue
-                if eid:
-                    seen_ids.add(eid)
-                ct = ev.get("commence_time", "")
-                is_night = False
+                logger.warning("scan_todays_games: Sofascore failed for %s — %s", sk, _fe)
+
+    sofascore_total = len(day_games) + len(night_games)
+    logger.info("Sofascore game scan: %d games found", sofascore_total)
+
+    # Fallback: ESPN — if Sofascore blocked/rate-limited, fill in with ESPN scoreboard
+    if sofascore_total == 0:
+        logger.warning("Sofascore returned 0 games — falling back to ESPN scoreboard")
+        from src.apis.espn import SPORT_MAP as ESPN_SPORT_MAP, fetch_scoreboard
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {pool.submit(fetch_scoreboard, sk): sk for sk in ESPN_SPORT_MAP}
+            for fut, sk in futures.items():
                 try:
-                    from dateutil.parser import parse as _parse
-                    t = _parse(ct) if ct else None
-                    if t:
-                        # If tz-aware (isoformat with offset), convert to ET.
-                        # If naive (should not happen after _epoch_to_iso fix), assume ET.
-                        if t.tzinfo is not None:
-                            t = t.astimezone(ET)
-                        else:
-                            t = t.replace(tzinfo=ET)
-                        if t.hour >= 16:  # night entry posts at 4:30 PM — anything 4 PM+ is "night"
-                            is_night = True
-                except Exception:
-                    pass
-                (night_games if is_night else day_games).append(ev)
+                    _add_events(fut.result())
+                except Exception as _fe:
+                    logger.warning("scan_todays_games: ESPN failed for %s — %s", sk, _fe)
+        espn_total = len(day_games) + len(night_games)
+        logger.info("ESPN fallback game scan: %d games found", espn_total)
 
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
     r.setex("sofascore:day_games",   86400, json.dumps(day_games))
