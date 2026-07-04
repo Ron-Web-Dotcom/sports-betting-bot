@@ -23,7 +23,7 @@ def _event(home="Lakers", away="Celtics", event_id=12345, ts=1700000000):
 
 def test_get_scheduled_events_returns_normalised_list():
     from src.apis.sofascore import get_scheduled_events
-    with patch("src.apis.sofascore.get_json", return_value={"events": [_event()]}):
+    with patch("src.apis.sofascore._get", return_value={"events": [_event()]}):
         result = get_scheduled_events("basketball_nba", "2024-11-15")
     assert len(result) == 1
     ev = result[0]
@@ -41,7 +41,7 @@ def test_get_scheduled_events_unknown_sport_returns_empty():
 
 def test_get_scheduled_events_empty_response():
     from src.apis.sofascore import get_scheduled_events
-    with patch("src.apis.sofascore.get_json", return_value=None):
+    with patch("src.apis.sofascore._get", return_value=None):
         result = get_scheduled_events("basketball_nba", "2024-11-15")
     assert result == []
 
@@ -54,7 +54,7 @@ def test_get_h2h_returns_results_with_winner():
         _event(home="Lakers", away="Celtics"),
         _event(home="Celtics", away="Lakers"),
     ]}
-    with patch("src.apis.sofascore.get_json", return_value=payload):
+    with patch("src.apis.sofascore._get", return_value=payload):
         result = get_h2h("12345")
     assert len(result) == 2
     assert result[0]["winner"] == "home"   # 110 > 105
@@ -66,14 +66,14 @@ def test_get_h2h_draw():
     ev = _event()
     ev["homeScore"]["current"] = 100
     ev["awayScore"]["current"] = 100
-    with patch("src.apis.sofascore.get_json", return_value={"events": [ev]}):
+    with patch("src.apis.sofascore._get", return_value={"events": [ev]}):
         result = get_h2h("1")
     assert result[0]["winner"] == "draw"
 
 
 def test_get_h2h_empty_response():
     from src.apis.sofascore import get_h2h
-    with patch("src.apis.sofascore.get_json", return_value=None):
+    with patch("src.apis.sofascore._get", return_value=None):
         assert get_h2h("1") == []
 
 
@@ -85,7 +85,7 @@ def test_get_team_form_returns_form_strings():
         "homeTeam": [{"value": "W"}, {"value": "W"}, {"value": "L"}],
         "awayTeam": [{"value": "D"}, {"value": "W"}],
     }
-    with patch("src.apis.sofascore.get_json", return_value=payload):
+    with patch("src.apis.sofascore._get", return_value=payload):
         result = get_team_form("99")
     assert result["home"] == "WWL"
     assert result["away"] == "DW"
@@ -94,7 +94,7 @@ def test_get_team_form_returns_form_strings():
 
 def test_get_team_form_empty():
     from src.apis.sofascore import get_team_form
-    with patch("src.apis.sofascore.get_json", return_value=None):
+    with patch("src.apis.sofascore._get", return_value=None):
         assert get_team_form("1") == {}
 
 
@@ -109,7 +109,7 @@ def test_get_event_statistics_flattens_groups():
             {"name": "Total Shots",     "home": "12",  "away": "8"},
         ]}],
     }]}
-    with patch("src.apis.sofascore.get_json", return_value=payload):
+    with patch("src.apis.sofascore._get", return_value=payload):
         result = get_event_statistics("42")
     assert result["ball_possession"] == {"home": "55%", "away": "45%"}
     assert result["total_shots"] == {"home": "12", "away": "8"}
@@ -156,7 +156,7 @@ def test_get_standings_parses_rows():
          "matches": 10, "wins": 8, "draws": 1, "losses": 1,
          "scoresFor": 20, "scoresAgainst": 8, "points": 25},
     ]}]}
-    with patch("src.apis.sofascore.get_json", return_value=payload):
+    with patch("src.apis.sofascore._get", return_value=payload):
         result = get_standings("17", "52186")
     assert len(result) == 1
     assert result[0]["team"] == "Arsenal"
