@@ -20,14 +20,57 @@ Key endpoints used:
   GET /team/{id}/players                         squad list with positions
 """
 import logging
+import threading
+import time
 from datetime import datetime
 from urllib.parse import quote
-from src.apis.base import get_json
 from src.core.timezone import et_naive, ET
 
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.sofascore.com/api/v1"
+
+# ── Rate limiter — max 1 request per 1.5s to avoid triggering IP bans ─────────
+_sf_lock      = threading.Lock()
+_sf_last_call = 0.0
+_SF_MIN_GAP   = 1.5   # seconds between Sofascore requests
+
+def _rate_limit():
+    global _sf_last_call
+    with _sf_lock:
+        now  = time.monotonic()
+        wait = _SF_MIN_GAP - (now - _sf_last_call)
+        if wait > 0:
+            time.sleep(wait)
+        _sf_last_call = time.monotonic()
+
+# ── Sofascore-specific proxy port pool (ports 10011–10020, separate from base) ─
+# Using a dedicated port range keeps Sofascore IPs isolated from other sources.
+# If Sofascore bans one IP, other sources are unaffected and vice versa.
+import itertools as _itertools
+_SF_PORTS      = list(range(10011, 10021))
+_sf_port_cycle = _itertools.cycle(_SF_PORTS)
+_sf_port_lock  = threading.Lock()
+
+def _next_sf_port() -> int:
+    with _sf_port_lock:
+        return next(_sf_port_cycle)
+
+def _get_sf_client():
+    """Sofascore-dedicated proxy client on ports 10011–10020."""
+    import httpx
+    from src.core.config import DECODO_PROXY_URL
+    if not DECODO_PROXY_URL:
+        from src.apis.base import get_client
+        return get_client(_BASE)
+    port = _next_sf_port()
+    proxy_url = f"{DECODO_PROXY_URL}:{port}"
+    return httpx.Client(
+        timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
+        follow_redirects=True,
+        verify=False,
+        proxy=proxy_url,
+    )
 
 # Maps our internal sport_key → SofaScore sport slug
 SPORT_MAP = {
@@ -164,19 +207,22 @@ _HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/137.0.0.0 Safari/537.36"
     ),
-    "Accept":           "application/json, text/plain, */*",
-    "Accept-Language":  "en-US,en;q=0.9",
-    "Accept-Encoding":  "gzip, deflate, br",
-    "Referer":          "https://www.sofascore.com/",
-    "Origin":           "https://www.sofascore.com",
-    "Cache-Control":    "no-cache",
-    "Pragma":           "no-cache",
-    "sec-ch-ua":        '"Google Chrome";v="137", "Chromium";v="137", "Not.A/Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    "Sec-Fetch-Dest":   "empty",
-    "Sec-Fetch-Mode":   "cors",
-    "Sec-Fetch-Site":   "same-origin",
+    "Accept":              "application/json, text/plain, */*",
+    "Accept-Language":     "en-US,en;q=0.9",
+    "Accept-Encoding":     "gzip, deflate, br",
+    "Referer":             "https://www.sofascore.com/",
+    "Origin":              "https://www.sofascore.com",
+    "Cache-Control":       "no-cache",
+    "Pragma":              "no-cache",
+    "sec-ch-ua":           '"Google Chrome";v="137", "Chromium";v="137", "Not.A/Brand";v="24"',
+    "sec-ch-ua-mobile":    "?0",
+    "sec-ch-ua-platform":  '"Windows"',
+    "Sec-Fetch-Dest":      "empty",
+    "Sec-Fetch-Mode":      "cors",
+    "Sec-Fetch-Site":      "same-origin",
+    # Session cookie — set by sofascore.com on first visit; helps bypass bot detection.
+    # Override via SOFASCORE_SESSION env var if the default gets blocked.
+    "Cookie":              __import__('os').getenv("SOFASCORE_SESSION", "TS_session=1; sofascore_gdpr_consent=1"),
 }
 
 
@@ -185,7 +231,22 @@ def _slug(sport_key: str) -> str | None:
 
 
 def _get(path: str) -> dict | list | None:
-    return get_json(f"{_BASE}{path}", headers=_HEADERS)
+    """Rate-limited Sofascore request via dedicated proxy port pool."""
+    _rate_limit()
+    url = f"{_BASE}{path}"
+    try:
+        client = _get_sf_client()
+        r = client.get(url, headers=_HEADERS)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code in (403, 429):
+            logger.warning("Sofascore %s from %s — proxy IP may be blocked", r.status_code, path)
+        else:
+            logger.warning("Sofascore HTTP %s from %s", r.status_code, path)
+        return None
+    except Exception as e:
+        logger.warning("Sofascore request failed [%s]: %s", path, e)
+        return None
 
 
 # ── Scheduled events ──────────────────────────────────────────────────────────

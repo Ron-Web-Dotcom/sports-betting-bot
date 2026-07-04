@@ -29,9 +29,10 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Proxy port pool — Decodo sticky endpoints 10001–10010
+# Proxy port pool — Decodo sticky endpoints 10001–10010 (general sources)
+# Sofascore uses its own dedicated pool 10011–10020 (see sofascore.py)
 _PROXY_PORTS = list(range(10001, 10011))
-_port_cycle  = itertools.cycle(_PROXY_PORTS)   # round-robin across all 10 ports
+_port_cycle  = itertools.cycle(_PROXY_PORTS)
 _cycle_lock  = threading.Lock()
 
 # Direct client (no proxy)
