@@ -297,10 +297,41 @@ def _get(path: str) -> dict | list | None:
     """Sofascore request with circuit breaker — fails fast when IP is blocked."""
     if _cb_is_open():
         return None   # circuit tripped — don't waste a request
-    url = f"{_BASE}{path}"
+
+    import os
+    sf_proxy = os.getenv("SOFASCORE_PROXY_URL", "")
+    target_url = f"{_BASE}{path}"
+
+    # ScraperAPI uses a different calling convention — GET their endpoint with url= param
+    if sf_proxy and "scraperapi.com" in sf_proxy:
+        import re
+        key_match = re.search(r"scraperapi:([^@]+)@", sf_proxy)
+        if key_match:
+            api_key = key_match.group(1)
+            import httpx
+            try:
+                r = httpx.get(
+                    "https://api.scraperapi.com/",
+                    params={"api_key": api_key, "url": target_url, "keep_headers": "true"},
+                    headers=_HEADERS,
+                    timeout=httpx.Timeout(connect=10.0, read=30.0, write=5.0, pool=5.0),
+                )
+                if r.status_code == 200:
+                    _cb_record_success()
+                    return r.json()
+                if r.status_code in (403, 429):
+                    _cb_record_failure()
+                    logger.warning("Sofascore %s via ScraperAPI from %s", r.status_code, path)
+                else:
+                    logger.warning("Sofascore HTTP %s via ScraperAPI from %s", r.status_code, path)
+                return None
+            except Exception as e:
+                logger.warning("Sofascore ScraperAPI request failed [%s]: %s", path, e)
+                return None
+
     try:
         client = _get_sf_client()
-        r = client.get(url, headers=_HEADERS)
+        r = client.get(target_url, headers=_HEADERS)
         if r.status_code == 200:
             _cb_record_success()
             return r.json()
