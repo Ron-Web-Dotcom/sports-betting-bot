@@ -461,11 +461,11 @@ def scan_todays_games():
     Splits into DAY (before 4 PM ET) and NIGHT (4 PM ET+).
     Caches both lists in Redis for the entry generators to use.
     """
-    from src.apis.sofascore import SPORT_MAP as SF_SPORT_MAP, get_scheduled_events
+    from src.apis.sofascore import get_all_scheduled_events
     from src.apis.espn import SPORT_MAP as ESPN_SPORT_MAP, fetch_scoreboard
     from src.core.timezone import et_naive
     from src.core.config import REDIS_URL
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
     import json
     import zoneinfo
     import redis as _redis
@@ -516,22 +516,22 @@ def scan_todays_games():
 
     sf_count = espn_count = 0
 
-    # Run Sofascore + ESPN in parallel — both run every time, results merged
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        sf_futures   = {pool.submit(get_scheduled_events, sk, today): ("sofascore", sk) for sk in SF_SPORT_MAP}
-        espn_futures = {pool.submit(fetch_scoreboard,     sk):        ("espn",      sk) for sk in ESPN_SPORT_MAP}
-        all_futures  = {**sf_futures, **espn_futures}
+    # Run Sofascore (batched: 15 requests) + ESPN in parallel
+    # Sofascore: one request per unique slug instead of one per sport_key (110→15)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        sf_fut   = pool.submit(get_all_scheduled_events, today)
+        espn_futs = {pool.submit(fetch_scoreboard, sk): sk for sk in ESPN_SPORT_MAP}
 
-        for fut in as_completed(all_futures):
-            source, sk = all_futures[fut]
+        try:
+            sf_count = _add_events(sf_fut.result(), "sofascore")
+        except Exception as e:
+            logger.warning("scan_todays_games: Sofascore batch failed — %s", e)
+
+        for fut, sk in espn_futs.items():
             try:
-                n = _add_events(fut.result(), source)
-                if source == "sofascore":
-                    sf_count += n
-                else:
-                    espn_count += n
+                espn_count += _add_events(fut.result(), "espn")
             except Exception as e:
-                logger.warning("scan_todays_games [%s/%s]: %s", source, sk, e)
+                logger.warning("scan_todays_games: ESPN failed for %s — %s", sk, e)
 
     logger.info("Game scan complete: %d from Sofascore + %d new from ESPN = %d total",
                 sf_count, espn_count, sf_count + espn_count)

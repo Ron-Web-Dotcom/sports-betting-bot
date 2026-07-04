@@ -73,19 +73,30 @@ def _next_sf_port() -> int:
         return next(_sf_port_cycle)
 
 def _get_sf_client():
-    """Sofascore-dedicated proxy client on ports 10011–10020."""
+    """
+    Sofascore HTTP client — tries VPS direct IP first, then Decodo proxy.
+    Decodo residential IPs get banned by Sofascore; the VPS datacenter IP
+    is often less aggressively filtered for API endpoints (not the website).
+    Falls back to proxy if SOFASCORE_USE_PROXY=1 is set in env.
+    """
     import httpx
-    from src.core.config import DECODO_PROXY_URL
-    if not DECODO_PROXY_URL:
-        from src.apis.base import get_client
-        return get_client(_BASE)
-    port = _next_sf_port()
-    proxy_url = f"{DECODO_PROXY_URL}:{port}"
+    import os
+    force_proxy = os.getenv("SOFASCORE_USE_PROXY", "0") == "1"
+    if force_proxy:
+        from src.core.config import DECODO_PROXY_URL
+        if DECODO_PROXY_URL:
+            port = _next_sf_port()
+            return httpx.Client(
+                timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
+                follow_redirects=True,
+                verify=False,
+                proxy=f"{DECODO_PROXY_URL}:{port}",
+            )
+    # Default: VPS direct IP (no proxy) — cleaner fingerprint, less likely banned
     return httpx.Client(
         timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
         follow_redirects=True,
-        verify=False,
-        proxy=proxy_url,
+        verify=True,
     )
 
 # Maps our internal sport_key → SofaScore sport slug
@@ -271,10 +282,7 @@ def _get(path: str) -> dict | list | None:
 # ── Scheduled events ──────────────────────────────────────────────────────────
 
 def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
-    """
-    Return matches scheduled for a given date (default: today).
-    date: "YYYY-MM-DD" string
-    """
+    """Return matches for a single sport_key on a given date."""
     slug = _slug(sport_key)
     if not slug:
         return []
@@ -284,6 +292,55 @@ def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
         return []
     events = data if isinstance(data, list) else data.get("events", [])
     return [_normalise_event(e, sport_key) for e in events]
+
+
+def get_all_scheduled_events(date: str | None = None) -> list[dict]:
+    """
+    Return ALL today's events across every sport in ONE batched scan.
+
+    Makes 15 requests (one per unique Sofascore slug) instead of 110
+    (one per sport_key). Each response is mapped back to all matching
+    sport_keys so downstream code still receives the full sport_key field.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    date = date or et_naive().strftime("%Y-%m-%d")
+
+    # Build slug → [sport_keys] reverse map
+    slug_to_keys: dict[str, list[str]] = {}
+    for sk, slug in SPORT_MAP.items():
+        slug_to_keys.setdefault(slug, []).append(sk)
+
+    all_events: list[dict] = []
+    seen_ids: set[str] = set()
+
+    def _fetch_slug(slug: str) -> list[dict]:
+        if _cb_is_open():
+            return []
+        data = _get(f"/sport/{slug}/scheduled-events/{date}")
+        if not data:
+            return []
+        raw = data if isinstance(data, list) else data.get("events", [])
+        # Map each raw event to the first matching sport_key for this slug
+        keys = slug_to_keys.get(slug, [slug])
+        return [_normalise_event(e, keys[0]) for e in raw]
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(_fetch_slug, slug): slug for slug in slug_to_keys}
+        for fut in as_completed(futures):
+            try:
+                for ev in fut.result():
+                    eid = ev.get("id", "")
+                    if eid and eid in seen_ids:
+                        continue
+                    if eid:
+                        seen_ids.add(eid)
+                    all_events.append(ev)
+            except Exception as e:
+                logger.warning("get_all_scheduled_events [%s]: %s", futures[fut], e)
+
+    logger.info("Sofascore batch scan: %d events across %d slugs", len(all_events), len(slug_to_keys))
+    return all_events
 
 
 def get_live_events(sport_key: str) -> list[dict]:
