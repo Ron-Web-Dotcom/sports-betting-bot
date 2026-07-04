@@ -335,7 +335,6 @@ def test_threads():
         ("odds_engine parallel fetch",    4, 4),
         ("picks_worker candidates",       4, 4),
         ("prediction_market_worker",      4, 4),
-        ("sofascore.enrich_game_context", 6, 6),
     ]
     for name, actual, limit in checks:
         lbl = ok if actual <= limit else fail
