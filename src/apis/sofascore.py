@@ -88,28 +88,51 @@ def _next_sf_port() -> int:
 
 def _get_sf_client():
     """
-    Sofascore HTTP client via Decodo rotating residential proxy (port 7777).
-    Port 7777 = new IP on every request — avoids sticky-IP bans from Sofascore.
-    Sticky ports (10001-10050) share a fixed IP per port and get banned after heavy use.
-    Set SOFASCORE_USE_PROXY=0 to bypass proxy (not recommended — VPS IP is banned).
+    Sofascore HTTP client — proxy selection priority:
+      1. SOFASCORE_PROXY_URL  — full proxy URL for any provider (ScraperAPI, Bright Data, etc.)
+      2. DECODO_PROXY_URL + SOFASCORE_PROXY_PORT (default 7777 rotating endpoint)
+      3. Direct (VPS IP) — only if SOFASCORE_USE_PROXY=0; VPS datacenter IP is banned by Sofascore.
+
+    ScraperAPI example:  SOFASCORE_PROXY_URL=http://scraperapi:YOUR_KEY@proxy-server.scraperapi.com:8001
+    Bright Data example: SOFASCORE_PROXY_URL=http://user:pass@zproxy.lum-superproxy.io:22225
+    Decodo rotating:     SOFASCORE_PROXY_PORT=7777  (used with existing DECODO_PROXY_URL)
     """
     import httpx
     import os
     from src.core.config import DECODO_PROXY_URL
+
     use_proxy = os.getenv("SOFASCORE_USE_PROXY", "1") != "0"
-    if use_proxy and DECODO_PROXY_URL:
-        # Port 7777 = Decodo rotating endpoint (fresh residential IP per request)
-        rotating_port = int(os.getenv("SOFASCORE_PROXY_PORT", "7777"))
+    if not use_proxy:
+        return httpx.Client(
+            timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
+            follow_redirects=True,
+        )
+
+    # Priority 1: dedicated proxy URL for Sofascore (any provider)
+    sf_proxy = os.getenv("SOFASCORE_PROXY_URL", "")
+    if sf_proxy:
         return httpx.Client(
             timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
             follow_redirects=True,
             verify=False,
-            proxy=f"{DECODO_PROXY_URL}:{rotating_port}",
+            proxy=sf_proxy,
         )
+
+    # Priority 2: Decodo with configurable port (default 7777 = rotating residential)
+    if DECODO_PROXY_URL:
+        port = int(os.getenv("SOFASCORE_PROXY_PORT", "7777"))
+        return httpx.Client(
+            timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
+            follow_redirects=True,
+            verify=False,
+            proxy=f"{DECODO_PROXY_URL}:{port}",
+        )
+
+    # No proxy configured — direct (will 403 on Sofascore from datacenter IPs)
+    logger.warning("Sofascore: no proxy configured — VPS datacenter IP will likely be blocked")
     return httpx.Client(
         timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
         follow_redirects=True,
-        verify=True,
     )
 
 # Maps our internal sport_key → SofaScore sport slug
