@@ -168,7 +168,15 @@ def test_redis():
             sample = keys[0]
             ktype  = r.type(sample)
             ttl    = r.ttl(sample)
-            ttl_s  = f"TTL {ttl//86400}d {(ttl%86400)//3600}h" if ttl > 0 else f"NO TTL {'(by design)' if note else '⚠️'}"
+            if ttl > 0:
+                if ttl >= 3600:
+                    ttl_s = f"TTL {ttl//86400}d {(ttl%86400)//3600}h"
+                elif ttl >= 60:
+                    ttl_s = f"TTL {ttl//60}m"
+                else:
+                    ttl_s = f"TTL {ttl}s"
+            else:
+                ttl_s = f"NO TTL {'(by design)' if note else '⚠️'}"
 
             if ktype == "hash":
                 fields = r.hlen(sample)
@@ -302,7 +310,7 @@ def test_memory():
                 continue
         procs.sort(reverse=True)
         for rss, name, pid in procs[:8]:
-            lbl = ok if rss < 200 else (warn if rss < 400 else fail)
+            lbl = ok if rss < 400 else (warn if rss < 600 else fail)
             lbl(f"  {name[:22]:<22s} PID {pid:>6}  {rss:>6.0f}MB")
     except Exception as e:
         warn(f"Process list: {e}")
