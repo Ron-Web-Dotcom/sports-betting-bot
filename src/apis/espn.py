@@ -64,13 +64,31 @@ def _path(sport_key: str) -> tuple[str, str] | None:
 
 # ── Injuries ───────────────────────────────────────────────────────────────────
 
+_DESIGNATION_MAP = {
+    "out":             "OUT",
+    "doubtful":        "DOUBTFUL",
+    "questionable":    "QUESTIONABLE",
+    "probable":        "PROBABLE",
+    "day-to-day":      "DAY-TO-DAY",
+    "injured reserve": "IR",
+    "ir":              "IR",
+    "pup":             "PUP",
+    "suspended":       "SUSPENDED",
+    "active":          "ACTIVE",
+}
+
+
 def fetch_injuries(sport_key: str) -> list[dict]:
+    import logging as _log
+    _logger = _log.getLogger(__name__)
     seg = _path(sport_key)
     if not seg:
+        _logger.debug("fetch_injuries: no ESPN segment for sport_key=%s", sport_key)
         return []
     sport, league = seg
     data = get_json(f"{_SITE}/{sport}/{league}/injuries")
     if not data:
+        _logger.warning("fetch_injuries: empty response from ESPN for %s/%s", sport, league)
         return []
 
     out = []
@@ -78,15 +96,27 @@ def fetch_injuries(sport_key: str) -> list[dict]:
         team_name = team_entry.get("team", {}).get("displayName", "Unknown")
         for inj in team_entry.get("injuries", []):
             athlete = inj.get("athlete", {})
+            raw_status = inj.get("status", "unknown").lower().strip()
+            designation = _DESIGNATION_MAP.get(raw_status, raw_status.upper())
+            # Flag high-impact injuries so AI weighs them correctly
+            is_out = designation in ("OUT", "IR", "PUP", "SUSPENDED")
             out.append({
-                "source":   "espn",
-                "player":   athlete.get("displayName", "Unknown"),
-                "team":     team_name,
-                "position": athlete.get("position", {}).get("abbreviation", ""),
-                "status":   inj.get("status", "unknown").lower(),
-                "details":  inj.get("shortComment", ""),
-                "sport":    sport_key,
+                "source":      "espn",
+                "player":      athlete.get("displayName", "Unknown"),
+                "team":        team_name,
+                "position":    athlete.get("position", {}).get("abbreviation", ""),
+                "status":      raw_status,
+                "designation": designation,          # normalized: OUT / DOUBTFUL / QUESTIONABLE / IR
+                "is_out":      is_out,               # True = confirmed not playing
+                "details":     inj.get("shortComment", ""),
+                "sport":       sport_key,
             })
+
+    if not out:
+        _logger.info("fetch_injuries: no injuries found for %s/%s", sport, league)
+    else:
+        out_count = sum(1 for i in out if i["is_out"])
+        _logger.info("fetch_injuries: %d injuries (%d OUT/IR) for %s", len(out), out_count, sport_key)
     return out
 
 

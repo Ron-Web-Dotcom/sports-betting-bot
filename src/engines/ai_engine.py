@@ -105,6 +105,8 @@ LIVE DATA IN PAYLOAD — use these fields when present (they come from Sofascore
   • kalshi_markets: what prediction markets are pricing for this game — use as wisdom-of-crowds signal
   • sofascore_player_profile: confirmed player team and position — validates prop is for real player on real team
   • season_stats / recent_form / bdl_log / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
+  • pinnacle_signal: Pinnacle's implied probability for home/away — the sharpest book in the world. If home_implied or away_implied disagrees with Odds API implied by 5%+, Pinnacle is your anchor
+  • ufc_fighter_stats: fighter_1 / fighter_2 records, reach, stance — use for UFC style matchup analysis
 
 STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
   • Team quality: check league_standings — position and points tell you more than raw record
@@ -115,6 +117,8 @@ STEP 1 — RESEARCH (use ALL payload data AND your training knowledge):
   • Line movement: did sharp money move this line? which direction?
   • Matchup edges: pace, defensive rating, specific player matchups
   • Kalshi cross-check: if kalshi_markets is present, compare Kalshi price to implied prob — large gap = edge
+  • Pinnacle cross-check: if pinnacle_signal is present, compare home_implied/away_implied to Odds API implied — Pinnacle is the sharpest book, its line is the true price. A 5%+ gap means the other book is wrong
+  • UFC matchup: if ufc_fighter_stats is present, use record, reach, and stance for style analysis (wrestler vs striker, reach advantage, etc.)
   • For player props: use recent_form game logs (not just averages), check sofascore_player_profile to confirm the player, use vs_opponent splits if available, check live_match_stats for in-game shot/touch context
 
 STEP 2 — COUNT SIGNALS (each one that clearly favours your pick):
@@ -322,6 +326,12 @@ def analyse_pick(
         # Player-level Sofascore data for props
         if game_context.get("sofascore_player"):
             payload["sofascore_player_profile"] = game_context["sofascore_player"]
+        # Pinnacle sharp-money anchor — world's most accurate book
+        if game_context.get("pinnacle_signal"):
+            payload["pinnacle_signal"] = game_context["pinnacle_signal"]
+        # UFC fighter stats — record, reach, stance, striking/grappling
+        if game_context.get("ufc_fighters"):
+            payload["ufc_fighter_stats"] = game_context["ufc_fighters"]
 
     prompt = f"Analyse this betting opportunity:\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     return _call_json(prompt, _PICK_SYSTEM)

@@ -404,7 +404,7 @@ def _build_active_sports() -> dict[str, str]:
 # ── Sports tracked — full list, Odds API filters to in-season at scan time ────
 SPORTS = _build_active_sports()
 
-SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock"]
+SPORTSBOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbet", "espnbet", "hardrock", "pinnacle"]
 
 # ── Betting apps (optional — platform degrades gracefully if not set) ──────────
 KALSHI_API_KEY_ID  = _optional("KALSHI_API_KEY_ID")

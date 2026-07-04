@@ -57,11 +57,17 @@ def build_game_context(
         "sportsdataio":        (_fetch_sportsdataio,      (sport_key, home_team, away_team)),
         # Exchange / prediction markets
         "kalshi_markets":      (_fetch_kalshi_markets,    (sport_key,)),
+        # Pinnacle — sharpest book in the world; implied prob = true market price
+        "pinnacle_signal":     (_fetch_pinnacle_signal,   (sport_key, home_team, away_team)),
         # Sportradar — real H2H, recent form, injuries (requires SPORTRADAR_API_KEY in .env)
         "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
         # TheSportsDB — universal form/record for all sports (free, VPS-friendly)
         "thesportsdb":         (_fetch_thesportsdb,       (sport_key, home_team, away_team)),
     }
+
+    # MMA: UFC Stats for fighter records, reach, stance, striking/grappling data
+    if sport_key == "mma_mixed_martial_arts":
+        tasks["ufc_fighters"] = (_fetch_ufc_fighters, (home_team, away_team))
 
     # NBA-only: Ball Don't Lie for deeper player stats
     if sport_key == "basketball_nba":
@@ -241,7 +247,7 @@ def _fetch_sharp_action(sport_key: str, home: str, away: str) -> dict:
             "source":         "line_movement_db",
         }
     except Exception as e:
-        logger.debug("_fetch_sharp_action failed: %s", e)
+        logger.warning("_fetch_sharp_action failed [%s %s vs %s]: %s", sport_key, home, away, e)
         return {}
 
 def _fetch_weather(venue: str, game_time: str, sport_key: str) -> dict:
@@ -285,9 +291,10 @@ def _fetch_sofascore_player(player_name: str, sport_key: str) -> dict:
         hits = search_player(player_name, sport_key)
         if hits:
             return {"player": hits[0], "source": "sofascore"}
-    except Exception:
-        pass
-    return {}
+        return {}
+    except Exception as e:
+        logger.warning("_fetch_sofascore_player failed [%s / %s]: %s", player_name, sport_key, e)
+        return {}
 
 def _fetch_sportsdataio(sport_key: str, home_team: str, away_team: str) -> dict:
     from src.apis.sportsdataio import enrich_game_context
@@ -360,13 +367,14 @@ def _fetch_player_season(player_name: str, sport_key: str) -> dict:
             result = search_fighter(player_name)
             if result:
                 return result
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_fetch_player_season primary source failed [%s / %s]: %s", player_name, sport_key, e)
     # Universal fallback — TheSportsDB player search
     try:
         from src.apis.thesportsdb import get_player_stats
         return get_player_stats(player_name, sport_key)
-    except Exception:
+    except Exception as e:
+        logger.warning("_fetch_player_season TheSportsDB fallback failed [%s / %s]: %s", player_name, sport_key, e)
         return {}
 
 
@@ -377,12 +385,13 @@ def _fetch_player_recent(player_name: str, sport_key: str, n_games: int = 5) -> 
             log = _fetch_bdl_game_log(player_name)
             if log:
                 return {"games": log[:n_games], "source": "balldontlie"}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_fetch_player_recent BDL failed [%s]: %s", player_name, e)
     try:
         from src.apis.thesportsdb import get_player_recent_events
         return get_player_recent_events(player_name, sport_key, n_games)
-    except Exception:
+    except Exception as e:
+        logger.warning("_fetch_player_recent TheSportsDB failed [%s / %s]: %s", player_name, sport_key, e)
         return {}
 
 
@@ -391,7 +400,8 @@ def _fetch_player_vs_team(player_name: str, opponent: str, sport_key: str) -> di
     try:
         from src.apis.thesportsdb import get_player_stats
         return get_player_stats(player_name, sport_key, opponent=opponent)
-    except Exception:
+    except Exception as e:
+        logger.warning("_fetch_player_vs_team failed [%s vs %s / %s]: %s", player_name, opponent, sport_key, e)
         return {}
 
 
@@ -404,7 +414,7 @@ def _score_completeness(context: dict) -> float:
     # TheSportsDB is the only truly universal source (800+ leagues, VPS-confirmed).
     # Everything else is a bonus — varies by sport. This way no sport is penalised
     # just because Kalshi/ESPN don't cover it.
-    core_score = 0.80 if context.get("thesportsdb") else 0.25
+    core_score = 0.80 if context.get("thesportsdb") else 0.0
 
     bonus = 0.0
     if context.get("sportradar"):         bonus += 0.10  # real-time H2H + injuries (NBA/NFL/NHL)
@@ -423,7 +433,7 @@ def _fetch_nba_stats_api(home_team: str, away_team: str, league: str = "nba") ->
         from src.apis.nba_stats import enrich_game_context
         return enrich_game_context(home_team, away_team, league)
     except Exception as e:
-        logger.debug("NBA Stats API fetch failed: %s", e)
+        logger.warning("NBA Stats API fetch failed [%s vs %s]: %s", home_team, away_team, e)
         return {}
 
 
@@ -433,5 +443,97 @@ def _fetch_mlb_stats(home_team: str, away_team: str) -> dict:
         from src.apis.mlb_stats import enrich_game_context
         return enrich_game_context(home_team, away_team)
     except Exception as e:
-        logger.debug("MLB Stats fetch failed: %s", e)
+        logger.warning("MLB Stats fetch failed [%s vs %s]: %s", home_team, away_team, e)
+        return {}
+
+
+def _fetch_pinnacle_signal(sport_key: str, home: str, away: str) -> dict:
+    """Extract Pinnacle's line from our odds DB as a sharp-money anchor signal.
+
+    Pinnacle is the sharpest book in the world — their implied probability IS
+    the true market price. We use it to flag when Odds-API books are off.
+    """
+    try:
+        from src.db.session import get_db
+        from src.db.models import OddsSnapshot, Game
+        from src.core.timezone import et_naive
+        from datetime import timedelta
+
+        cutoff = et_naive() - timedelta(hours=12)
+        with get_db() as db:
+            games = db.query(Game).filter(
+                Game.sport == sport_key,
+                Game.home_team.ilike(f"%{home.split()[-1]}%"),
+            ).all()
+            if not games:
+                games = db.query(Game).filter(
+                    Game.sport == sport_key,
+                    Game.away_team.ilike(f"%{away.split()[-1]}%"),
+                ).all()
+            if not games:
+                logger.warning("_fetch_pinnacle_signal: no matching game in DB [%s %s vs %s]", sport_key, home, away)
+                return {}
+
+            game_ids = [g.id for g in games]
+            rows = db.query(OddsSnapshot).filter(
+                OddsSnapshot.game_id.in_(game_ids),
+                OddsSnapshot.book == "pinnacle",
+                OddsSnapshot.market == "h2h",
+                OddsSnapshot.captured_at >= cutoff,
+            ).order_by(OddsSnapshot.captured_at.desc()).limit(10).all()
+
+            if not rows:
+                logger.warning("_fetch_pinnacle_signal: no Pinnacle h2h snapshots for %s %s vs %s", sport_key, home, away)
+                return {}
+
+        def _to_implied(american: float) -> float:
+            if american >= 0:
+                return round(100 / (american + 100), 4)
+            return round(-american / (-american + 100), 4)
+
+        home_row = next((r for r in rows if home.split()[-1].lower() in (r.selection or "").lower()), None)
+        away_row = next((r for r in rows if away.split()[-1].lower() in (r.selection or "").lower()), None)
+
+        result: dict = {"source": "pinnacle", "book": "pinnacle"}
+        if home_row and home_row.american_odds is not None:
+            result["home_odds"]    = home_row.american_odds
+            result["home_implied"] = _to_implied(home_row.american_odds)
+        if away_row and away_row.american_odds is not None:
+            result["away_odds"]    = away_row.american_odds
+            result["away_implied"] = _to_implied(away_row.american_odds)
+
+        if len(result) <= 2:
+            logger.warning("_fetch_pinnacle_signal: could not match home/away rows for %s vs %s", home, away)
+            return {}
+
+        logger.info("Pinnacle signal: %s vs %s → home_implied=%s away_implied=%s",
+                    home, away, result.get("home_implied"), result.get("away_implied"))
+        return result
+
+    except Exception as e:
+        logger.warning("_fetch_pinnacle_signal failed [%s %s vs %s]: %s", sport_key, home, away, e)
+        return {}
+
+
+def _fetch_ufc_fighters(home: str, away: str) -> dict:
+    """Pull UFC fighter records and stats from ufcstats.com for both fighters."""
+    try:
+        from src.apis.ufcstats import search_fighter
+        result: dict = {}
+
+        home_data = search_fighter(home)
+        if home_data:
+            result["fighter_1"] = home_data
+        else:
+            logger.warning("_fetch_ufc_fighters: no UFCStats data for '%s'", home)
+
+        away_data = search_fighter(away)
+        if away_data:
+            result["fighter_2"] = away_data
+        else:
+            logger.warning("_fetch_ufc_fighters: no UFCStats data for '%s'", away)
+
+        return result if result else {}
+    except Exception as e:
+        logger.warning("_fetch_ufc_fighters failed [%s vs %s]: %s", home, away, e)
         return {}

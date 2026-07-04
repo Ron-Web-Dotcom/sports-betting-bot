@@ -285,8 +285,8 @@ class TestDataHub:
     def test_completeness_score_with_no_data(self):
         from src.apis.data_hub import _score_completeness
         score = _score_completeness({})
-        # No thesportsdb → core_score=0.25, no bonuses
-        assert score == pytest.approx(0.25)
+        # No thesportsdb → core_score=0.0, no bonuses → completeness is 0.0
+        assert score == pytest.approx(0.0)
 
 
 # ── Prop change detection ──────────────────────────────────────────────────────
