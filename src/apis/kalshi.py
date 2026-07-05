@@ -43,6 +43,9 @@ _SPORT_TAGS = {
     "mma_mixed_martial_arts":         ["UFC", "MMA"],
     "golf_us_open_winner":            ["GOLF", "PGA", "US OPEN"],
     "motorsport_formula_1":           ["F1", "FORMULA1"],
+    "cricket":                        ["CRICKET", "IPL", "T20", "TEST MATCH"],
+    "aussierules_afl":                ["AFL", "AUSTRALIAN FOOTBALL"],
+    "rugbyleague_nrl":                ["NRL", "RUGBY LEAGUE"],
 }
 
 
@@ -194,6 +197,9 @@ _SPORTS_KEYWORDS = [
     "both teams to score", "btts",
     "basketball", "baseball", "hockey", "soccer", "football",
     "tennis", "golf", "racing", "boxing", "nascar",
+    "cricket", "ipl", "test match", "odi", "t20",
+    "afl", "australian football", "collingwood", "richmond", "geelong",
+    "nrl", "national rugby league", "rugby league", "broncos", "roosters", "storm",
     "total ", "over ", "under ", "wins by",
     # Player/team props
     "hits", "home run", "strikeout", "rbi", "stolen base",
@@ -444,6 +450,18 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         "KXF1DRIVER",     # F1 driver props
         "KXNASCARGAME",   # NASCAR
         "KXNASCARDRIVER", # NASCAR driver props
+        # ── Cricket ───────────────────────────────────────────────
+        "KXCRICKET",      # Cricket general
+        "KXCRICKETGAME",  # Cricket match winner
+        "KXIPLTOTAL",     # IPL totals
+        "KXIPLGAME",      # IPL match winner
+        "KXTEST",         # Test match cricket
+        # ── Australian Football (AFL) ──────────────────────────────
+        "KXAFLGAME",      # AFL match winner
+        "KXAFLTOTAL",     # AFL totals
+        # ── National Rugby League (NRL) ───────────────────────────
+        "KXNRLGAME",      # NRL match winner
+        "KXNRLTOTAL",     # NRL totals
     ]
 
     all_markets: list[dict] = []
