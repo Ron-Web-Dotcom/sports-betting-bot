@@ -330,14 +330,14 @@ def _get(path: str) -> dict | list | None:
 
     import os
     import re
+    # Import config first — triggers load_dotenv() so env vars are available
+    from src.core.config import DECODO_PROXY_URL
     target_url = f"{_BASE}{path}"
     sf_proxy   = os.getenv("SOFASCORE_PROXY_URL", "")
     scraper_key = ""
     if sf_proxy and "scraperapi.com" in sf_proxy:
         m = re.search(r"scraperapi:([^@]+)@", sf_proxy)
         scraper_key = m.group(1) if m else ""
-
-    from src.core.config import DECODO_PROXY_URL
 
     # ── Try Decodo first (if healthy and configured) ──────────────────────────
     if DECODO_PROXY_URL and _decodo_is_healthy():
@@ -372,9 +372,8 @@ def _get(path: str) -> dict | list | None:
             _cb_record_failure()
         return result
 
-    # No working proxy
-    logger.warning("Sofascore: no working proxy available for [%s]", path)
-    _cb_record_failure()
+    # No working proxy — config issue, not a Sofascore block; don't trip circuit breaker
+    logger.warning("Sofascore: no working proxy configured for [%s]", path)
     return None
 
 
