@@ -295,7 +295,7 @@ def _slug(sport_key: str) -> str | None:
 
 def _scraperapi_get(path: str, api_key: str) -> dict | list | None:
     """Make a Sofascore request via ScraperAPI REST endpoint."""
-    import httpx, re
+    import httpx
     target_url = f"{_BASE}{path}"
     try:
         r = httpx.get(
@@ -328,7 +328,8 @@ def _get(path: str) -> dict | list | None:
     if _cb_is_open():
         return None
 
-    import os, re
+    import os
+    import re
     target_url = f"{_BASE}{path}"
     sf_proxy   = os.getenv("SOFASCORE_PROXY_URL", "")
     scraper_key = ""
