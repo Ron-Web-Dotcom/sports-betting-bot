@@ -331,37 +331,28 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             sport_key  = sf_game.get("sport",         "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
-            if sf_kickoff:
-                # Sofascore match found — use its kickoff to gate the market
-                # Skip if game kicked off more than 20 minutes ago (market closed)
+            # Gate on Kalshi close_time (when betting closes = game start).
+            # Skip only if the market has already closed — not based on kickoff.
+            _close_raw = m.get("close_time") or m.get("expiration_time") or ""
+            if _close_raw:
                 try:
-                    _kdt = _dp(sf_kickoff)
-                    if _kdt.tzinfo is None:
-                        _kdt = _kdt.replace(tzinfo=_ZI3("America/New_York"))
-                    from datetime import timedelta as _td2
-                    if _kdt.astimezone(UTC) < _now_utc - _td2(minutes=20):
-                        continue
+                    _close_dt = _dp(_close_raw)
+                    if _close_dt.tzinfo is None:
+                        _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
+                    if _close_dt.astimezone(UTC) < _now_utc:
+                        continue  # market already closed — no point picking it
                 except Exception:
-                    pass  # can't parse — allow through, Kalshi close_time gate below handles it
+                    pass
+
+            if sf_kickoff:
+                pass  # Sofascore match confirmed — game is real, proceed
             else:
                 if _sf_games:
                     # Sofascore loaded but no match — game not confirmed, skip
                     logger.debug("Kalshi: no Sofascore match for '%s' — skipping", subtitle)
                     continue
-                # Sofascore unavailable — fall back to Kalshi close_time gate
-                _close_raw = m.get("close_time") or m.get("expiration_time") or ""
-                if _close_raw:
-                    try:
-                        _close_dt = _dp(_close_raw)
-                        if _close_dt.tzinfo is None:
-                            _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
-                        if _close_dt.astimezone(UTC) < _now_utc:
-                            continue  # market already closed
-                        if _close_dt.astimezone(UTC) < _now_utc - _td2(minutes=20):
-                            continue  # started more than 20 min ago
-                    except Exception:
-                        pass
-                else:
+                # Sofascore unavailable — fall back to close_time gate (already done above)
+                if not _close_raw:
                     continue  # no timing info at all — skip
                 _kickoff_et = _to_naive_et(_close_raw)
                 # Build candidate without Sofascore enrichment
