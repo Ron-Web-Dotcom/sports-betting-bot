@@ -747,26 +747,17 @@ def track_slips() -> dict:
                 ct = _parse_time(pick.get("commence_time", ""))
                 is_kalshi = bool(pick.get("question") or pick.get("market_id"))
                 if is_kalshi:
-                    # Sofascore finished → Kalshi settled → CASHED or DEAD
-                    sf_id = pick.get("sofascore_id", "")
-                    if sf_id:
-                        ev = _sf_event(sf_id)
-                        if not ev:
-                            # Sofascore unreachable — apply 12h timeout or retry
-                            if ct and (now - ct).total_seconds() > 12 * 3600:
-                                results.append("dead")
-                                continue
-                            continue  # retry next tick
-                        if (ev.get("status") or {}).get("type", "") != "finished":
-                            continue  # game still in progress
-                    else:
-                        # No sofascore_id — apply timeout or check Kalshi directly
-                        if ct and (now - ct).total_seconds() > 12 * 3600:
-                            results.append("dead")
-                            continue
+                    # Don't check before game has started (or at least 10 min in)
+                    if ct and (now - ct).total_seconds() < 10 * 60:
+                        continue
+                    # Poll Kalshi API directly — it settles within minutes of game end.
+                    # No Sofascore gate needed: Kalshi's own result field is the truth.
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
+                    elif ct and (now - ct).total_seconds() > 12 * 3600:
+                        # 12h timeout safety net — mark dead if Kalshi never settles
+                        results.append("dead")
                     # Not settled yet — retry next tick
                 else:
                     if not ct:
