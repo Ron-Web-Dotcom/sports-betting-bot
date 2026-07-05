@@ -106,10 +106,87 @@ def purge_ghost_slips() -> int:
     return removed
 
 
+def _db_path() -> str:
+    import os
+    return os.getenv("SIP_DB_PATH", "data/sip.db")
+
+
+def _db_save_slip(slip: dict) -> None:
+    """Persist slip to SQLite so it survives Redis/bot restarts."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(_db_path())
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS slip_tracker (
+                slip_id   TEXT PRIMARY KEY,
+                slip_json TEXT NOT NULL,
+                saved_at  TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "INSERT OR REPLACE INTO slip_tracker (slip_id, slip_json, saved_at) VALUES (?, ?, ?)",
+            (slip["id"], json.dumps(slip), _now_et().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("slip_tracker: DB persist failed: %s", e)
+
+
+def reload_slips_from_db() -> int:
+    """
+    Called on bot startup — reloads active slips from SQLite into Redis.
+    Prevents ghost slips AND ensures tracking survives restarts.
+    Only reloads slips from the last 2 days that are still active.
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+    import zoneinfo
+    ET     = zoneinfo.ZoneInfo("America/New_York")
+    cutoff = (datetime.now(ET) - timedelta(days=2)).strftime("%Y-%m-%d")
+
+    try:
+        conn = sqlite3.connect(_db_path())
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS slip_tracker (
+                slip_id   TEXT PRIMARY KEY,
+                slip_json TEXT NOT NULL,
+                saved_at  TEXT NOT NULL
+            )
+        """)
+        rows = conn.execute(
+            "SELECT slip_id, slip_json FROM slip_tracker WHERE slip_id >= ?",
+            (f"day:hardrock:{cutoff}",)  # lexicographic — covers all platforms for last 2 days
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        logger.warning("reload_slips_from_db: DB read failed: %s", e)
+        return 0
+
+    r = _redis()
+    loaded = 0
+    for slip_id, slip_json in rows:
+        try:
+            slip = json.loads(slip_json)
+            # Only reload active slips — don't resurrect settled ones
+            if slip.get("status") != "active":
+                continue
+            # Don't overwrite if already in Redis (fresh bot restart may still have it)
+            if not r.hexists(_SLIP_KEY, slip_id):
+                r.hset(_SLIP_KEY, slip_id, slip_json)
+                loaded += 1
+        except Exception:
+            pass
+    r.persist(_SLIP_KEY)
+    if loaded:
+        logger.info("reload_slips_from_db: restored %d active slip(s) into Redis", loaded)
+    return loaded
+
+
 def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | None = None) -> str:
     """
     Called right after an entry is posted to Discord.
-    Saves the slip to Redis so we can track it through game day.
+    Saves the slip to Redis AND SQLite so it survives restarts.
     Only ONE slip per period per platform per day is saved — prevents
     duplicate tracking alerts from multiple restarts.
 
@@ -136,6 +213,7 @@ def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | No
         slip["ticket_id"] = ticket_id
     r.hset(_SLIP_KEY, slip_id, json.dumps(slip))
     r.persist(_SLIP_KEY)  # never auto-expire — cleanup_old_slips removes individual fields; TTL would wipe all slips
+    _db_save_slip(slip)   # persist to SQLite — survives Redis flush / bot restart
     logger.info("Slip saved: %s (%d picks)", slip_id, len(picks))
     return slip_id
 
@@ -155,6 +233,7 @@ def _load_active_slips(r) -> list[dict]:
 
 def _save_slip(r, slip: dict) -> None:
     r.hset(_SLIP_KEY, slip["id"], json.dumps(slip))
+    _db_save_slip(slip)   # keep DB in sync on every status update
 
 
 def _alerted(r, key: str) -> bool:

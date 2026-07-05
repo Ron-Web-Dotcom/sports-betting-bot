@@ -252,6 +252,15 @@ def main():
 
     logger.info("Runner loop started")
 
+    # ── Startup: reload active slips from DB into Redis (survives restarts) ──────
+    try:
+        from src.workers.slip_tracker import reload_slips_from_db
+        reloaded = reload_slips_from_db()
+        if reloaded:
+            logger.info("Startup: restored %d active slip(s) from DB into Redis", reloaded)
+    except Exception as _se:
+        logger.warning("Startup: slip reload failed: %s", _se)
+
     # ── Startup: refresh sports list then scan odds so catchup tasks have fresh data ──
     _startup_hour = datetime.now(ET).hour
     if 5 <= _startup_hour < 23:  # skip during dead hours (2:30–6 AM)
