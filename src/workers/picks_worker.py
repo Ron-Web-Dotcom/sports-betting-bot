@@ -454,18 +454,15 @@ def _get_parlay_senders():
 
 def scan_todays_games():
     """
-    8 AM daily: scan today's games across all sports.
-    Runs Sofascore + ESPN in parallel and merges results — neither is a
-    single point of failure. Sofascore covers global leagues (World Cup,
-    cricket, rugby). ESPN covers US sports reliably. Both run every time.
+    8 AM daily: scan today's games via Sofascore (routed through ScraperAPI when
+    Decodo is blocked). Sofascore is the single source of truth for global game
+    discovery — ScraperAPI ensures it never fails.
     Splits into DAY (before 4 PM ET) and NIGHT (4 PM ET+).
     Caches both lists in Redis for the entry generators to use.
     """
     from src.apis.sofascore import get_all_scheduled_events
-    from src.apis.espn import SPORT_MAP as ESPN_SPORT_MAP, fetch_scoreboard
     from src.core.timezone import et_naive
     from src.core.config import REDIS_URL
-    from concurrent.futures import ThreadPoolExecutor
     import json
     import zoneinfo
     import redis as _redis
@@ -476,10 +473,9 @@ def scan_todays_games():
     day_games: list[dict] = []
     night_games: list[dict] = []
     seen_ids: set[str] = set()
-    # Secondary dedup by team pair — catches same game from both sources
     seen_pairs: set[str] = set()
 
-    def _add_events(events: list, source: str):
+    def _add_events(events: list):
         added = 0
         for ev in events:
             eid = str(ev.get("id", ""))
@@ -514,27 +510,14 @@ def scan_todays_games():
             added += 1
         return added
 
-    sf_count = espn_count = 0
+    sf_count = 0
+    try:
+        sf_count = _add_events(get_all_scheduled_events(today))
+    except Exception as e:
+        logger.warning("scan_todays_games: Sofascore batch failed — %s", e)
 
-    # Run Sofascore (batched: 15 requests) + ESPN in parallel
-    # Sofascore: one request per unique slug instead of one per sport_key (110→15)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        sf_fut   = pool.submit(get_all_scheduled_events, today)
-        espn_futs = {pool.submit(fetch_scoreboard, sk): sk for sk in ESPN_SPORT_MAP}
-
-        try:
-            sf_count = _add_events(sf_fut.result(), "sofascore")
-        except Exception as e:
-            logger.warning("scan_todays_games: Sofascore batch failed — %s", e)
-
-        for fut, sk in espn_futs.items():
-            try:
-                espn_count += _add_events(fut.result(), "espn")
-            except Exception as e:
-                logger.warning("scan_todays_games: ESPN failed for %s — %s", sk, e)
-
-    logger.info("Game scan complete: %d from Sofascore + %d new from ESPN = %d total",
-                sf_count, espn_count, sf_count + espn_count)
+    logger.info("Game scan complete: %d from Sofascore (%d day, %d night)",
+                sf_count, len(day_games), len(night_games))
 
     r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
     r.setex("sofascore:day_games",   86400, json.dumps(day_games))
