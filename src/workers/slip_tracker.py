@@ -237,12 +237,43 @@ def _save_slip(r, slip: dict) -> None:
 
 
 def _alerted(r, key: str) -> bool:
-    return bool(r.sismember(_ALERTED_KEY, key))
+    if r.sismember(_ALERTED_KEY, key):
+        return True
+    # Also check SQLite — survives Redis/bot restarts
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_db_path())
+        row = conn.execute("SELECT 1 FROM alerted_keys WHERE key=?", (key,)).fetchone()
+        conn.close()
+        if row:
+            r.sadd(_ALERTED_KEY, key)  # warm Redis cache
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _mark_alerted(r, key: str) -> None:
     r.sadd(_ALERTED_KEY, key)
     r.expire(_ALERTED_KEY, 86400)
+    # Persist to SQLite so alerts don't re-fire after restart
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_db_path())
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alerted_keys (
+                key      TEXT PRIMARY KEY,
+                saved_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "INSERT OR IGNORE INTO alerted_keys (key, saved_at) VALUES (?, ?)",
+            (key, _now_et().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 # ── W/L ratio ─────────────────────────────────────────────────────────────────
@@ -686,7 +717,7 @@ def track_slips() -> dict:
                         _mark_alerted(r, soon_key)
 
                     live_key = f"game:live:{gid}"
-                    if -15 <= mins <= 5 and not _alerted(r, live_key):
+                    if -60 <= mins <= 15 and not _alerted(r, live_key):
                         all_live.append(f"🔴 **{name}**  {tag}")
                         _mark_alerted(r, live_key)
 

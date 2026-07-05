@@ -609,6 +609,24 @@ def cleanup_old_slips():
             pass
 
     logger.info("cleanup_old_slips: removed %d stale slips (cutoff %s)", removed, cutoff)
+
+    # Also prune alerted_keys older than 2 days from SQLite
+    try:
+        import sqlite3, os
+        db = os.getenv("SIP_DB_PATH", "data/sip.db")
+        conn = sqlite3.connect(db)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alerted_keys (
+                key TEXT PRIMARY KEY, saved_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("DELETE FROM alerted_keys WHERE saved_at < ?",
+                     ((datetime.now(ET) - timedelta(days=2)).isoformat(),))
+        conn.commit()
+        conn.close()
+    except Exception as _e:
+        logger.debug("cleanup_old_slips: alerted_keys prune skipped: %s", _e)
+
     return {"removed": removed, "cutoff": cutoff}
 
 
