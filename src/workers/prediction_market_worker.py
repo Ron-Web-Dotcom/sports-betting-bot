@@ -332,7 +332,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
 
             # Gate on Kalshi close_time (when betting closes = game start).
-            # Skip only if the market has already closed — not based on kickoff.
+            # Skip if market already closed — game is live, Kalshi stopped accepting bets.
             _close_raw = m.get("close_time") or m.get("expiration_time") or ""
             if _close_raw:
                 try:
@@ -340,12 +340,16 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     if _close_dt.tzinfo is None:
                         _close_dt = _close_dt.replace(tzinfo=_ZI3("America/New_York"))
                     if _close_dt.astimezone(UTC) < _now_utc:
-                        continue  # market already closed — no point picking it
+                        continue  # market closed — game already live
                 except Exception:
                     pass
 
             if sf_kickoff:
-                pass  # Sofascore match confirmed — game is real, proceed
+                # Sofascore is source of truth — skip if game already live or finished
+                sf_status = (sf_game.get("status_type") or sf_game.get("status") or "") if sf_game else ""
+                if sf_status in ("inprogress", "finished", "canceled", "postponed"):
+                    logger.debug("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
+                    continue
             else:
                 if _sf_games:
                     # Sofascore loaded but no match — game not confirmed, skip
