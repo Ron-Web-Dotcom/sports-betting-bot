@@ -262,6 +262,24 @@ SPORT_MAP = {
     "cricket_international_t20":             "cricket",
     "cricket_t20_world_cup_womens":          "cricket",
     "cricket_t20_blast":                     "cricket",
+    # ── Table Tennis ──────────────────────────────────────────────────────────
+    "tabletennis_wtt":                       "table-tennis",
+    "tabletennis_ittf":                      "table-tennis",
+    # ── Volleyball ────────────────────────────────────────────────────────────
+    "volleyball_wvl":                        "volleyball",
+    "volleyball_men_wc":                     "volleyball",
+    "volleyball_women_wc":                   "volleyball",
+    # ── Handball ──────────────────────────────────────────────────────────────
+    "handball_world_championship":           "handball",
+    "handball_ehf_champions_league":         "handball",
+    # ── Badminton ─────────────────────────────────────────────────────────────
+    "badminton_bwf_world_tour":              "badminton",
+    # ── Snooker ───────────────────────────────────────────────────────────────
+    "snooker_world_championship":            "snooker",
+    # ── Esports ───────────────────────────────────────────────────────────────
+    "esports_lol":                           "esports",
+    "esports_csgo":                          "esports",
+    "esports_dota2":                         "esports",
 }
 
 _HEADERS = {
