@@ -176,10 +176,12 @@ def _set_credits_exhausted() -> None:
 
 
 def _clear_credits_exhausted() -> None:
-    """Clear the credits-exhausted flag (called when Odds API returns 200 again)."""
+    """Clear the credits-exhausted flag — only logs if the flag was actually set."""
     try:
-        _redis_client().delete(_CREDITS_FLAG)
-        logger.info("Odds API credits restored — cleared credits_exhausted flag")
+        r = _redis_client()
+        if r.exists(_CREDITS_FLAG):
+            r.delete(_CREDITS_FLAG)
+            logger.info("Odds API credits restored — cleared credits_exhausted flag")
     except Exception:
         pass
 
