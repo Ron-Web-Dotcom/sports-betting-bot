@@ -389,6 +389,18 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             # commence_time = Sofascore kickoff (only path that reaches here)
             _kickoff_et = _to_naive_et(sf_kickoff)
 
+            # Period gate — day = before 4 PM ET, night = 4 PM ET+
+            # Sofascore kickoff is naive ET so hour comparison is direct.
+            try:
+                _kdt_et = _dp(_kickoff_et)
+                _is_night_game = _kdt_et.hour >= 16
+                if period == "day" and _is_night_game:
+                    continue  # night game in day entry — skip
+                if period == "night" and not _is_night_game:
+                    continue  # day game in night entry — skip
+            except Exception:
+                pass  # can't parse — allow through
+
             # Sofascore odds + enriched context for AI
             _sf_odds: dict = {}
             _sf_ctx: dict = {}

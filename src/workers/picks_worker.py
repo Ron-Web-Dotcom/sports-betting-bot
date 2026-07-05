@@ -610,8 +610,14 @@ def _build_hardrock_candidates(
         pass
 
     def _sf_odds_for_game(home: str, away: str) -> tuple[dict, str]:
-        """Fetch Sofascore bookmaker odds for this game. Returns (odds_dict, sofascore_id)."""
-        for name in (home.lower(), away.lower()):
+        """Fetch Sofascore bookmaker odds for this game. Returns (odds_dict, sofascore_id).
+        Tries exact match first, then fuzzy word-level match for team name variants
+        (e.g. 'LA Lakers' vs 'Los Angeles Lakers') so sofascore_id is always populated.
+        """
+        h_low, a_low = home.lower(), away.lower()
+
+        # 1. Exact match
+        for name in (h_low, a_low):
             ev = _sf_index.get(name)
             if ev and ev.get("id"):
                 try:
@@ -619,6 +625,18 @@ def _build_hardrock_candidates(
                     return _gso(ev["id"]) or {}, str(ev["id"])
                 except Exception:
                     return {}, str(ev.get("id", ""))
+
+        # 2. Fuzzy: check if any significant word from home/away appears in index keys
+        for name in (h_low, a_low):
+            words = [w for w in name.split() if len(w) > 3]
+            for key, ev in _sf_index.items():
+                if any(w in key for w in words) and ev.get("id"):
+                    try:
+                        from src.apis.sofascore import get_event_odds as _gso
+                        return _gso(ev["id"]) or {}, str(ev["id"])
+                    except Exception:
+                        return {}, str(ev.get("id", ""))
+
         return {}, ""
 
     logger.info("HardRock [%s]: %d games in DB window", period, len(snapshots))
