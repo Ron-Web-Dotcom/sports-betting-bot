@@ -612,7 +612,8 @@ def cleanup_old_slips():
 
     # Also prune alerted_keys older than 2 days from SQLite
     try:
-        import sqlite3, os
+        import sqlite3
+        import os
         db = os.getenv("SIP_DB_PATH", "data/sip.db")
         conn = sqlite3.connect(db)
         conn.execute("""
