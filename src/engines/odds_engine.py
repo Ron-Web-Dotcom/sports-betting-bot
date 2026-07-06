@@ -192,8 +192,11 @@ def _get(path: str, params: dict) -> dict | list | None:
     params["apiKey"] = ODDS_API_KEY
     try:
         r = httpx.get(f"{ODDS_API_BASE}{path}", params=params, timeout=20)
-        if r.status_code in (401, 403):
+        if r.status_code == 429:
             _set_credits_exhausted()
+            return None
+        if r.status_code in (401, 403):
+            logger.warning("OddsAPI %s → %s (auth/forbidden — not marking credits exhausted)", path, r.status_code)
             return None
         r.raise_for_status()
         remaining = r.headers.get("x-requests-remaining", "?")
@@ -201,7 +204,7 @@ def _get(path: str, params: dict) -> dict | list | None:
         _clear_credits_exhausted()
         return r.json()
     except httpx.HTTPStatusError as e:
-        if e.response.status_code in (401, 403):
+        if e.response.status_code == 429:
             _set_credits_exhausted()
         elif e.response.status_code in (404, 422):
             logger.warning("OddsAPI %s → %s (off-season/unavailable)", path, e.response.status_code)
@@ -243,6 +246,8 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     Costs 1 credit per market per event — fetch only active events.
     """
     if sport_key not in PLAYER_PROP_SPORTS:
+        return []
+    if _credits_exhausted():
         return []
 
     _SOCCER_MARKETS     = ["player_shots_on_target", "player_goals", "player_assists", "player_cards"]
@@ -515,11 +520,11 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     all_props = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fetch_player_props, sk, eid): (sk, eid) for sk, eid in tasks}
-        for fut in futures:
+        for fut, (sk, eid) in futures.items():
             try:
                 all_props.extend(fut.result())
             except Exception as e:
-                logger.warning("Player props fetch failed: %s", e)
+                logger.warning("Player props fetch failed [%s/%s]: %s", sk, eid, e)
 
     logger.info("OddsAPI player props total: %d across %d events", len(all_props), len(tasks))
     return all_props
@@ -613,7 +618,16 @@ def get_live_active_sport_keys() -> set[str]:
             logger.warning("Odds API /sports returned no data — falling back to full SPORTS list")
             return set(SPORTS.values())
 
-        active = {s["key"] for s in data if s.get("key") and not s.get("has_outrights", False)}
+        # has_outrights=True means it's an outrights-only market (e.g. season winner)
+        # Golf and tennis have real game events even when has_outrights=True, so include them
+        _golf_tennis = {"golf", "tennis"}
+        active = {
+            s["key"] for s in data
+            if s.get("key") and (
+                not s.get("has_outrights", False) or
+                any(gt in s["key"].lower() for gt in _golf_tennis)
+            )
+        }
         logger.info("Odds API: %d active in-season sports", len(active))
 
         if r and active:
