@@ -224,7 +224,23 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
         _sf_games = _load_sf_games()
 
-        # If cache is empty (Sofascore returned 0 games at 8 AM scan), force a fresh scan
+        # Stale cache check — if ALL cached games are from before today, treat as empty
+        # (24h TTL means yesterday's scan survives until next 8 AM)
+        if _sf_games:
+            try:
+                from dateutil.parser import parse as _dp_stale
+                _today_et = _dt.now(_zi.ZoneInfo("America/New_York")).date()
+                _stale = [
+                    g for g in _sf_games
+                    if g.get("commence_time") and _dp_stale(g["commence_time"]).date() < _today_et
+                ]
+                if len(_stale) == len(_sf_games):
+                    logger.info("Sofascore cache is fully stale (all games from before today) — forcing rescan")
+                    _sf_games = []
+            except Exception:
+                pass
+
+        # If cache is empty or stale, force a fresh scan
         if not _sf_games:
             logger.info("Sofascore cache empty before %s entry — triggering rescan", period)
             try:

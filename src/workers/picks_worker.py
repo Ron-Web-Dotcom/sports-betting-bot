@@ -551,6 +551,21 @@ def _load_todays_games(period: str) -> list[dict]:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw = r.get(f"sofascore:{period}_games")
         games = json.loads(raw) if raw else []
+
+        # Stale cache check — if all cached games are from before today, force rescan
+        if games:
+            try:
+                from dateutil.parser import parse as _dp_stale
+                from datetime import datetime as _dts
+                import zoneinfo as _zis
+                _today_et = _dts.now(_zis.ZoneInfo("America/New_York")).date()
+                _stale = [g for g in games if g.get("commence_time") and _dp_stale(g["commence_time"]).date() < _today_et]
+                if len(_stale) == len(games):
+                    logger.info("Sofascore %s cache fully stale (all before today) — forcing rescan", period)
+                    games = []
+            except Exception:
+                pass
+
         if not games:
             logger.info("Sofascore %s cache empty — running fresh scan", period)
             scan_todays_games()
