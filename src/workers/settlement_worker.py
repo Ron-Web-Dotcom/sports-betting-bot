@@ -201,7 +201,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             return None
         is_over = selection.lower().startswith("over")
         if abs(total_scored - total_line) < 0.1:
-            return BetResult.LOST  # exact total = lost (no push)
+            return BetResult.PUSH
         return BetResult.WON if (is_over and total_scored > total_line) or \
                         (not is_over and total_scored < total_line) else BetResult.LOST
 
@@ -227,11 +227,16 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             margin = (home_score - away_score) if is_home else (away_score - home_score)
             covered = margin + spread
             if abs(covered) < 0.1:
-                return BetResult.LOST  # exact spread = lost (no push)
+                return BetResult.PUSH
             return BetResult.WON if covered > 0 else BetResult.LOST
 
     # ── Moneyline (h2h) ───────────────────────────────────────────────────────
+    home_score = score.get("home_score")
+    away_score = score.get("away_score")
     if not winner:
+        # Draw — if we have score data confirming a tie, settle as PUSH
+        if home_score is not None and away_score is not None and home_score == away_score:
+            return BetResult.PUSH
         return None
 
     selection_norm = _normalize_team_name(selection)
@@ -245,18 +250,17 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
     return BetResult.LOST
 
 
-def _calculate_pnl(pick: Pick, result: str) -> float:
+def _calculate_pnl(pick: Pick, result) -> float:
     units = pick.units or 1
-    # result comes from _determine_result which returns BetResult enum values
-    # BetResult(str, Enum) so string comparison works; accept both "won"/"cashed" and "lost"/"dead"
-    result_lower = str(result).lower()
-    if result_lower in ("won", "cashed"):
+    # BetResult is str,Enum — .value gives the string "won"/"lost" etc.
+    result_val = result.value if hasattr(result, "value") else str(result).lower()
+    if result_val in ("won", "cashed"):
         from src.engines.ev_engine import american_to_decimal
         dec = american_to_decimal(pick.american_odds_at_gen or -110)
         return round((dec - 1) * units, 2)
-    elif result_lower in ("lost", "dead"):
+    elif result_val in ("lost", "dead"):
         return -units
-    return 0.0  # unexpected result state — treated as break-even
+    return 0.0  # push or unexpected — break-even
 
 
 def record_closing_lines():
