@@ -31,7 +31,6 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
     ET    = zoneinfo.ZoneInfo("America/New_York")
     now_et = datetime.now(ET)
     cutoff = (now_et - timedelta(days=days_back)).date()
-    today  = now_et.date()
 
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
@@ -42,32 +41,26 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
 
     winner_slips: list = []
     loser_slips:  list = []
+    push_slips:   list = []
 
     for raw in raw_slips.values():
         try:
             slip = json.loads(raw)
             created_date = slip.get("created", "")[:10]
-            # Exclude slips before cutoff AND slips from today (avoid double-counting)
-            if created_date < str(cutoff) or created_date >= str(today):
+            if created_date < str(cutoff):
                 continue
             status = slip.get("status", "active")
             if status == "cashed":
                 winner_slips.append(slip)
             elif status == "dead":
                 loser_slips.append(slip)
+            elif status == "push":
+                push_slips.append(slip)
         except Exception:
             pass
 
-    # Count wins/losses/pushes from date-filtered slips (not all-time ratio)
     wins   = len(winner_slips)
     losses = len(loser_slips)
-    push_slips = [
-        slip for raw in raw_slips.values()
-        for slip in [__import__("json").loads(raw) if raw else {}]
-        if slip.get("created", "")[:10] >= str(cutoff)
-        and slip.get("created", "")[:10] < str(today)
-        and slip.get("status") == "push"
-    ]
     pushes = len(push_slips)
 
     return wins, losses, pushes, winner_slips, loser_slips
@@ -233,10 +226,11 @@ def send_weekly_summary():
         pass
 
     wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=7)
-    total = wins + losses
+    total    = wins + losses
+    settled  = wins + losses  # only count settled for hit rate
 
-    pct_str = f" ({round(wins/total*100)}% hit rate)" if total > 0 else ""
-    record  = f"{wins}W – {losses}L{pct_str}" if total > 0 else "No settled slips this week"
+    pct_str = f" ({round(wins/settled*100)}% hit rate)" if settled > 0 else ""
+    record  = f"{wins}W – {losses}L{pct_str}" if settled > 0 else "No settled slips this week"
 
     win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
     loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
@@ -258,8 +252,9 @@ def send_weekly_summary():
     week_num  = ((now_et.date() - _BOT_LAUNCH).days // 7) + 1
     next_week = week_num + 1
     date_str = now_et.strftime("%b %-d, %Y")
-    slip_id  = hashlib.md5(f"weekly{date_str}".encode()).hexdigest()[:8].upper()
-    color    = 0x1B5E20 if wins >= losses and total > 0 else (0xB71C1C if losses > wins else 0x607D8B)
+    slip_id    = hashlib.md5(f"weekly{date_str}".encode()).hexdigest()[:8].upper()
+    color      = 0x1B5E20 if wins >= losses and settled > 0 else (0xB71C1C if losses > wins else 0x607D8B)
+    total_slips = wins + losses + pushes  # all settled slips this week
 
     embed = {
         "title": f"📊  WEEK {week_num} RECAP  ·  🟢  WEEK {next_week} STARTS NOW",
@@ -269,8 +264,8 @@ def send_weekly_summary():
         ),
         "color": color,
         "fields": [
-            {"name": "WEEK'S RECORD",  "value": record,          "inline": False},
-            {"name": "TOTAL SLIPS",    "value": str(total),      "inline": True},
+            {"name": "WEEK'S RECORD",  "value": record,              "inline": False},
+            {"name": "TOTAL SLIPS",    "value": str(total_slips),    "inline": True},
             {"name": "BY SPORT",       "value": sport_breakdown,  "inline": True},
             {"name": "​",        "value": "​",          "inline": True},
             {"name": "✅  WINNERS",    "value": win_lines,        "inline": True},
@@ -386,9 +381,10 @@ def enter_sleep_mode():
                 logger.info("enter_sleep_mode: weekly summary already sent this week — skipping")
             else:
                 w_wins, w_losses, w_pushes, w_winners, w_losers = _load_slip_results(days_back=7)
-                w_total  = w_wins + w_losses
-                w_pct    = f" ({round(w_wins/w_total*100)}% hit rate)" if w_total > 0 else ""
-                w_record = f"{w_wins}W – {w_losses}L{w_pct}" if w_total > 0 else "No settled slips this week"
+                w_settled = w_wins + w_losses
+                w_total   = w_wins + w_losses + w_pushes
+                w_pct    = f" ({round(w_wins/w_settled*100)}% hit rate)" if w_settled > 0 else ""
+                w_record = f"{w_wins}W – {w_losses}L{w_pct}" if w_settled > 0 else "No settled slips this week"
                 w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners[:5]) or "—"
                 w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers[:5])  or "—"
                 w_sport: dict = {}
@@ -403,7 +399,7 @@ def enter_sleep_mode():
                 week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
                 prev_week = max(week_num - 1, 1)
                 w_slip_id = _hl.md5(f"weekly{et.strftime('%G-W%V')}".encode()).hexdigest()[:8].upper()
-                w_color   = 0x1B5E20 if w_wins >= w_losses and w_total > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
+                w_color   = 0x1B5E20 if w_wins >= w_losses and w_settled > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
                 weekly_embed = {
                     "title": f"📊  WEEK {prev_week} SUMMARY  ·  🟢  WEEK {week_num} STARTS NOW",
                     "description": (
