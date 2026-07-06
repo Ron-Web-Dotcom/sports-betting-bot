@@ -29,16 +29,14 @@ def to_et(dt: datetime) -> datetime:
 
 def et_day_bounds(days_ago: int = 0) -> tuple[datetime, datetime]:
     """
-    Return (start, end) naive datetimes for an ET calendar day, expressed in
-    naive form matching UTC-stored DB columns.
+    Return (start, end) naive ET datetimes for an ET calendar day.
+    Matches DB columns stored as naive ET strings via et_naive().
 
     days_ago=0 → today ET, days_ago=1 → yesterday ET, etc.
     """
     from datetime import timedelta
     now  = datetime.now(ET)
     day  = (now - timedelta(days=days_ago)).date()
-    start_dt = datetime(day.year, day.month, day.day, tzinfo=ET)
-    end_dt   = start_dt + timedelta(days=1)
-    start = start_dt.astimezone(UTC).replace(tzinfo=None)
-    end   = end_dt.astimezone(UTC).replace(tzinfo=None)
+    start = datetime(day.year, day.month, day.day)       # midnight ET naive
+    end   = start + timedelta(days=1)
     return start, end

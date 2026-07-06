@@ -53,9 +53,13 @@ def _ensure_columns() -> None:
                 )
                 conn.commit()
                 logger.info("Migration: added %s.%s (%s)", table, col, col_type)
-            except Exception:
-                # Column already exists — ignore
-                pass
+            except Exception as _col_exc:
+                msg = str(_col_exc).lower()
+                if "already exists" in msg or "duplicate column" in msg:
+                    pass  # expected — column was already added
+                else:
+                    logger.error("Migration error for %s.%s: %s", table, col, _col_exc)
+                    raise
 
 
 @contextmanager

@@ -328,8 +328,8 @@ _ALL_SPORTS: dict[str, str] = {
     "usopen":               "tennis_atp_us_open",
     "wusopen":              "tennis_wta_us_open",
     # ── Tennis — Tour Events ──────────────────────────────────────────────────
-    "tennis":               "tennis_atp_wimbledon",
-    "atp":                  "tennis_atp_wimbledon",
+    "tennis":               "tennis_atp_us_open",   # current tournament — update seasonally
+    "atp":                  "tennis_atp_us_open",   # current tournament — update seasonally
     "wta":                  "tennis_wta_german_open",
     "queens":               "tennis_atp_queens_club_champ",
     "halle":                "tennis_atp_halle_open",
@@ -375,21 +375,6 @@ _ALL_SPORTS: dict[str, str] = {
 }
 
 
-def _is_in_season(api_key: str) -> bool:
-    """Return True if today's date falls within the sport's active season."""
-    from datetime import date
-    season = _SEASON_CALENDAR.get(api_key)
-    if not season:
-        return False  # not in calendar = never scan
-    ms, ds, me, de = season
-    today = date.today()
-    m, d = today.month, today.day
-    start = (ms, ds)
-    end   = (me, de)
-    if start <= end:
-        return start <= (m, d) <= end
-    # Wraps year boundary (e.g. Oct–Feb)
-    return (m, d) >= start or (m, d) <= end
 
 
 def _build_active_sports() -> dict[str, str]:

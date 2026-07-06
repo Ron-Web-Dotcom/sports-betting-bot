@@ -283,7 +283,7 @@ async def post_hardrock_parlay(picks: list[dict]) -> None:
             dec = 1.91
         combined_decimal *= dec
 
-    if combined_decimal <= 1.0:
+    if combined_decimal < 1.01:
         combined_decimal = 1.91  # fallback: -110 equivalent when odds missing
     if combined_decimal >= 2.0:
         combined_american = int((combined_decimal - 1) * 100)
