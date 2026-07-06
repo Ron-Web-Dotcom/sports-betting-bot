@@ -85,7 +85,7 @@ Kalshi's `close_time` is never used as a game-start gate — it stays open after
 |--------|------|------|
 | Picks | `src/workers/picks_worker.py` | HardRock day/night entries |
 | Prediction Market | `src/workers/prediction_market_worker.py` | Kalshi day/night entries |
-| Slip Tracker | `src/workers/slip_tracker.py` | Game Soon / Live / CASHED / DEAD alerts |
+| Slip Tracker | `src/workers/slip_tracker.py` | Game Soon / Live / CASHED / DEAD alerts — Sofascore → Kalshi → Odds API for results |
 | Settlement | `src/workers/settlement_worker.py` | Settles picks via Odds API (days_from=14) |
 | Analytics | `src/workers/analytics_worker.py` | Summaries, sleep/wake, self-improvement |
 | Odds | `src/workers/odds_worker.py` | Odds snapshots + line movement |
@@ -96,9 +96,9 @@ Kalshi's `close_time` is never used as a game-start gate — it stays open after
 
 | Source | File | Provides |
 |--------|------|----------|
-| Sofascore | `src/apis/sofascore.py` | Schedules, live status, odds, H2H, form |
-| Odds API | `src/engines/odds_engine.py` | Moneylines, spreads, totals, props, scores |
-| Kalshi | `src/apis/kalshi.py` | Prediction market prices and settlement |
+| Sofascore | `src/apis/sofascore.py` | Schedules, live status, scores, results, H2H, form — **primary result source** |
+| Odds API | `src/engines/odds_engine.py` | Moneylines, spreads, totals, props, scores (fallback for results) |
+| Kalshi | `src/apis/kalshi.py` | Prediction market prices and settlement (fallback for results) |
 | TheSportsDB | `src/apis/thesportsdb.py` | Team form, H2H history, player bios |
 | Action Network | `src/apis/action_network.py` | Public betting % and sharp action signals |
 
@@ -124,6 +124,7 @@ Kalshi's `close_time` is never used as a game-start gate — it stays open after
 | `sofascore:day_games` | 24h | Games kicking off before 4 PM ET |
 | `sofascore:night_games` | 24h | Games kicking off 4 PM ET or later |
 | `sofascore:today_index` | 24h | Team-name → event lookup |
+| `sofascore:today_events` | 24h | Full today event list for team-name lookup |
 | `sofascore:event:{id}` | 2 min | Per-event live status cache |
 | `slips:active` | persist | Active slips — never auto-expires |
 | `kalshi:posted:{period}:{date}` | 24h | Dedup guard — one entry per period per day |
@@ -141,7 +142,9 @@ OPENAI_API_KEY=...
 ODDS_API_KEY=...
 KALSHI_API_KEY_ID=...
 KALSHI_PRIVATE_KEY=...
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER=redis://localhost:6379/1
+CELERY_BACKEND=redis://localhost:6379/2
 DATABASE_URL=postgresql://...
 DISCORD_BOT_TOKEN=...
 DISCORD_CHANNEL_ID=...
@@ -161,13 +164,13 @@ sudo systemctl status sports-bot
 GitHub Actions runs on every push to `main`:
 
 - **Lint** — `ruff check src/` — zero tolerance
-- **Tests** — 488 tests including 22 invariant tests that enforce all hard rules
+- **Tests** — 537 tests including 22 invariant tests that enforce all hard rules
 
 ```bash
 # Run locally before pushing
 ruff check src/
-python3 -m pytest tests/ -q --ignore=tests/integration --ignore=tests/security -k "not celery and not webhook and not discord"
-# Expected: 488 passed, 3 skipped
+python3 -m pytest tests/ -q
+# Expected: 537 passed, 3 skipped (celery stubs — intentional)
 ```
 
 ---
