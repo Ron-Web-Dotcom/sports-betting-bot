@@ -390,25 +390,37 @@ def _chat(messages: list, client: OpenAI | None = None) -> str | None:
 
 def _call_json(prompt: str, system: str) -> dict | None:
     raw = ""
+    # Ensure system prompt mentions JSON (required by OpenAI's json_object mode)
+    system_with_json = system if "json" in system.lower() else system + "\n\nRespond with valid JSON only."
     try:
-        raw = _chat([
-            {"role": "system", "content": system},
-            {"role": "user",   "content": prompt},
-        ]) or ""
+        c = _client
+        resp = c.chat.completions.create(
+            model=OPENAI_MODEL,
+            max_tokens=OPENAI_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": system_with_json},
+                {"role": "user",   "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        raw = resp.choices[0].message.content.strip() if resp.choices else ""
         if not raw:
             logger.warning("OpenAI returned empty content")
             return None
+        # Strip markdown fences if model ignores response_format
         if raw.startswith("```"):
             raw = raw.split("```", 2)[1]
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.rsplit("```", 1)[0].strip()
-        # Strip control characters that break JSON parsing (tabs/newlines inside strings)
         import re
         raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', ' ', raw)
         return json.loads(raw)
     except json.JSONDecodeError as e:
         logger.error("OpenAI JSON parse error: %s | raw=%r", e, raw[:200])
+        return None
+    except Exception as e:
+        logger.error("OpenAI _call_json failed: %s", e)
         return None
 
 
