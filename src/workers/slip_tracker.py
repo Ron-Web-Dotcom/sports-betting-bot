@@ -835,7 +835,7 @@ def track_slips() -> dict:
                          f"{pick.get('away_team','')} @ {pick.get('home_team','')}").strip(" @") or gid
                 tag   = f"`[{plat}]`"
 
-                # Try to resolve sofascore_id by team name if not set
+                # Resolve sofascore_id — use stored id or look up by team names
                 _resolved_sf_id = sf_id
                 if not _resolved_sf_id:
                     _home_t = pick.get("home_team", "")
@@ -849,42 +849,20 @@ def track_slips() -> dict:
                         except Exception:
                             pass
 
-                if _resolved_sf_id:
-                    ev          = _sf_event(_resolved_sf_id)
-                    sf_status   = (ev.get("status") or {}).get("type", "")
-                    start_ts    = ev.get("startTimestamp")
-                    if start_ts:
-                        from datetime import datetime as _dt2
-                        start_et  = _dt2.fromtimestamp(start_ts, tz=_ET)
-                        mins      = (start_et - now).total_seconds() / 60
-                        gt        = start_et.strftime("%-I:%M %p ET")
+                if not _resolved_sf_id:
+                    logger.debug("slip_tracker: no Sofascore id for pick gid=%s — skipping alerts", gid)
+                    continue
 
-                        # Soon: 5–60 min before kickoff
-                        soon_key = f"game:soon:{gid}"
-                        if 5 <= mins <= 60 and not _alerted(r, soon_key):
-                            all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
-                            _mark_alerted(r, soon_key)
+                # Everything from Sofascore — status, kickoff time, live signal
+                ev       = _sf_event(_resolved_sf_id)
+                sf_status = (ev.get("status") or {}).get("type", "")
+                start_ts  = ev.get("startTimestamp")
 
-                    # Live: fire immediately when Sofascore says inprogress
-                    live_key = f"game:live:{gid}"
-                    if not _alerted(r, live_key):
-                        if sf_status == "inprogress":
-                            all_live.append(f"🔴 **{name}**  {tag}")
-                            _mark_alerted(r, live_key)
-                        elif start_ts:
-                            from datetime import datetime as _dt2
-                            mins_since = (now - _dt2.fromtimestamp(start_ts, tz=_ET)).total_seconds() / 60
-                            if 0 < mins_since <= 120:
-                                all_live.append(f"🔴 **{name}**  {tag}")
-                                _mark_alerted(r, live_key)
-                else:
-                    # No Sofascore match at all — fall back to commence_time
-                    ct = _parse_time(pick.get("commence_time", ""))
-                    if not ct:
-                        logger.warning("slip_tracker: pick has no commence_time — gid=%s name=%s", gid, name)
-                        continue
-                    mins = (ct - now).total_seconds() / 60
-                    gt   = _fmt_time(pick.get("commence_time", ""))
+                from datetime import datetime as _dt2
+                if start_ts:
+                    start_et = _dt2.fromtimestamp(start_ts, tz=_ET)
+                    mins     = (start_et - now).total_seconds() / 60
+                    gt       = start_et.strftime("%-I:%M %p ET")
 
                     # Soon: 5–60 min before kickoff
                     soon_key = f"game:soon:{gid}"
@@ -892,11 +870,12 @@ def track_slips() -> dict:
                         all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                         _mark_alerted(r, soon_key)
 
-                    # Live: time-based fallback only when Sofascore unavailable
-                    live_key = f"game:live:{gid}"
-                    if -120 <= mins < 0 and not _alerted(r, live_key):
-                        all_live.append(f"🔴 **{name}**  {tag}")
-                        _mark_alerted(r, live_key)
+                # Live: fires the moment Sofascore returns inprogress — no timer
+                live_key = f"game:live:{gid}"
+                if sf_status == "inprogress" and not _alerted(r, live_key):
+                    gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else ""
+                    all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
+                    _mark_alerted(r, live_key)
 
         if all_soon:
             _post_embed({

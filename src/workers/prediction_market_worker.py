@@ -386,55 +386,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 except Exception:
                     pass
 
-            if sf_kickoff:
-                # Sofascore is source of truth — skip if game already live or finished
-                sf_status = (sf_game.get("status_type") or sf_game.get("status") or "") if sf_game else ""
-                if sf_status in ("inprogress", "finished", "canceled", "postponed"):
-                    logger.debug("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
-                    continue
-            else:
-                # No Sofascore match — use Kalshi close_time for timing (works whether
-                # Sofascore is loaded or unavailable; Sofascore just lacked this game)
-                if not _close_raw:
-                    continue  # no timing info at all — skip
-                _kickoff_et = _to_naive_et(_close_raw)
-                if _sf_games:
-                    logger.debug("Kalshi: no Sofascore match for '%s' — including via close_time", subtitle)
-                # Period gate using close_time
-                try:
-                    _kdt_ct = _dp(_kickoff_et)
-                    _is_night_ct = _kdt_ct.hour >= 16
-                    if period == "day" and _is_night_ct:
-                        continue
-                    if period == "night" and not _is_night_ct:
-                        continue
-                except Exception:
-                    pass
-                # Build candidate without Sofascore enrichment
-                candidates.append({
-                    "source":        "kalshi_only",
-                    "title":         m.get("title", ""),
-                    "event_title":   subtitle or m.get("title", ""),
-                    "subtitle":      subtitle,
-                    "event_ticker":  m.get("event_ticker", ""),
-                    "market_id":     m.get("market_id", ""),
-                    "home_team":     "",
-                    "away_team":     "",
-                    "sport_key":     "",
-                    "sofascore_id":  "",
-                    "sf_home_odds":  "",
-                    "sf_draw_odds":  "",
-                    "sf_away_odds":  "",
-                    "sf_home_impl":  0,
-                    "sf_away_impl":  0,
-                    "yes_prob":      yes_prob,
-                    "no_prob":       no_prob,
-                    "yes_american":  m.get("yes_american", 0),
-                    "no_american":   m.get("no_american", 0),
-                    "volume":        m.get("volume", 0),
-                    "commence_time": _kickoff_et,
-                    "expiration_time": m.get("expiration_time", ""),
-                })
+            if not sf_kickoff:
+                # No Sofascore match — skip. Sofascore is the only source of truth.
+                logger.debug("Kalshi: skipping '%s' — no Sofascore match", subtitle)
+                continue
+
+            # Sofascore is source of truth — skip if game already live or finished
+            sf_status = (sf_game.get("status_type") or sf_game.get("status") or "") if sf_game else ""
+            if sf_status in ("inprogress", "finished", "canceled", "postponed"):
+                logger.debug("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
                 continue
 
             # commence_time = Sofascore kickoff (only path that reaches here)
