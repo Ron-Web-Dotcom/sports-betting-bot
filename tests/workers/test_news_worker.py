@@ -32,6 +32,7 @@ def test_fetch_and_save_news_saves_flattened():
     with patch("src.workers.news_worker.fetch_all_injuries", return_value=injuries_by_sport), \
          patch("src.workers.news_worker.save_injuries") as mock_save, \
          patch("src.workers.news_worker._is_sleep_time", return_value=False), \
+         patch("src.workers.news_worker._news_window", return_value=True), \
          patch("redis.from_url", return_value=mock_redis):
         nw.fetch_and_save_news()
 
@@ -42,11 +43,12 @@ def test_fetch_and_save_news_saves_flattened():
 
 
 def test_sleeper_injuries_merged():
-    """When no ESPN injuries exist, no injuries are saved."""
+    """When no ESPN injuries exist, save_injuries is called with empty list."""
     mock_redis = _make_mock_redis()
     with patch("src.workers.news_worker.fetch_all_injuries", return_value={}), \
          patch("src.workers.news_worker.save_injuries") as mock_save, \
          patch("src.workers.news_worker._is_sleep_time", return_value=False), \
+         patch("src.workers.news_worker._news_window", return_value=True), \
          patch("redis.from_url", return_value=mock_redis):
         nw.fetch_and_save_news()
 
@@ -68,6 +70,7 @@ def test_espn_wins_collision():
     with patch("src.workers.news_worker.fetch_all_injuries", return_value=espn_injuries), \
          patch("src.workers.news_worker.save_injuries") as mock_save, \
          patch("src.workers.news_worker._is_sleep_time", return_value=False), \
+         patch("src.workers.news_worker._news_window", return_value=True), \
          patch("redis.from_url", return_value=mock_redis):
         nw.fetch_and_save_news()
 
@@ -81,6 +84,7 @@ def test_fetch_and_save_news_empty_result():
     with patch("src.workers.news_worker.fetch_all_injuries", return_value={}), \
          patch("src.workers.news_worker.save_injuries") as mock_save, \
          patch("src.workers.news_worker._is_sleep_time", return_value=False), \
+         patch("src.workers.news_worker._news_window", return_value=True), \
          patch("redis.from_url", return_value=mock_redis):
         nw.fetch_and_save_news()
 
