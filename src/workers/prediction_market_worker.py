@@ -107,11 +107,20 @@ def _fetch_todays_games() -> list[dict]:
             if not home or not away:
                 continue
 
-            # Only include if Sofascore confirms these teams play today
-            if sofascore_teams and \
-               home.lower() not in sofascore_teams and \
-               away.lower() not in sofascore_teams:
-                continue
+            # Prefer Sofascore-confirmed games but don't block entirely — Sofascore
+            # team names don't always match Odds API names exactly (e.g. "Man City" vs
+            # "Manchester City"). Only skip if Sofascore is loaded AND neither team name
+            # has any token overlap with any Sofascore team.
+            if sofascore_teams:
+                home_l, away_l = home.lower(), away.lower()
+                def _any_token_match(name: str) -> bool:
+                    tokens = [t for t in name.split() if len(t) > 3]
+                    return name in sofascore_teams or any(
+                        any(t in sf or sf in t for sf in sofascore_teams)
+                        for t in tokens
+                    )
+                if not _any_token_match(home_l) and not _any_token_match(away_l):
+                    continue
 
             home_odds = next((x["best_odds"] for x in snaps
                               if x.get("market") == "h2h" and x.get("selection") == home), None)
@@ -351,14 +360,23 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     logger.debug("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
                     continue
             else:
-                if _sf_games:
-                    # Sofascore loaded but no match — game not confirmed, skip
-                    logger.debug("Kalshi: no Sofascore match for '%s' — skipping", subtitle)
-                    continue
-                # Sofascore unavailable — fall back to close_time gate (already done above)
+                # No Sofascore match — use Kalshi close_time for timing (works whether
+                # Sofascore is loaded or unavailable; Sofascore just lacked this game)
                 if not _close_raw:
                     continue  # no timing info at all — skip
                 _kickoff_et = _to_naive_et(_close_raw)
+                if _sf_games:
+                    logger.debug("Kalshi: no Sofascore match for '%s' — including via close_time", subtitle)
+                # Period gate using close_time
+                try:
+                    _kdt_ct = _dp(_kickoff_et)
+                    _is_night_ct = _kdt_ct.hour >= 16
+                    if period == "day" and _is_night_ct:
+                        continue
+                    if period == "night" and not _is_night_ct:
+                        continue
+                except Exception:
+                    pass
                 # Build candidate without Sofascore enrichment
                 candidates.append({
                     "source":        "kalshi_only",
