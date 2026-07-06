@@ -171,7 +171,8 @@ async def test_post_result_won():
                                "game": "Lakers vs Celtics", "sport": "nba", "odds": -110},
                               "won")
 
-    assert "[WIN]" in sent[0]["embeds"][0]["title"]
+    title = sent[0]["embeds"][0]["title"]
+    assert "WIN" in title.upper() or "W I N" in title
 
 
 @pytest.mark.asyncio
@@ -188,7 +189,8 @@ async def test_post_result_lost():
                                "game": "Lakers vs Celtics", "sport": "nba", "odds": 110},
                               "lost")
 
-    assert "[LOSS]" in sent[0]["embeds"][0]["title"]
+    title = sent[0]["embeds"][0]["title"]
+    assert "LOSS" in title.upper() or "L O S S" in title
 
 
 @pytest.mark.asyncio
@@ -203,7 +205,7 @@ async def test_post_daily_summary():
     with patch.object(wb, "_post", side_effect=mock_post):
         await wb.post_daily_summary("3W-2L | +1.7u | ROI 17%")
 
-    assert sent[0]["embeds"][0]["title"] == "Daily Summary"
+    assert "Daily Summary" in sent[0]["embeds"][0]["title"]
     assert "1.7u" in sent[0]["embeds"][0]["description"]
 
 

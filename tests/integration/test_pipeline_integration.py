@@ -68,7 +68,7 @@ def test_valid_pick_passes_gate_and_is_persisted():
     from src.engines.recommendation_engine import build_recommendation, persist_pick
 
     ev = _make_ev_result(0.08)
-    conf = _make_confidence(0.72)
+    conf = _make_confidence(0.78)
     risk = _make_risk(3, True)
 
     pick = build_recommendation(

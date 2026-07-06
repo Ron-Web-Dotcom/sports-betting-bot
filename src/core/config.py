@@ -41,6 +41,8 @@ DISCORD_WEBHOOK_URL = _optional("DISCORD_WEBHOOK_URL")
 # ── Database ───────────────────────────────────────────────────────────────────
 DATABASE_URL    = os.getenv("DATABASE_URL", "")
 REDIS_URL       = os.getenv("REDIS_URL",       "redis://localhost:6379/0")
+CELERY_BROKER   = os.getenv("CELERY_BROKER",   "redis://localhost:6379/1")
+CELERY_BACKEND  = os.getenv("CELERY_BACKEND",  "redis://localhost:6379/2")
 
 # ── Fallback SQLite for development without Postgres ──────────────────────────
 SQLITE_URL = f"sqlite:///{BASE_DIR}/data/sip.db"
