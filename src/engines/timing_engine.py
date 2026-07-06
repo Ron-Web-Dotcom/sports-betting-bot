@@ -20,10 +20,10 @@ def minutes_to_game(commence_time_str: str) -> float:
         else:
             from dateutil import parser
             game_time = parser.parse(commence_time_str)
-        # Strip timezone info so both sides are naive UTC — mixing aware and
-        # naive datetimes raises TypeError in Python 3.
+        # Normalize to naive ET so subtraction from et_naive() is consistent
         if hasattr(game_time, "tzinfo") and game_time.tzinfo is not None:
-            game_time = game_time.replace(tzinfo=None)
+            import zoneinfo
+            game_time = game_time.astimezone(zoneinfo.ZoneInfo("America/New_York")).replace(tzinfo=None)
         delta = game_time - et_naive()
         return delta.total_seconds() / 60
     except Exception:
@@ -52,7 +52,7 @@ def should_fire_alert(game_id: str, window: int) -> bool:
         with get_db() as db:
             existing = db.query(AlertRecord).filter(
                 AlertRecord.alert_type == f"pregame_{window}",
-                AlertRecord.channel.contains(str(game_id)),
+                AlertRecord.channel == str(game_id),
             ).first()
             return existing is None
     except Exception:
