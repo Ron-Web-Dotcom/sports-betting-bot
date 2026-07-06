@@ -219,13 +219,32 @@ def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | No
 
 
 def _load_active_slips(r) -> list[dict]:
+    from datetime import datetime, timedelta
     all_slips = r.hgetall(_SLIP_KEY)
     out = []
+    cutoff = (datetime.now() - timedelta(hours=36)).isoformat()
     for sid, raw in all_slips.items():
         try:
             slip = json.loads(raw)
-            if slip.get("status") == "active":
+            status = slip.get("status", "active")
+            if status == "active":
                 out.append(slip)
+            elif status == "dead":
+                # Re-check Kalshi slips marked dead by timeout — Kalshi may have settled since
+                picks = slip.get("picks", [])
+                has_kalshi = any(p.get("question") or p.get("market_id") for p in picks)
+                created = slip.get("created", "")
+                if has_kalshi and created >= cutoff:
+                    # Check if Kalshi now has a definitive result (not unknown/timeout)
+                    for p in picks:
+                        if p.get("question") or p.get("market_id"):
+                            real_res = _check_kalshi_result_only(p)
+                            if real_res in ("won", "lost"):
+                                # Kalshi settled after our timeout — correct the result
+                                slip["status"] = "active"
+                                slip["_rechecking"] = True
+                                out.append(slip)
+                                break
         except Exception:
             pass
     return out
@@ -400,6 +419,28 @@ def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | Non
 
 
 # ── Result checking ────────────────────────────────────────────────────────────
+
+def _check_kalshi_result_only(pick: dict) -> str | None:
+    """Quick Kalshi API check — only returns won/lost from the API, no fallback."""
+    market_id = pick.get("market_id", "")
+    if not market_id:
+        return None
+    try:
+        from src.apis.kalshi import _get
+        data = _get(f"/markets/{market_id}")
+        if not data:
+            return None
+        m = data.get("market", data)
+        result = (m.get("result") or "").lower()
+        if result not in ("yes", "no"):
+            return None
+        answer = (pick.get("answer") or pick.get("side") or "yes").lower()
+        if result == "yes":
+            return "won" if answer == "yes" else "lost"
+        return "won" if answer == "no" else "lost"
+    except Exception:
+        return None
+
 
 def _check_kalshi_result(pick: dict) -> str | None:
     """Check Kalshi market result via the API using stored market_id."""
@@ -774,14 +815,16 @@ def track_slips() -> dict:
                     res = _check_pick_result(pick)
                     if res:
                         results.append(res)
-                    elif ct and (now - ct).total_seconds() > 12 * 3600:
-                        # 12h timeout safety net — mark dead if Kalshi never settles
-                        results.append("dead")
+                    elif ct and (now - ct).total_seconds() > 24 * 3600:
+                        # 24h timeout — Kalshi can take hours to settle; mark unknown not dead
+                        results.append("unknown")
+                        logger.warning("Kalshi slip %s: no settlement after 24h — marking unknown", slip.get("id"))
                     elif not ct:
                         # No commence_time — use slip creation time as 24h fallback
                         slip_created = _parse_time(slip.get("created", ""))
                         if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
-                            results.append("dead")
+                            results.append("unknown")
+                            logger.warning("Kalshi slip %s: no settlement after 24h (no commence_time) — marking unknown", slip.get("id"))
                     # Not settled yet — retry next tick
                 else:
                     if not ct:
@@ -820,16 +863,22 @@ def track_slips() -> dict:
                             )
 
             # Settle only when ALL legs have a result (real or timeout-unknown).
-            # unknown = can't verify score — treat as lost (conservative, no push).
             #   all won (no unknowns) → cashed
-            #   anything else         → dead
+            #   any unknown           → dead (with note)
+            #   any lost              → dead
             if results and len(results) == len(picks):
-                if any(r != "won" for r in results):
-                    slip_result = "dead"
-                else:
+                if all(r == "won" for r in results):
                     slip_result = "cashed"
+                elif any(r == "unknown" for r in results):
+                    slip_result = "dead"  # couldn't verify — conservative
+                else:
+                    slip_result = "dead"
 
                 result_key = f"game:result:{slip['id']}"
+                is_recheck = slip.pop("_rechecking", False)
+                if is_recheck and slip_result in ("cashed",):
+                    # Kalshi settled correctly after our timeout — clear old alert so correct result fires
+                    r.srem(_ALERTED_KEY, result_key)
                 if not _alerted(r, result_key):
                     ratio = _update_ratio(r, slip_result)
                     _alert_result(slip, slip_result, ratio, results)
