@@ -795,165 +795,23 @@ def health_check():
 
 
 def yesterday_recap():
-    """6 AM ET — yesterday's slip results from Redis + today's game count."""
-    from src.workers.alert_worker import _run_async
-    from src.discord_bot.bot import _post
+    """6 AM ET — yesterday's slip results logged to server (not posted to Discord)."""
     from datetime import datetime
     import zoneinfo
-    import json
 
     et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
 
-    # Pull results from Redis slip tracker (not DB — DB is unused)
-    # days_back=2 so morning recap at 6 AM catches slips from yesterday (created the day before)
     wins, losses, pushes, winner_slips, loser_slips = _load_slip_results(days_back=1)
     total = wins + losses
 
     if total == 0:
         record_str = "No settled picks yesterday — results appear as games finish."
-        color = 0x607D8B
     else:
         pct = round(wins / total * 100) if total else 0
-        record_str = f"**{wins}W – {losses}L** ({pct}% hit rate)"
-        color = 0x00C851 if wins >= losses else 0xE53935
+        record_str = f"{wins}W - {losses}L ({pct}% hit rate)"
 
-    win_text  = "\n".join(_slip_summary_line(s) for s in winner_slips[:3]) or "—"
-    loss_text = "\n".join(_slip_summary_line(s) for s in loser_slips[:3])  or "—"
-
-    # Sport breakdown from winner/loser slips
-    sport_stats: dict = {}
-    for slip in winner_slips + loser_slips:
-        for pick in slip.get("picks", []):
-            sk = pick.get("sport_key") or pick.get("sport") or ("kalshi" if pick.get("question") else "other")
-            if sk not in sport_stats:
-                sport_stats[sk] = {"w": 0, "l": 0}
-            if slip.get("status") == "cashed":
-                sport_stats[sk]["w"] += 1
-            else:
-                sport_stats[sk]["l"] += 1
-    sport_lines = [f"{sk.split('_')[-1].upper()}: {v['w']}W-{v['l']}L" for sk, v in sport_stats.items()]
-    sport_breakdown = "  ".join(sport_lines) or "—"
-
-    # Today's games — read from Sofascore Redis cache (written by scan_todays_games at 8 AM)
-    # Falls back to Odds API snapshot game list if cache is empty
-    today_games_text = "—"
-    try:
-        from src.core.config import REDIS_URL
-        import redis as _redis
-        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        day_raw   = r.get("sofascore:day_games")
-        night_raw = r.get("sofascore:night_games")
-        all_events = []
-        for raw in (day_raw, night_raw):
-            if raw:
-                try:
-                    all_events.extend(json.loads(raw))
-                except Exception:
-                    pass
-
-        _SPORT_LABELS = {
-            "basketball_nba":            "🏀 NBA",
-            "americanfootball_nfl":      "🏈 NFL",
-            "baseball_mlb":              "⚾ MLB",
-            "icehockey_nhl":             "🏒 NHL",
-            "soccer_epl":                "⚽ EPL",
-            "soccer_uefa_champs_league": "⚽ UCL",
-            "soccer_usa_mls":            "⚽ MLS",
-            "soccer_fifa_world_cup":     "⚽ World Cup",
-            "basketball_ncaab":          "🏀 NCAAB",
-            "americanfootball_ncaaf":    "🏈 NCAAF",
-            "mma_mixed_martial_arts":    "🥊 MMA",
-            "tennis_atp_french_open":    "🎾 French Open",
-            "tennis_wta_french_open":    "🎾 French Open",
-        }
-
-        # Validate the cached games are from TODAY — the 24h TTL means yesterday's
-        # scan is still alive at 6 AM, making stale games appear as today's schedule.
-        if all_events:
-            try:
-                from dateutil.parser import parse as _p_chk
-                today_date = et.date()
-                stale = [
-                    ev for ev in all_events
-                    if ev.get("commence_time") and _p_chk(ev["commence_time"]).date() < today_date
-                ]
-                if len(stale) == len(all_events):
-                    all_events = []  # all events are from yesterday — fully stale
-            except Exception:
-                pass
-
-        if all_events:
-            lines = []
-            for ev in all_events[:15]:
-                home  = ev.get("home_team", "")
-                away  = ev.get("away_team", "")
-                sport = ev.get("sport_key", "")
-                label = _SPORT_LABELS.get(sport, sport.split("_")[-1].upper() if sport else "")
-                ct    = ev.get("commence_time", "")
-                time_fmt = ""
-                if ct:
-                    try:
-                        from dateutil.parser import parse as _p
-                        time_fmt = " · " + _p(ct).astimezone(zoneinfo.ZoneInfo("America/New_York")).strftime("%-I:%M %p ET")
-                    except Exception:
-                        pass
-                if home and away:
-                    lines.append(f"• {label}: **{away} @ {home}**{time_fmt}")
-            today_games_text = "\n".join(lines) if lines else "*No games cached yet — updates after 8 AM scan.*"
-            if len(all_events) > 15:
-                today_games_text += f"\n*… and {len(all_events) - 15} more*"
-        else:
-            today_games_text = "*No games cached yet — updates after 8 AM scan.*"
-    except Exception as e:
-        logger.warning("yesterday_recap: today's games fetch failed: %s", e)
-        today_games_text = "—"
-
-    import hashlib
-    date_str = et.strftime("%b %-d, %Y")
-    slip_id  = hashlib.md5(f"recap{date_str}".encode()).hexdigest()[:8].upper()
-
-    is_monday = et.weekday() == 0
-    week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
-    title_str = (
-        f"🟢  NEW WEEK · WEEK {week_num}  ·  {et.strftime('%A, %b %-d')}"
-        if is_monday else
-        f"📊  MORNING RECAP  ·  {et.strftime('%A, %b %-d')}"
+    logger.info(
+        "Yesterday recap [%s]: %dW-%dL-%dP | %s",
+        et.strftime("%a %b %-d"), wins, losses, pushes, record_str,
     )
-    embed = {
-        "title": title_str,
-        "description": (
-            f"**{date_str}**  ·  Slip `#{slip_id}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ),
-        "color": color,
-        "fields": [
-            {"name": "YESTERDAY'S RECORD", "value": record_str,    "inline": True},
-            {"name": "BY SPORT",           "value": sport_breakdown or "—", "inline": True},
-            {"name": "​",             "value": "​",         "inline": True},
-            {"name": "✅  WINNERS",         "value": win_text,     "inline": True},
-            {"name": "❌  LOSERS",          "value": loss_text,    "inline": True},
-            {"name": "​",             "value": "​",         "inline": True},
-            {"name": "📅  TODAY'S GAMES",   "value": today_games_text, "inline": False},
-            {
-                "name":  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value": (
-                    "☀️  Day entry  **10:35 AM ET** · Kalshi  ·  HardRock ⏸️ resumes Jul 10\n"
-                    "🌙  Night entry  **4:35 PM ET** · Kalshi  ·  HardRock ⏸️ resumes Jul 10"
-                ) if _date.today() < _date(2026, 7, 10) else (
-                    "☀️  Day entry  **10:30 AM ET** · Kalshi + HardRock\n"
-                    "🌙  Night entry  **4:30 PM ET** · Kalshi + HardRock"
-                ),
-                "inline": False,
-            },
-        ],
-        "footer": {"text": f"6:00 AM ET  ·  {date_str}  ·  Kalshi day entry at 10:35 AM ET"},
-    }
-
-    try:
-        from src.workers.alert_worker import _run_async
-        _run_async(_post({"embeds": [embed]}))
-        logger.info("Yesterday recap sent: %dW-%dL-%dP", wins, losses, pushes)
-    except Exception as e:
-        logger.error("yesterday_recap post failed: %s", e)
-
     return {"wins": wins, "losses": losses, "pushes": pushes, "total": total}
