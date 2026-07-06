@@ -155,8 +155,8 @@ def reload_slips_from_db() -> int:
             )
         """)
         rows = conn.execute(
-            "SELECT slip_id, slip_json FROM slip_tracker WHERE slip_id >= ?",
-            (f"day:hardrock:{cutoff}",)  # lexicographic — covers all platforms for last 2 days
+            "SELECT slip_id, slip_json FROM slip_tracker WHERE saved_at >= ?",
+            (cutoff,)  # time-based filter — covers all platforms for last 2 days
         ).fetchall()
         conn.close()
     except Exception as e:
@@ -243,6 +243,8 @@ def _alerted(r, key: str) -> bool:
     try:
         import sqlite3
         conn = sqlite3.connect(_db_path())
+        conn.execute("CREATE TABLE IF NOT EXISTS alerted_keys (key TEXT PRIMARY KEY, saved_at TEXT NOT NULL)")
+        conn.commit()
         row = conn.execute("SELECT 1 FROM alerted_keys WHERE key=?", (key,)).fetchone()
         conn.close()
         if row:
@@ -288,8 +290,10 @@ def _get_ratio(r) -> dict:
 
 
 def _update_ratio(r, result: str) -> dict:
-    if result == "cashed":
+    if result in ("cashed", "won"):
         r.hincrby(_RATIO_KEY, "wins",   1)
+    elif result == "push":
+        r.hincrby(_RATIO_KEY, "pushes", 1)
     else:
         r.hincrby(_RATIO_KEY, "losses", 1)
     r.persist(_RATIO_KEY)  # W/L ratio is permanent running total — never auto-expire
@@ -427,10 +431,12 @@ def _check_kalshi_result(pick: dict) -> str | None:
                 if len(sorted_s) < 2 or sorted_s[0].get("score") == sorted_s[1].get("score"):
                     return "lost"  # draw/tie = lost (no push)
                 winner = (sorted_s[0].get("name") or "").lower()
+                selection = (pick.get("selection") or pick.get("home_team") or home or "").lower()
+                selection_won = bool(selection and (selection in winner or winner in selection))
                 if answer == "yes":
-                    return "won" if (home and (home in winner or winner in home)) else "lost"
+                    return "won" if selection_won else "lost"
                 else:
-                    return "won" if not (home and (home in winner or winner in home)) else "lost"
+                    return "won" if not selection_won else "lost"
         except Exception as e:
             logger.warning("Kalshi fallback score check failed: %s", e)
         return None
@@ -517,7 +523,7 @@ def _check_pick_result(pick: dict) -> str | None:
                             ).order_by(PropResult.settled_at.desc()).first()
                             if row:
                                 res = row.result
-                                return "lost" if res == "push" else res  # push → lost
+                                return res  # preserve push result
                     except Exception:
                         pass
                     # If game completed but no DB record yet, assume pending
@@ -537,6 +543,9 @@ def _check_pick_result(pick: dict) -> str | None:
 
                 elif market == "spreads":
                     line_val = pick.get("line_value")
+                    _ht_raw = item.get("home_team", "")
+                    if not _ht_raw:
+                        return None  # can't determine spread result without home team
                     if line_val is None:
                         # fallback: treat as moneyline
                         if not winner or not selection:
@@ -544,10 +553,10 @@ def _check_pick_result(pick: dict) -> str | None:
                         return "won" if (winner in selection or selection in winner) else "lost"
                     home_score_val = next((float(s.get("score", 0) or 0) for s in score_list
                                           if _normalize_team_name(s.get("name","")) in
-                                          _normalize_team_name(item.get("home_team","")) or
-                                          _normalize_team_name(item.get("home_team","")) in
+                                          _normalize_team_name(_ht_raw) or
+                                          _normalize_team_name(_ht_raw) in
                                           _normalize_team_name(s.get("name",""))), None)
-                    _ht_norm = _normalize_team_name(item.get("home_team", ""))
+                    _ht_norm = _normalize_team_name(_ht_raw)
                     away_score_val = next((float(s.get("score", 0) or 0) for s in score_list
                                           if _normalize_team_name(s.get("name", "")) != _ht_norm), None)
                     if home_score_val is None or away_score_val is None:
@@ -560,7 +569,7 @@ def _check_pick_result(pick: dict) -> str | None:
                     margin  = (home_score_val - away_score_val) if is_home else (away_score_val - home_score_val)
                     covered = margin + float(line_val)
                     if abs(covered) < 0.1:
-                        return "lost"  # exact spread = lost (no push)
+                        return "push"
                     return "won" if covered > 0 else "lost"
 
                 elif market == "totals":
@@ -576,7 +585,7 @@ def _check_pick_result(pick: dict) -> str | None:
                         elif total < line_val:
                             return "won" if "under" in direction else "lost"
                         else:
-                            return "lost"  # exact total = lost (no push)
+                            return "push"
                     except Exception:
                         return None
 
@@ -694,9 +703,9 @@ def track_slips() -> dict:
                         mins      = (start_et - now).total_seconds() / 60
                         gt        = start_et.strftime("%-I:%M %p ET")
 
-                        # Soon: fire anytime in the 45 min before kickoff
+                        # Soon: 5–45 min before kickoff (mutually exclusive with live)
                         soon_key = f"game:soon:{gid}"
-                        if -5 <= mins <= 45 and not _alerted(r, soon_key):
+                        if 5 <= mins <= 45 and not _alerted(r, soon_key):
                             all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                             _mark_alerted(r, soon_key)
 
@@ -708,7 +717,7 @@ def track_slips() -> dict:
                             _mark_alerted(r, live_key)
                         elif start_ts:
                             mins_since = (now - _dt2.fromtimestamp(start_ts, tz=_ET)).total_seconds() / 60
-                            if 0 <= mins_since <= 90:
+                            if 0 < mins_since <= 90:  # strictly after kickoff
                                 all_live.append(f"🔴 **{name}**  {tag}")
                                 _mark_alerted(r, live_key)
                 else:
@@ -719,15 +728,15 @@ def track_slips() -> dict:
                     mins = (ct - now).total_seconds() / 60
                     gt   = _fmt_time(pick.get("commence_time", ""))
 
-                    # Soon: 45 min window, +5 min grace for restarts
+                    # Soon: 5–45 min before kickoff (mutually exclusive with live)
                     soon_key = f"game:soon:{gid}"
-                    if -5 <= mins <= 45 and not _alerted(r, soon_key):
+                    if 5 <= mins <= 45 and not _alerted(r, soon_key):
                         all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                         _mark_alerted(r, soon_key)
 
-                    # Live: 90 min window after kickoff
+                    # Live: strictly after kickoff, within 90 min
                     live_key = f"game:live:{gid}"
-                    if -90 <= mins <= 5 and not _alerted(r, live_key):
+                    if -90 <= mins < 0 and not _alerted(r, live_key):
                         all_live.append(f"🔴 **{name}**  {tag}")
                         _mark_alerted(r, live_key)
 
@@ -768,6 +777,11 @@ def track_slips() -> dict:
                     elif ct and (now - ct).total_seconds() > 12 * 3600:
                         # 12h timeout safety net — mark dead if Kalshi never settles
                         results.append("dead")
+                    elif not ct:
+                        # No commence_time — use slip creation time as 24h fallback
+                        slip_created = _parse_time(slip.get("created", ""))
+                        if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
+                            results.append("dead")
                     # Not settled yet — retry next tick
                 else:
                     if not ct:
