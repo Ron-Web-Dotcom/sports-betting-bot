@@ -7,7 +7,14 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run a coroutine from a synchronous context."""
+    """Run a coroutine from a synchronous context, handling existing event loops."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=30)
     return asyncio.run(coro)
 
 
@@ -126,7 +133,7 @@ def send_prop_summary(picks: list[dict]):
         pick_type = "🏟️ Team" if p.get("is_team_prop") else "👤 Player"
         lines.append(
             f"{emoji} **{p.get('subject')}** — {p.get('stat')} {p.get('line')} {arrow} {direction}\n"
-            f"  `{conf}% conf | +{ev}% edge | {sport_label} · {source} · {pick_type}{time_str}`"
+            f"  `{conf}% conf | {ev:+.1f}% edge | {sport_label} · {source} · {pick_type}{time_str}`"
         )
 
     import zoneinfo
@@ -182,7 +189,7 @@ def send_underdog_entry(picks: list[dict]):
         reasoning = (p.get("reasoning") or "").strip()
         top_reason = factors[0] if factors else (reasoning.split(".")[0].strip() if reasoning else "—")
         leg_blocks.append(
-            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}% conf  ·  +{ev}% edge\n"
+            f"`{i}.` {arrow} **{subject}** — {line} {stat}  ·  {sport}  ·  {conf}% conf  ·  {ev:+.1f}% edge\n"
             f"     └ {top_reason}"
         )
 
@@ -278,7 +285,6 @@ def send_hardrock_entry(games: list[dict]):
 
 def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
     """Embed builder for Kalshi prediction market entries."""
-    import hashlib
     import zoneinfo
     from datetime import datetime
 
@@ -325,7 +331,8 @@ def _prediction_market_embed(platform: str, markets: list[dict]) -> dict:
 
     ET        = zoneinfo.ZoneInfo("America/New_York")
     date_str  = datetime.now(ET).strftime("%-m.%-d.%y %-I:%M%p").lower()
-    slip_id   = hashlib.md5(f"{platform}{date_str}".encode()).hexdigest()[:8].upper()
+    import uuid as _uuid
+    slip_id   = _uuid.uuid4().hex[:8].upper()
     conf_str  = f"{round(confidence * 100)}%" if confidence else "—"
     ev_str    = f"+{round(ev_pct * 100, 1)}%" if ev_pct else "—"
     vol_str   = f"${volume:,.0f}" if volume else "—"
@@ -465,6 +472,12 @@ def send_pick_line_update(changes: list[dict]):
                 f"❌ **{subject}** — {stat} · {sport}\n"
                 f"  **OFF THE BOARD** — our pick ({direction}) is no longer available"
             )
+        else:
+            change_type = c.get("change_type", "unknown")
+            lines.append(
+                f"ℹ️ **{subject}** — {stat} · {sport}\n"
+                f"  Change type: {change_type}"
+            )
 
     if not lines:
         return
@@ -596,19 +609,22 @@ def send_pregame_alerts():
 
     # Extract plain values inside session — avoids DetachedInstanceError after close
     with get_db() as db:
+        from src.db.models import Sport
         rows = db.query(
-            Game.id, Game.home_team, Game.away_team, Game.commence_time
-        ).filter(Game.commence_time >= datetime.now(ET).astimezone(UTC).replace(tzinfo=None)).all()
+            Game.id, Game.home_team, Game.away_team, Game.commence_time, Sport.key
+        ).join(Sport, Game.sport_id == Sport.id, isouter=True).filter(
+            Game.commence_time >= datetime.now(ET).astimezone(UTC).replace(tzinfo=None)
+        ).all()
 
     events = [
         {
             "id": str(gid),
-            "sport_key": "",   # not on Game model directly — resolved via Sport FK if needed
+            "sport_key": sport_key or "",
             "home_team": home,
             "away_team": away,
             "commence_time": ct.isoformat() if ct else "",
         }
-        for gid, home, away, ct in rows
+        for gid, home, away, ct, sport_key in rows
     ]
 
     windowed = upcoming_games_by_window(events)
@@ -627,14 +643,16 @@ def send_pregame_alerts():
             continue
 
         # Group: ~30-min window → "starting soon"; ~0-min window → "started"
-        if window <= 5:
-            # Games that just started — post one grouped embed
-            send_games_started(games_to_alert)
-        else:
-            # Games starting in ~30 min — post one grouped embed
-            send_games_starting_soon(games_to_alert)
+        try:
+            if window <= 5:
+                send_games_started(games_to_alert)
+            else:
+                send_games_starting_soon(games_to_alert)
+        except Exception as _ae:
+            logger.error("send_pregame_alerts: Discord post failed for window=%d: %s", window, _ae)
+            continue  # Don't record AlertRecord if Discord POST failed
 
-        # Record alert so we don't re-fire
+        # Record alert AFTER successful Discord send
         with get_db() as db:
             for event in games_to_alert:
                 db.add(AlertRecord(
