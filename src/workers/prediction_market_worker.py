@@ -71,7 +71,7 @@ def _american(p) -> str:
 
 # ── Build the entry ────────────────────────────────────────────────────────────
 
-def _fetch_todays_games() -> list[dict]:
+def _fetch_todays_games(period: str = "day") -> list[dict]:
     """
     Pull today's games: Sofascore confirms which games are TODAY,
     Odds API snapshots provide the moneyline odds for those games only.
@@ -136,13 +136,30 @@ def _fetch_todays_games() -> list[dict]:
             hp = to_prob(home_odds)
             ap = to_prob(away_odds)
             total = hp + ap
+            commence = s.get("commence_time", "")
+            # Period filter — only include games matching the requested period
+            if commence:
+                try:
+                    from dateutil.parser import parse as _dp_g
+                    import zoneinfo as _zig
+                    _ct_g = _dp_g(commence)
+                    if _ct_g.tzinfo is None:
+                        _ct_g = _ct_g.replace(tzinfo=_zig.ZoneInfo("America/New_York"))
+                    _hour_et = _ct_g.astimezone(_zig.ZoneInfo("America/New_York")).hour
+                    _is_night_g = _hour_et >= 16
+                    if period == "day" and _is_night_g:
+                        continue
+                    if period == "night" and not _is_night_g:
+                        continue
+                except Exception:
+                    pass
             games[game_id] = {
                 "game_id":   game_id,
                 "title":     f"{away} vs {home}",
                 "home_team": home,
                 "away_team": away,
                 "sport_key": sport,
-                "commence":  s.get("commence_time", ""),
+                "commence":  commence,
                 "home_prob": round(hp / total, 4),
                 "away_prob": round(ap / total, 4),
                 "home_odds": home_odds,
@@ -184,7 +201,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         logger.warning("Kalshi market fetch failed: %s", _ke)
 
     # Fall back to game-winner candidates from Odds API if Kalshi API empty
-    games = _fetch_todays_games()
+    games = _fetch_todays_games(period=period)
     if not kalshi_full and not games:
         logger.info("Kalshi entry: no markets available")
         return []
