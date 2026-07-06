@@ -845,9 +845,9 @@ def track_slips() -> dict:
                         mins      = (start_et - now).total_seconds() / 60
                         gt        = start_et.strftime("%-I:%M %p ET")
 
-                        # Soon: 5–45 min before kickoff (mutually exclusive with live)
+                        # Soon: 5–60 min before kickoff
                         soon_key = f"game:soon:{gid}"
-                        if 5 <= mins <= 45 and not _alerted(r, soon_key):
+                        if 5 <= mins <= 60 and not _alerted(r, soon_key):
                             all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                             _mark_alerted(r, soon_key)
 
@@ -859,26 +859,27 @@ def track_slips() -> dict:
                             _mark_alerted(r, live_key)
                         elif start_ts:
                             mins_since = (now - _dt2.fromtimestamp(start_ts, tz=_ET)).total_seconds() / 60
-                            if 0 < mins_since <= 90:  # strictly after kickoff
+                            if 0 < mins_since <= 120:  # strictly after kickoff, up to 2h
                                 all_live.append(f"🔴 **{name}**  {tag}")
                                 _mark_alerted(r, live_key)
                 else:
                     # No sofascore_id — use commence_time
                     ct = _parse_time(pick.get("commence_time", ""))
                     if not ct:
+                        logger.warning("slip_tracker: pick has no commence_time — gid=%s name=%s", gid, name)
                         continue
                     mins = (ct - now).total_seconds() / 60
                     gt   = _fmt_time(pick.get("commence_time", ""))
 
-                    # Soon: 5–45 min before kickoff (mutually exclusive with live)
+                    # Soon: 5–60 min before kickoff (wide window so tracker never misses)
                     soon_key = f"game:soon:{gid}"
-                    if 5 <= mins <= 45 and not _alerted(r, soon_key):
+                    if 5 <= mins <= 60 and not _alerted(r, soon_key):
                         all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                         _mark_alerted(r, soon_key)
 
-                    # Live: strictly after kickoff, within 90 min
+                    # Live: strictly after kickoff, within 120 min
                     live_key = f"game:live:{gid}"
-                    if -90 <= mins < 0 and not _alerted(r, live_key):
+                    if -120 <= mins < 0 and not _alerted(r, live_key):
                         all_live.append(f"🔴 **{name}**  {tag}")
                         _mark_alerted(r, live_key)
 
