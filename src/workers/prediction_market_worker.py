@@ -14,6 +14,7 @@ Two entries in Discord every day:
 import json
 import logging
 from datetime import UTC
+from zoneinfo import ZoneInfo as _ZI3
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +295,6 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     if kalshi_full:
         from dateutil.parser import parse as _dp
         from datetime import datetime as _dt2
-        from zoneinfo import ZoneInfo as _ZI3
         _now_utc = _dt2.now(UTC)
 
         def _to_naive_et(raw: str) -> str:
@@ -312,7 +312,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             yes_prob = m.get("yes_price") or 0
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
-            no_prob  = round(1 - yes_prob, 4)
+            no_prob  = m.get("no_price") or round(1 - yes_prob, 4)
 
             subtitle = m.get("subtitle", "")
 
@@ -471,7 +471,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     logger.info("Kalshi [%s]: %d candidates from %d markets (%d sf_games)",
                 period, len(candidates), len(kalshi_full), len(_sf_games))
-    if not candidates and kalshi_full:
+    if not candidates:
 
         # Odds API fallback — game winners only
         for g in games:
@@ -821,7 +821,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         "KXWCGAME": "FIFA CWC", "KXWCTOTAL": "FIFA CWC",
         "KXMLSGAME": "MLS",     "KXMLSTOTAL": "MLS",
         "KXNWSLGAME": "NWSL",   "KXNWSLTOTAL": "NWSL",
-        "KXEPlgame": "EPL",     "KXEPLTOTAL": "EPL",
+        "KXEPLGAME": "EPL",     "KXEPLTOTAL": "EPL",
         "KXUEFAGAME": "UEFA",   "KXUEFATOTAL": "UEFA",
         # Baseball
         "KXMLBGAME": "MLB",     "KXMLBTOTAL": "MLB",
