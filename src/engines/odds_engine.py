@@ -643,24 +643,78 @@ def get_live_active_sport_keys() -> set[str]:
 
 def scan_all_sports() -> dict[str, list[dict]]:
     """
-    Scan only sports the Odds API confirms have active events right now.
-    Uses a live /sports check (cached 6h) so seasons auto-detect without
-    any hardcoded dates — works correctly across year boundaries.
+    Scan Odds API for prices on today's Sofascore-confirmed games only.
+    Sofascore is the source of truth for what's playing today and when.
+    Odds API only provides prices (moneylines, spreads, totals) for those games.
     """
-    # Only scan sport keys that (a) are in our alias map AND (b) Odds API says are active
-    known_keys   = set(SPORTS.values())
-    active_keys  = get_live_active_sport_keys()
-    sport_keys   = known_keys & active_keys  # intersection — must be in both
+    import redis as _redis
+    import json as _json
+    from src.core.config import REDIS_URL
 
-    logger.info("OddsAPI scanning %d in-season sport keys (of %d known)...", len(sport_keys), len(known_keys))
+    # Load Sofascore confirmed today games — source of truth
+    sf_teams: set[str] = set()
+    sf_sport_keys: set[str] = set()
+    try:
+        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
+            _raw = _r.get(_sfkey)
+            if _raw:
+                for ev in _json.loads(_raw):
+                    if ev.get("home_team"):
+                        sf_teams.add(ev["home_team"].lower())
+                    if ev.get("away_team"):
+                        sf_teams.add(ev["away_team"].lower())
+                    if ev.get("sport"):
+                        sf_sport_keys.add(ev["sport"])
+    except Exception as _e:
+        logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
+
+    # Derive Odds API sport keys from Sofascore's active sports
+    known_keys  = set(SPORTS.values())
+    active_keys = get_live_active_sport_keys()
+    if sf_sport_keys:
+        # Map Sofascore sport slugs → Odds API keys via SPORTS alias map
+        from src.apis.sofascore import SPORT_MAP as _SM
+        _sf_odds_keys: set[str] = set()
+        for sf_slug in sf_sport_keys:
+            for odds_key, sf_mapped in _SM.items() if hasattr(_SM, "items") else []:
+                if sf_mapped == sf_slug and odds_key in known_keys:
+                    _sf_odds_keys.add(odds_key)
+        # Also keep any active key that directly matches a Sofascore sport slug
+        for k in known_keys:
+            if k in sf_sport_keys or any(k.startswith(s.split("_")[0]) for s in sf_sport_keys):
+                _sf_odds_keys.add(k)
+        sport_keys = (_sf_odds_keys & active_keys) or (known_keys & active_keys)
+    else:
+        sport_keys = known_keys & active_keys
+
+    logger.info("OddsAPI scanning %d sport keys (Sofascore confirmed %d teams across %d sports)",
+                len(sport_keys), len(sf_teams), len(sf_sport_keys))
+
     result: dict[str, list[dict]] = {}
     for sport_key in sport_keys:
         events = fetch_events(sport_key)
+        if not events:
+            continue
+        # Filter to only games where at least one team is in Sofascore's today list
+        if sf_teams:
+            def _team_match(team: str) -> bool:
+                tl = team.lower()
+                return tl in sf_teams or any(
+                    tl in sf or sf in tl or
+                    any(tok in sf or sf in tok for tok in tl.split() if len(tok) > 3)
+                    for sf in sf_teams
+                )
+            events = [
+                e for e in events
+                if _team_match(e.get("home_team", "")) or _team_match(e.get("away_team", ""))
+            ]
         if events:
             result[sport_key] = [normalise_event(e, sport_key) for e in events]
-            logger.info("Odds: %d events for %s", len(events), sport_key)
+            logger.info("Odds: %d events for %s (Sofascore-filtered)", len(events), sport_key)
+
     if not result:
-        logger.warning("OddsAPI: 0 events — check API key quota and sport availability")
+        logger.warning("OddsAPI: 0 events after Sofascore filter — check Sofascore cache")
     return result
 
 
