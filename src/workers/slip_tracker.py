@@ -556,7 +556,7 @@ def _check_sofascore_result(pick: dict) -> str | None:
             try:
                 line_f = float(line)
                 if abs(total - line_f) < 0.1:
-                    return "push"
+                    return "lost"  # CASHED/DEAD only — exact total = lost
                 return "won" if (total > line_f and "over" in direction) or (total < line_f and "under" in direction) else "lost"
             except Exception:
                 return None
@@ -571,7 +571,7 @@ def _check_sofascore_result(pick: dict) -> str | None:
             margin  = (hs - as_) if is_home else (as_ - hs)
             covered = margin + float(line_val)
             if abs(covered) < 0.1:
-                return "push"
+                return "lost"  # CASHED/DEAD only — exact spread = lost
             return "won" if covered > 0 else "lost"
 
         # Moneyline / Kalshi question — check if selected team/country won
@@ -711,7 +711,7 @@ def _check_pick_result(pick: dict) -> str | None:
                     margin  = (home_score_val - away_score_val) if is_home else (away_score_val - home_score_val)
                     covered = margin + float(line_val)
                     if abs(covered) < 0.1:
-                        return "push"
+                        return "lost"  # CASHED/DEAD only — exact spread = lost
                     return "won" if covered > 0 else "lost"
 
                 elif market == "totals":
@@ -727,7 +727,7 @@ def _check_pick_result(pick: dict) -> str | None:
                         elif total < line_val:
                             return "won" if "under" in direction else "lost"
                         else:
-                            return "push"
+                            return "lost"  # CASHED/DEAD only — exact total = lost
                     except Exception:
                         return None
 

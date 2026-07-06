@@ -206,7 +206,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             return None
         is_over = selection.lower().startswith("over")
         if abs(total_scored - total_line) < 0.1:
-            return BetResult.PUSH
+            return BetResult.LOST  # CASHED/DEAD only — exact line = lost
         return BetResult.WON if (is_over and total_scored > total_line) or \
                         (not is_over and total_scored < total_line) else BetResult.LOST
 
@@ -232,7 +232,7 @@ def _determine_result(pick: Pick, winner: str | None, score: dict) -> str | None
             margin = (home_score - away_score) if is_home else (away_score - home_score)
             covered = margin + spread
             if abs(covered) < 0.1:
-                return BetResult.PUSH
+                return BetResult.LOST  # CASHED/DEAD only — exact spread = lost
             return BetResult.WON if covered > 0 else BetResult.LOST
 
     # ── Moneyline (h2h) ───────────────────────────────────────────────────────

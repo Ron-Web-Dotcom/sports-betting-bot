@@ -22,13 +22,19 @@ def _odds_window() -> bool:
 
 
 def scan_and_save_odds():
+    from dataclasses import asdict
     if not _odds_window():
         logger.debug("scan_and_save_odds: sleep hours (3–5 AM ET), skipping")
         return {"skipped": "dead_hours"}
     try:
         snapshots = run_full_odds_scan()
-        logger.info("Odds scan complete: %d events", len(snapshots))
-        return {"snapshots": len(snapshots)}
+        # Serialise any dataclass snapshots to plain dicts for downstream consumers
+        serialised = [
+            asdict(s) if hasattr(s, "__dataclass_fields__") else s
+            for s in snapshots
+        ]
+        logger.info("Odds scan complete: %d events", len(serialised))
+        return {"snapshots": len(serialised)}
     except Exception as exc:
         logger.error("Odds scan failed: %s", exc)
         raise
