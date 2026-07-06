@@ -147,8 +147,8 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
         no_ask  = float(m.get("no_ask_dollars")  or m.get("no_ask")  or 0)
         last    = float(m.get("last_price_dollars") or m.get("last_price") or 0)
         yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid or last
-        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid or (1 - yes_mid if yes_mid else 0)
         if yes_mid > 1: yes_mid /= 100
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid or (1 - yes_mid if yes_mid else 0)
         if no_mid  > 1: no_mid  /= 100
 
         out.append({
@@ -232,7 +232,7 @@ def _kalshi_is_game_day(close_time: str) -> bool:
         from datetime import datetime, timedelta
         dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
         now = datetime.now(UTC)
-        return timedelta(-1) <= (dt - now) <= timedelta(hours=36)
+        return timedelta(minutes=-30) <= (dt - now) <= timedelta(hours=36)
     except Exception:
         return True  # unparseable = include rather than drop
 
@@ -546,11 +546,11 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         last    = float(m.get("last_price_dollars") or m.get("last_price") or 0)
 
         yes_mid = (yes_bid + yes_ask) / 2 if yes_bid and yes_ask else yes_ask or yes_bid or last
-        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid  or (1 - yes_mid if yes_mid else 0)
 
-        # If prices are in cents (0-100) scale, normalise to 0-1
+        # Normalise to 0-1 BEFORE computing no_mid fallback
         if yes_mid > 1:
             yes_mid /= 100
+        no_mid  = (no_bid  + no_ask)  / 2 if no_bid  and no_ask  else no_ask  or no_bid  or (1 - yes_mid if yes_mid else 0)
         if no_mid > 1:
             no_mid /= 100
 
