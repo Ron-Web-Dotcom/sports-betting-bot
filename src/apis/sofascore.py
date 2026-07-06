@@ -39,11 +39,13 @@ _CB_RESET_SECS   = 900    # try again after 15 minutes (was 30)
 
 def _cb_is_open() -> bool:
     """Return True if circuit is tripped (Sofascore is blocked)."""
+    global _cb_failures
     with _cb_lock:
         if _cb_failures >= _CB_THRESHOLD:
             if time.monotonic() - _cb_tripped_at < _CB_RESET_SECS:
                 return True
-            # Reset after cooldown
+            # Cooldown elapsed — reset counter so probe needs N failures to re-trip
+            _cb_failures = 0
             return False
         return False
 
@@ -119,7 +121,7 @@ def _decodo_mark_ok():
 def _get_decodo_client():
     import httpx
     from src.core.config import DECODO_PROXY_URL
-    port = int(__import__('os').getenv("SOFASCORE_PROXY_PORT", "10021"))
+    port = _next_sf_port()
     return httpx.Client(
         timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
         follow_redirects=True,
@@ -375,7 +377,8 @@ def _get(path: str) -> dict | list | None:
                 return None
             else:
                 logger.warning("Sofascore HTTP %s via Decodo [%s]", r.status_code, path)
-                return None
+                _cb_record_failure()
+                # fall through to ScraperAPI for unexpected status codes
         except Exception as e:
             logger.warning("Sofascore Decodo request failed [%s]: %s", path, e)
             _decodo_mark_failed()
@@ -560,7 +563,7 @@ def get_active_sports_today() -> set[str]:
 
 
 def _epoch_to_iso(ts: int | None) -> str:
-    if not ts:
+    if ts is None:
         return ""
     try:
         # Naive ET string — scan_todays_games treats naive strings as ET
@@ -640,8 +643,9 @@ def get_h2h(event_id: str) -> list[dict]:
             "away_score": as_,
             "date":       _epoch_to_iso(e.get("startTimestamp")),
             "winner":     (
-                "home" if (hs is not None and as_ is not None and hs > as_) else
-                "away" if (hs is not None and as_ is not None and as_ > hs) else
+                "home"    if (hs is not None and as_ is not None and hs > as_) else
+                "away"    if (hs is not None and as_ is not None and as_ > hs) else
+                "unknown" if (hs is None or as_ is None) else
                 "draw"
             ),
             "source":     "sofascore",
@@ -723,7 +727,7 @@ def get_player_stats(player_id: str, season_id: str) -> dict:
     data = _get(f"/player/{player_id}/statistics/season/{season_id}")
     if not data:
         return {}
-    stats = data if isinstance(data, dict) else data.get("statistics", {})
+    stats = data.get("statistics", data) if isinstance(data, dict) else data
     return {"player_id": player_id, "season_id": season_id,
             "stats": stats, "source": "sofascore"}
 
@@ -852,8 +856,8 @@ def enrich_game_context(
     for ev in events:
         ev_home = (ev.get("home_team") or "").lower()
         ev_away = (ev.get("away_team") or "").lower()
-        if (home_team.lower() in ev_home or ev_home in home_team.lower() or
-                away_team.lower() in ev_away or ev_away in away_team.lower()):
+        if ((home_team.lower() in ev_home or ev_home in home_team.lower()) and
+                (away_team.lower() in ev_away or ev_away in away_team.lower())):
             matched = ev
             break
 

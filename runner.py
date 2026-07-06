@@ -43,7 +43,8 @@ try:
     init_db()
     logger.info("DB init/migrations complete")
 except Exception as _e:
-    logger.warning("DB init failed (non-fatal): %s", _e)
+    logger.error("DB init failed — cannot start without schema: %s", _e)
+    sys.exit(1)
 
 # ── Task imports ───────────────────────────────────────────────────────────────
 
@@ -115,6 +116,7 @@ CRON_TASKS = [
     (7,  0,  "check_odds_api_restored", None, 10),   # 10th of month — confirms Odds API credits reset
     (2,  0,  "run_self_improvement",    None, None),
     (2,  50, "send_weekly_summary",     6,    None),  # Sunday only
+    (2,  57, "send_weekly_fresh_start", 6,    None),  # Sunday only — fresh start after summary
     (2,  52, "cleanup_old_slips",        None, None),
     (2,  55, "cleanup_old_snapshots",   None, None),
     (2,  58, "flush_memory",            None, None),
