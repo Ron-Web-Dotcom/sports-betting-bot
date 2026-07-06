@@ -1409,9 +1409,8 @@ def _generate_hardrock_entry(period: str) -> dict:
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
 
-        # Final gate: enforce EV ≥ 3%, reasoning ≥ 80 chars, ≥ 2 key factors.
-        # This mirrors pick_gate.check() thresholds for dict-based candidates.
-        _MIN_EV_GATE = 0.03
+        # Final gate: enforce EV ≥ EV_FLOOR (0.5%), reasoning ≥ 80 chars, ≥ 2 key factors.
+        _MIN_EV_GATE = EV_FLOOR   # 0.5% — consistent with the global floor
         _MIN_REASON  = 80
         _MIN_FACTORS = 2
         _gated_pool  = []
@@ -1420,8 +1419,8 @@ def _generate_hardrock_entry(period: str) -> dict:
             _rsn = (_p.get("reasoning") or "").strip()
             _fct = [f for f in (_p.get("key_factors") or []) if f and str(f).strip()]
             if _ev < _MIN_EV_GATE:
-                logger.info("GATE BLOCK EV [%s %s]: ev=%.2f%% < 3%%",
-                            _p.get("home_team"), _p.get("away_team"), _ev * 100)
+                logger.info("GATE BLOCK EV [%s %s]: ev=%.2f%% < %.1f%%",
+                            _p.get("home_team"), _p.get("away_team"), _ev * 100, _MIN_EV_GATE * 100)
                 continue
             if len(_rsn) < _MIN_REASON:
                 logger.info("GATE BLOCK REASONING [%s %s]: %d chars < %d",
