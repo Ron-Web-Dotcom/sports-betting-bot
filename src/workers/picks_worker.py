@@ -131,8 +131,8 @@ def generate_picks():
                         if s.get("best_odds") is not None:
                             books_odds[s["book"]] = s["best_odds"]
             if not books_odds:
-                logger.warning("picks: no odds matched selection=%r market=%r for %s @ %s — falling back to game odds", selection, market, away_team, home_team)
-                books_odds = odds_by_book
+                logger.warning("picks: no odds matched selection=%r market=%r for %s @ %s — skipping pick to avoid wrong-team odds", selection, market, away_team, home_team)
+                continue
             # Derive best_odds from AI's actual selection — not snapshot[0] which may be the other side
             def _odds_sort_key(v):
                 if v > 0: return v
@@ -280,6 +280,7 @@ def generate_picks():
                 if pick["player"].lower() in seen_players:
                     continue
                 seen_players.add(pick["player"].lower())
+                blocked_game_keys.add(pick["game_key"])  # prop blocks same-game main-line pick
             else:
                 if pick["game_key"] in blocked_game_keys:
                     continue
@@ -1063,6 +1064,18 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     return candidates
 
 
+def _legs_to_parlay_american(*american_odds) -> int:
+    """Convert individual american odds to combined parlay payout (american)."""
+    from src.engines.ev_engine import american_to_decimal, decimal_to_american
+    decimal = 1.0
+    for o in american_odds:
+        try:
+            decimal *= american_to_decimal(int(o))
+        except Exception:
+            pass
+    return decimal_to_american(decimal) if decimal > 1.0 else 0
+
+
 def _detect_correlation(p1: dict, p2: dict) -> str | None:
     """
     Returns a signal label if p1 and p2 are positively correlated within the same game.
@@ -1091,9 +1104,9 @@ def _detect_correlation(p1: dict, p2: dict) -> str | None:
     if not (is_attack1 and is_attack2):
         return None
 
-    # Same player — don't pair (e.g. shots + shots on target for same player is just one signal)
-    if pl1 and pl2 and pl1 == pl2 and stat1 == stat2:
-        return None
+    # Same player with any stats — always correlated (player performance moves together)
+    if pl1 and pl2 and pl1 == pl2:
+        return "same_player"
 
     # Same team — strongest correlation signal
     ht = (p1.get("home_team") or "").lower()
@@ -1159,7 +1172,7 @@ def _build_sgp_bundles(prop_candidates: list[dict]) -> list[dict]:
                 "legs":         [p1, p2],
                 "correlation":  signal,
                 "ev_pct":       (p1["ev_pct"] + p2["ev_pct"]) / 2,
-                "best_odds":    max(p1["best_odds"], p2["best_odds"]),  # best payout of the two legs
+                "best_odds":    _legs_to_parlay_american(p1["best_odds"], p2["best_odds"]),
             })
 
     bundles.sort(key=lambda x: x["score"], reverse=True)
@@ -1396,18 +1409,6 @@ def _generate_hardrock_entry(period: str) -> dict:
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
 
-        def _american_to_dec(odds: int) -> float:
-            return (odds / 100 + 1) if odds > 0 else (100 / abs(odds) + 1)
-
-        def _parlay_is_profitable(picks: list[dict]) -> bool:
-            """Return True only if combined_win_prob × parlay_decimal_payout > 1."""
-            combined_win_prob = 1.0
-            combined_dec      = 1.0
-            for p in picks:
-                combined_win_prob *= p["confidence"]
-                combined_dec      *= _american_to_dec(round(p["best_odds"]))
-            return combined_win_prob * combined_dec > 1.0
-
         # Final gate: enforce EV ≥ 3%, reasoning ≥ 80 chars, ≥ 2 key factors.
         # This mirrors pick_gate.check() thresholds for dict-based candidates.
         _MIN_EV_GATE = 0.03
@@ -1461,6 +1462,8 @@ def _generate_hardrock_entry(period: str) -> dict:
                 if player_key and player_key in seen_players:
                     continue
                 seen_players.add(player_key)
+                if event_key:
+                    blocked_event_keys.add(event_key)  # prop blocks same-game main-line
             else:
                 event_key = f"{pick.get('home_team','')}:{pick.get('away_team','')}".lower()
                 if event_key in blocked_event_keys:
