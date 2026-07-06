@@ -4,38 +4,45 @@ An automated sports intelligence system that generates high-confidence picks for
 
 ---
 
-## The Tree
+## The Main Flow
+
+This is the one flow the bot follows every day. Nothing else.
 
 ```
-                        🧠  BOT  (the brain / roots)
-                                    |
-              ┌─────────────────────┼─────────────────────┐
-              │                     │                     │
-         SOFASCORE              ODDS API             KALSHI API
-              │                     │                     │
-         ──────────────── DATA BRANCHES (leaves) ──────────────
-         • Today's games       • Moneylines         • YES/NO prices
-         • Kickoff times       • Spreads            • Implied prob
-         • Live status         • Totals             • Volume
-         • Team odds           • Player props       • Market status
-         • H2H history         • Line movement      • Settlement
-         • Team form           • Sharp action
-         • Player stats        • Public %
-              │                     │                     │
-              └─────────────────────┼─────────────────────┘
-                                    │
-                          🧠  ENGINES  (AI scoring)
-                          EV · Confidence · Risk · Gate
-                                    │
-                   ┌────────────────┴────────────────┐
-                   │                                 │
-           🎯  HARDROCK SLIP                 🎯  KALSHI SLIP
-           2 legs · 77%+ · day/night         1 leg · 77%+ · day/night
+8:00 AM ET ── Sofascore full scan
+               └── get ALL today's live events (times + odds)
+                   ├── DAY games   → kickoff before 4 PM ET  → saved to Redis
+                   └── NIGHT games → kickoff 4 PM ET+        → saved to Redis
+
+10:30 AM ET ── HardRock DAY entry  *(paused until July 10)*
+               └── load day games from Sofascore cache
+                   └── Odds API → moneylines / spreads / totals / props
+                       └── AI scores each pick
+                           └── conf ≥ 76.5% + EV ≥ 0.5% → pick best 2
+                               └── POST slip to Discord → save to Redis + DB
+
+10:35 AM ET ── Kalshi DAY entry
+               └── Kalshi API → all open YES/NO markets for day games
+                   └── Sofascore enriches each market (kickoff, odds, form, H2H)
+                       └── Odds API fallback if Kalshi API is empty
+                           └── AI picks the single best contract
+                               └── conf ≥ 76.5% + EV ≥ 0.5% → pick best 1
+                                   └── POST slip to Discord → save to Redis + DB
+
+ 3:00 PM ET ── Sofascore rescan  (catches postponements / time changes)
+
+ 4:30 PM ET ── HardRock NIGHT entry  *(same flow, uses night games)*
+ 4:35 PM ET ── Kalshi NIGHT entry    *(same flow, uses night games)*
+
+Every 3 min ── Slip tracker  (runs for BOTH day and night slips)
+               ├── GAME SOON → alert 5–45 min before kickoff
+               ├── GAME LIVE → alert when Sofascore shows inprogress
+               └── RESULT    → Sofascore finished → Kalshi API → Odds API
+                   ├── all legs won → CASHED ✅
+                   └── any leg lost → DEAD ❌
 ```
 
-**Sofascore is the source of truth for all game timing.**
-No pick is posted without a confirmed Sofascore kickoff.
-Kalshi's `close_time` is never used as a game-start gate — it stays open after games end.
+**That's it. Sofascore feeds the schedule. Odds API + Kalshi feed the prices. AI picks the best bet. Slip tracker watches every game until it's settled.**
 
 ---
 
