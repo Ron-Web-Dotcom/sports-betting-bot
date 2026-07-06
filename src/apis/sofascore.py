@@ -490,6 +490,80 @@ def get_live_events(sport_key: str) -> list[dict]:
     return [_normalise_event(e, sport_key) for e in events]
 
 
+def get_event_result(event_id: str) -> dict | None:
+    """
+    Fetch the current/final result for a specific Sofascore event by ID.
+    Returns normalised dict with home_score, away_score, status_type, winner.
+    Returns None if the event can't be fetched.
+    """
+    data = _get(f"/event/{event_id}")
+    if not data:
+        return None
+    ev = data.get("event", data) if isinstance(data, dict) else None
+    if not ev:
+        return None
+    status = ev.get("status", {})
+    hs = (ev.get("homeScore") or {}).get("current")
+    as_ = (ev.get("awayScore") or {}).get("current")
+    status_type = status.get("type", "")
+    winner: str
+    if hs is not None and as_ is not None:
+        if hs > as_:
+            winner = (ev.get("homeTeam") or {}).get("name", "home")
+        elif as_ > hs:
+            winner = (ev.get("awayTeam") or {}).get("name", "away")
+        else:
+            winner = "draw"
+    else:
+        winner = "unknown"
+    return {
+        "event_id":    str(event_id),
+        "home_team":   (ev.get("homeTeam") or {}).get("name", ""),
+        "away_team":   (ev.get("awayTeam") or {}).get("name", ""),
+        "home_score":  hs,
+        "away_score":  as_,
+        "status_type": status_type,          # "notstarted" / "inprogress" / "finished"
+        "status_desc": status.get("description", ""),
+        "winner":      winner,
+        "is_live":     status_type == "inprogress",
+        "is_finished": status_type == "finished",
+    }
+
+
+def find_event_by_teams(home_team: str, away_team: str, date_str: str | None = None,
+                        sport_key: str | None = None) -> dict | None:
+    """
+    Search today's (or date_str's) Sofascore events for a match between these two teams.
+    Returns the normalised event dict if found, else None.
+    Uses cached scan data from Redis when available.
+    """
+    import json as _json
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        cached = r.get("sofascore:today_events")
+        if cached:
+            events = _json.loads(cached)
+        else:
+            events = get_all_scheduled_events(date_str)
+    except Exception:
+        events = get_all_scheduled_events(date_str)
+
+    home_n = home_team.lower().strip()
+    away_n = away_team.lower().strip()
+    for ev in events:
+        eh = (ev.get("home_team") or "").lower()
+        ea = (ev.get("away_team") or "").lower()
+        home_match = home_n in eh or eh in home_n
+        away_match = away_n in ea or ea in away_n
+        if home_match and away_match:
+            if sport_key and ev.get("sport") and ev["sport"] != sport_key:
+                continue
+            return ev
+    return None
+
+
 def _normalise_event(e: dict, sport_key: str) -> dict:
     home = e.get("homeTeam", {})
     away = e.get("awayTeam", {})

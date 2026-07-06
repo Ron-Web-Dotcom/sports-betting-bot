@@ -512,11 +512,112 @@ def _check_kalshi_result(pick: dict) -> str | None:
         return None
 
 
+def _check_sofascore_result(pick: dict) -> str | None:
+    """
+    Try Sofascore for the game result — faster and more reliable than Kalshi/Odds API.
+    Returns 'won'/'lost'/'push' if Sofascore has a finished result, else None.
+    """
+    try:
+        from src.apis.sofascore import get_event_result, find_event_by_teams
+        sf_id   = pick.get("sofascore_id", "")
+        home    = (pick.get("home_team") or "").strip()
+        away    = (pick.get("away_team") or "").strip()
+        answer  = (pick.get("answer") or pick.get("side") or pick.get("selection") or "yes").lower()
+
+        sf_ev = None
+        if sf_id:
+            sf_ev = get_event_result(sf_id)
+        if not sf_ev and home and away:
+            ev_found = find_event_by_teams(home, away)
+            if ev_found:
+                sf_ev = get_event_result(ev_found.get("id", "")) if ev_found.get("id") else None
+
+        if not sf_ev or not sf_ev.get("is_finished"):
+            return None  # not finished yet — keep polling
+
+        hs = sf_ev.get("home_score")
+        as_ = sf_ev.get("away_score")
+        sf_home = sf_ev.get("home_team", "").lower()
+        sf_away = sf_ev.get("away_team", "").lower()
+        winner  = sf_ev.get("winner", "unknown").lower()
+
+        # Determine if the pick's selection won
+        sel = (pick.get("selection") or home or "").lower()
+        market = pick.get("market", "h2h")
+
+        if market == "totals":
+            if hs is None or as_ is None:
+                return None
+            total = hs + as_
+            line  = pick.get("line") or pick.get("line_value")
+            direction = (pick.get("direction") or pick.get("selection") or "").lower()
+            if not line:
+                return None
+            try:
+                line_f = float(line)
+                if abs(total - line_f) < 0.1:
+                    return "push"
+                return "won" if (total > line_f and "over" in direction) or (total < line_f and "under" in direction) else "lost"
+            except Exception:
+                return None
+
+        if market == "spreads":
+            if hs is None or as_ is None:
+                return None
+            line_val = pick.get("line_value")
+            if line_val is None:
+                return None
+            is_home = bool(sel and (sel in sf_home or sf_home in sel))
+            margin  = (hs - as_) if is_home else (as_ - hs)
+            covered = margin + float(line_val)
+            if abs(covered) < 0.1:
+                return "push"
+            return "won" if covered > 0 else "lost"
+
+        # Moneyline / Kalshi question — check if selected team/country won
+        if winner == "draw":
+            return "push"
+        if winner == "unknown" or (hs is None or as_ is None):
+            return None
+
+        # For Kalshi binary YES/NO questions, determine if the selected side won
+        if pick.get("question"):
+            # "Will X defeat Y?" — YES means X wins
+            # Use home_team or selection as the "yes" team
+            yes_team = (pick.get("home_team") or pick.get("selection") or "").lower()
+            yes_country = (pick.get("home_country") or "").lower()
+            yes_won = bool(
+                (yes_team and (yes_team in winner or winner in yes_team)) or
+                (yes_country and (yes_country in winner or winner in yes_country)) or
+                (yes_team and (yes_team in sf_home or sf_home in yes_team) and (hs > as_)) or
+                (yes_team and (yes_team in sf_away or sf_away in yes_team) and (as_ > hs))
+            )
+            if answer == "yes":
+                return "won" if yes_won else "lost"
+            else:
+                return "won" if not yes_won else "lost"
+
+        # Standard moneyline
+        sel_won2 = bool(sel and (
+            (sel in sf_home or sf_home in sel) and hs > as_ or
+            (sel in sf_away or sf_away in sel) and as_ > hs
+        ))
+        return "won" if sel_won2 else "lost"
+    except Exception as e:
+        logger.debug("Sofascore result check failed: %s", e)
+        return None
+
+
 def _check_pick_result(pick: dict) -> str | None:
     """
     Returns 'won', 'lost', or None (not settled yet).
-    Kalshi picks resolved via Kalshi API; others via Odds API scores.
+    Sofascore checked first (faster); Kalshi API / Odds API as fallback.
     """
+    # Try Sofascore first — it publishes results within minutes of game end
+    sf_result = _check_sofascore_result(pick)
+    if sf_result is not None:
+        return sf_result
+
     # Kalshi picks resolved via their own API
     if pick.get("question") or pick.get("market_id"):
         return _check_kalshi_result(pick)
