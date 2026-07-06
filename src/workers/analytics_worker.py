@@ -457,7 +457,6 @@ def wake_up_brief():
     from src.discord_bot.bot import _post
     from datetime import datetime
     import zoneinfo
-    import json
 
     ET      = zoneinfo.ZoneInfo("America/New_York")
     now_et  = datetime.now(ET)
@@ -472,9 +471,7 @@ def wake_up_brief():
         r.ping()
         services.append("✅  Redis")
 
-        kalshi_raw = r.get("kalshi:live_markets")
-        kalshi_count = len(json.loads(kalshi_raw)) if kalshi_raw else 0
-        services.append(f"✅  Kalshi  ({kalshi_count} markets)")
+        services.append("✅  Kalshi")
 
         from datetime import date as _d
         if _d.today() < _d(2026, 7, 10):
@@ -482,13 +479,8 @@ def wake_up_brief():
         else:
             services.append("✅  HardRock")
 
-        slips_raw = r.hgetall("slips:active")
-        open_pos = sum(
-            1 for v in (slips_raw.values() if slips_raw else [])
-            if json.loads(v).get("status") == "active"
-        )
     except Exception:
-        open_pos = 0
+        pass
 
     try:
         from src.engines.health_engine import check_database
@@ -505,8 +497,6 @@ def wake_up_brief():
         "color": 0x00C851,
         "fields": [
             {"name": "Service Health", "value": service_str, "inline": False},
-            {"name": "​", "value": "​", "inline": True},
-            {"name": "Open positions holding", "value": f"**{open_pos}**", "inline": False},
         ],
         "footer": {"text": f"5:00 AM ET  ·  {date_str}  ·  Bot online"},
     }
