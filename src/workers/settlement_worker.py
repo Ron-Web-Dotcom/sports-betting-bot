@@ -29,8 +29,13 @@ def _settlement_window() -> bool:
     return not (3 <= et.hour < 5)
 
 
-def settle_completed_picks():
-    if not _settlement_window():
+def _settle_core():
+    """Core settlement logic — no window guard. Called from enter_sleep_mode (3 AM)."""
+    return settle_completed_picks(force=True)
+
+
+def settle_completed_picks(force: bool = False):
+    if not force and not _settlement_window():
         logger.debug("settle_completed_picks: outside window (3–5 AM ET), skipping")
         return {"skipped": "outside_settlement_window"}
     try:

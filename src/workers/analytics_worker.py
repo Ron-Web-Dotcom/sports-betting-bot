@@ -36,8 +36,8 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
     try:
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
         raw_slips = r.hgetall("slips:active")
-        ratio_raw = r.hgetall("slips:ratio")
-    except Exception:
+    except Exception as _re:
+        logger.warning("_load_slip_results: Redis failed, returning zeros: %s", _re)
         return 0, 0, 0, [], []
 
     winner_slips: list = []
@@ -58,10 +58,17 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
         except Exception:
             pass
 
-    # Count wins/losses from date-filtered slips (not all-time slips:ratio)
+    # Count wins/losses/pushes from date-filtered slips (not all-time ratio)
     wins   = len(winner_slips)
     losses = len(loser_slips)
-    pushes = int(ratio_raw.get("pushes", 0))
+    push_slips = [
+        slip for raw in raw_slips.values()
+        for slip in [__import__("json").loads(raw) if raw else {}]
+        if slip.get("created", "")[:10] >= str(cutoff)
+        and slip.get("created", "")[:10] < str(today)
+        and slip.get("status") == "push"
+    ]
+    pushes = len(push_slips)
 
     return wins, losses, pushes, winner_slips, loser_slips
 
@@ -214,7 +221,7 @@ def send_weekly_summary():
 
     # Guard: only post once per week
     _r = None
-    _week_key = f"weekly_summary_sent:{now_et.strftime('%Y-W%W')}"
+    _week_key = f"weekly_summary_sent:{now_et.strftime('%G-W%V')}"
     try:
         from src.core.config import REDIS_URL
         import redis as _redis
@@ -357,9 +364,10 @@ def enter_sleep_mode():
         pass  # Redis down — allow through
 
     # Settle any late-finishing games before posting the nightly summary
+    # Call the core settlement logic directly — bypasses the 3 AM window guard
     try:
-        from src.workers.settlement_worker import settle_completed_picks as _settle
-        _settle()
+        from src.workers.settlement_worker import _settle_core
+        _settle_core()
         logger.info("Pre-sleep settlement complete")
     except Exception as _se:
         logger.warning("Pre-sleep settlement failed: %s", _se)
@@ -370,7 +378,7 @@ def enter_sleep_mode():
     if et.weekday() == 0:  # 0 = Monday; 3 AM Monday = Sunday night rollover
         try:
             # Shared dedup key with send_weekly_summary — only one of them posts per week
-            _week_key = f"weekly_summary_sent:{et.strftime('%Y-W%W')}"
+            _week_key = f"weekly_summary_sent:{et.strftime('%G-W%V')}"
             from src.core.config import REDIS_URL as _RURL_W
             import redis as _redis_w
             _r_w = _redis_w.from_url(_RURL_W, decode_responses=True, socket_connect_timeout=2)
@@ -394,7 +402,7 @@ def enter_sleep_mode():
                 import hashlib as _hl
                 week_num  = ((et.date() - _BOT_LAUNCH).days // 7) + 1
                 prev_week = max(week_num - 1, 1)
-                w_slip_id = _hl.md5(f"weekly{et.strftime('%Y-W%W')}".encode()).hexdigest()[:8].upper()
+                w_slip_id = _hl.md5(f"weekly{et.strftime('%G-W%V')}".encode()).hexdigest()[:8].upper()
                 w_color   = 0x1B5E20 if w_wins >= w_losses and w_total > 0 else (0xB71C1C if w_losses > w_wins else 0x607D8B)
                 weekly_embed = {
                     "title": f"📊  WEEK {prev_week} SUMMARY  ·  🟢  WEEK {week_num} STARTS NOW",
@@ -864,11 +872,13 @@ def yesterday_recap():
         if all_events:
             try:
                 from dateutil.parser import parse as _p_chk
-                _first_ct = all_events[0].get("commence_time", "")
-                if _first_ct:
-                    _first_date = _p_chk(_first_ct).date()
-                    if _first_date < et.date():
-                        all_events = []  # stale — yesterday's cache
+                today_date = et.date()
+                stale = [
+                    ev for ev in all_events
+                    if ev.get("commence_time") and _p_chk(ev["commence_time"]).date() < today_date
+                ]
+                if len(stale) == len(all_events):
+                    all_events = []  # all events are from yesterday — fully stale
             except Exception:
                 pass
 
