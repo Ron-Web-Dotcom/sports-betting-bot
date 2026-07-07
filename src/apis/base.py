@@ -124,7 +124,9 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None) 
         raise
     except httpx.HTTPStatusError as e:
         code = e.response.status_code
-        level = logging.DEBUG if code in (429, 403) else logging.WARNING
+        # 401/403 on Kalshi must be visible — auth failures kill the whole pipeline
+        _is_kalshi = "kalshi.com" in url
+        level = logging.WARNING if (_is_kalshi or code == 401) else (logging.DEBUG if code in (429, 403) else logging.WARNING)
         logger.log(level, "HTTP %s from %s", code, url)
         return None
     except Exception as e:

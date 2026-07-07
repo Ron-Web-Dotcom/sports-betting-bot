@@ -106,7 +106,10 @@ def _sign_request(method: str, path: str) -> dict | None:
 
 
 def _get(path: str, params: dict | None = None) -> dict | list | None:
-    headers = _sign_request("GET", path) or {}
+    headers = _sign_request("GET", path)
+    if not headers:
+        logger.warning("Kalshi: no auth headers — KALSHI_API_KEY_ID or KALSHI_PRIVATE_KEY may be missing; trying unauthenticated")
+        headers = {}
     try:
         return get_json(f"{_BASE}{path}", params=params, headers=headers)
     except Exception as e:
@@ -477,7 +480,10 @@ def get_sports_events(limit: int = 500) -> list[dict]:
                     seen_tickers.add(t)
                     all_markets.append(m)
 
-    logger.info("Kalshi series fetch: %d markets from %d series", len(all_markets), len(_SERIES))
+    if not all_markets:
+        logger.warning("Kalshi series fetch returned 0 markets across %d series — possible auth failure or API outage", len(_SERIES))
+    else:
+        logger.info("Kalshi series fetch: %d markets from %d series", len(all_markets), len(_SERIES))
 
     # 2. Fallback: paginated scan catches anything not in known series
     if len(all_markets) < 20:

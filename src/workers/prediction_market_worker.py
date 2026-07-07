@@ -137,7 +137,8 @@ def _fetch_todays_games(period: str = "day") -> list[dict]:
             ap = to_prob(away_odds)
             total = hp + ap
             commence = s.get("commence_time", "")
-            # Period filter — only include games matching the requested period
+            # Period filter — night entry: only 4 PM ET+ games.
+            # Day entry: any upcoming game (no time-of-day restriction — see note in _build_entry).
             if commence:
                 try:
                     from dateutil.parser import parse as _dp_g
@@ -147,8 +148,6 @@ def _fetch_todays_games(period: str = "day") -> list[dict]:
                         _ct_g = _ct_g.replace(tzinfo=_zig.ZoneInfo("America/New_York"))
                     _hour_et = _ct_g.astimezone(_zig.ZoneInfo("America/New_York")).hour
                     _is_night_g = _hour_et >= 16
-                    if period == "day" and _is_night_g:
-                        continue
                     if period == "night" and not _is_night_g:
                         continue
                 except Exception:
@@ -292,13 +291,18 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             if not home or not away:
                 continue
             # Match on team name OR country name
-            # Require full team name match OR multi-word partial; single-word names (≤4 chars
-            # or common English words) must match the full name to avoid false positives.
             def _team_in_title(name: str, title: str) -> bool:
                 if name in title:
                     return True
-                words = name.split()
-                # Only do word-level partial match for names with 2+ meaningful words
+                words = [w for w in name.split() if w]
+                if not words:
+                    return False
+                # Always check the team nickname (last word: "Mets", "Cubs", "Heat", "Sox")
+                # as an exact word match — handles cases where city is omitted from subtitle.
+                title_words = set(title.split())
+                if words[-1] in title_words:
+                    return True
+                # Also check any significant word (len > 4) as a substring match
                 return len(words) >= 2 and any(
                     w in title for w in words if len(w) > 4
                 )
@@ -428,13 +432,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             # commence_time = Sofascore kickoff (only path that reaches here)
             _kickoff_et = _to_naive_et(sf_kickoff)
 
-            # Period gate — day = before 4 PM ET, night = 4 PM ET+
-            # Sofascore kickoff is naive ET so hour comparison is direct.
+            # Period gate:
+            #   Night entry: only games starting 4 PM ET+ (true evening games).
+            #   Day entry:   any upcoming game — no time restriction.
+            #     Rationale: in summer (July), most games start at 7 PM ET. Restricting
+            #     the day entry to before-4PM games means 0 candidates almost every day.
+            #     The night entry already blocks the day pick via _blocked_subtitles.
             try:
                 _kdt_et = _dp(_kickoff_et)
                 _is_night_game = _kdt_et.hour >= 16
-                if period == "day" and _is_night_game:
-                    continue  # night game in day entry — skip
                 if period == "night" and not _is_night_game:
                     continue  # day game in night entry — skip
             except Exception:
