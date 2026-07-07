@@ -333,6 +333,12 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         except Exception:
             pass
 
+    # Build event_ticker → sf_game cache for props matching.
+    # Props markets (player/team props) often have subtitles like "Lionel Messi"
+    # that don't contain team names. We resolve them by matching their event_ticker
+    # to a game winner market we already matched (same event, different sub-market).
+    _ticker_to_sf: dict[str, dict] = {}
+
     candidates: list[dict] = []
     if kalshi_full:
         from dateutil.parser import parse as _dp
@@ -349,6 +355,16 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 return _ct.astimezone(_ZI3("America/New_York")).strftime("%Y-%m-%dT%H:%M:%S")
             except Exception:
                 return raw
+
+        # First pass: resolve event_ticker → sf_game for all game-level markets
+        # so props on the same event can inherit the Sofascore match.
+        for _pm in kalshi_full[:200]:
+            _psub = _pm.get("subtitle", "")
+            _pticker = (_pm.get("event_ticker") or "").upper()
+            if _psub and _pticker and _pticker not in _ticker_to_sf:
+                _pgame = _match_sofascore(_psub)
+                if _pgame:
+                    _ticker_to_sf[_pticker] = _pgame
 
         for m in kalshi_full[:200]:
             yes_prob = m.get("yes_price") or 0
@@ -369,6 +385,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
             # ── Sofascore: source of truth for game timing ─────────────────
             sf_game = _match_sofascore(subtitle)
+
+            # Props fallback: if subtitle didn't match (e.g. "Lionel Messi"),
+            # try the event_ticker cache built from game-level markets above.
+            if not sf_game:
+                _ev_ticker = (m.get("event_ticker") or "").upper()
+                if _ev_ticker:
+                    sf_game = _ticker_to_sf.get(_ev_ticker)
+                    if sf_game:
+                        logger.debug("Kalshi props: matched '%s' via ticker %s", subtitle, _ev_ticker)
 
             sport_key  = sf_game.get("sport",         "") if sf_game else ""
             sf_kickoff = sf_game.get("commence_time", "") if sf_game else ""
@@ -437,6 +462,11 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 except Exception:
                     pass
 
+            # Build rich odds summary for AI — include totals, BTTS, handicap
+            _sf_totals   = _sf_odds.get("totals",   [])
+            _sf_btts     = {k: v for k, v in _sf_odds.items() if k.startswith("btts_")}
+            _sf_handicaps = _sf_odds.get("handicaps", [])
+
             # Line movement from our DB — sharp/steam moves on this game
             _line_move: dict = {}
             if sf_game:
@@ -462,14 +492,18 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "away_team":     sf_game.get("away_team", "") if sf_game else "",
                 "tournament":    sf_game.get("tournament", "") if sf_game else "",
                 "sofascore_id":  _sf_id,
-                "sf_home_odds":  _sf_odds.get("home_odds", ""),
-                "sf_draw_odds":  _sf_odds.get("draw_odds", ""),
-                "sf_away_odds":  _sf_odds.get("away_odds", ""),
-                "sf_home_impl":  _sf_odds.get("home_implied", 0),
-                "sf_away_impl":  _sf_odds.get("away_implied", 0),
-                "sf_standings":  _sf_ctx.get("standings", {}),
-                "sf_h2h":        _sf_ctx.get("h2h", [])[:5],
-                "sf_form":       _sf_ctx.get("form", {}),
+                "sf_home_odds":   _sf_odds.get("home_odds", ""),
+                "sf_draw_odds":   _sf_odds.get("draw_odds", ""),
+                "sf_away_odds":   _sf_odds.get("away_odds", ""),
+                "sf_home_impl":   _sf_odds.get("home_implied", 0),
+                "sf_draw_impl":   _sf_odds.get("draw_implied", 0),
+                "sf_away_impl":   _sf_odds.get("away_implied", 0),
+                "sf_totals":      _sf_totals[:3],   # top 3 lines (e.g. o/u 2.5, 3.5, 4.5 goals)
+                "sf_btts":        _sf_btts or {},
+                "sf_handicaps":   _sf_handicaps[:2],
+                "sf_standings":   _sf_ctx.get("standings", {}),
+                "sf_h2h":         _sf_ctx.get("h2h", [])[:5],
+                "sf_form":        _sf_ctx.get("form", {}),
                 "line_movement": _line_move or None,
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
@@ -514,19 +548,24 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     system = """You are an elite sports analyst and prediction market researcher specializing in Kalshi.
 
 Each candidate includes live data from Sofascore — USE ALL OF IT:
-- "market": the YES/NO question
+- "market": the YES/NO question (game winners, totals, BTTS, team props, player props)
 - "home_team" / "away_team": exact team names from Sofascore — these are ground truth
-- "tournament": the competition name (e.g. "FIFA Club World Cup", "NBA", "MLB")
+- "tournament": competition name (e.g. "FIFA Club World Cup", "NBA", "MLB")
 - "game": matchup subtitle from Kalshi
-- "ticker": Kalshi event ticker (KXWCGAME=FIFA CWC, KXMLBGAME=MLB, KXWNBAGAME=WNBA, KXNBAGAME=NBA, KXNFLGAME=NFL)
+- "ticker": Kalshi event ticker (KXWCGAME=FIFA CWC, KXMLBGAME=MLB, KXWNBAGAME=WNBA, KXNBAGAME=NBA)
 - "game_time_et": kickoff time
 - "kalshi_yes_%": Kalshi's current market price for YES
-- "sf_home_odds" / "sf_away_odds": real sportsbook odds (American) — ANCHOR for true probability
-- "sf_home_implied%" / "sf_away_implied%": sportsbook implied win probability
+- "sf_home_odds" / "sf_away_odds" / "sf_draw_odds": REAL sportsbook odds (American) — ANCHOR for true probability
+- "sf_home_implied%" / "sf_away_implied%" / "sf_draw_implied%": sportsbook implied win probability
+- "sf_totals": Sofascore over/under lines [{line, over_odds, under_odds, over_implied, under_implied}]
+  → compare to Kalshi totals markets — if Sofascore says o2.5 is -150 and Kalshi prices it at 60%, that's edge
+- "sf_btts": both-teams-to-score odds {btts_yes_odds, btts_no_odds, btts_yes_implied, btts_no_implied}
+  → compare to Kalshi BTTS markets
+- "sf_handicaps": Asian handicap lines [{line, home_odds, away_odds}]
 - "sf_standings": live league/tournament table — position, points, W-D-L, GF-GA for EACH team
 - "sf_form": last 5 results for each team e.g. {"home": "WWLDW", "away": "LLWDL"}
 - "sf_h2h": last 5 head-to-head meetings with scores
-- "line_movement": sharp money signals from sportsbook line tracking — steam_detected=True means rapid large move, sharp_moves > public_moves = smart money aligned, score > 0.6 = bullish signal
+- "line_movement": sharp money signals — steam_detected=True means rapid large move, sharp_moves > public_moves = smart money aligned
 
 MANDATORY CONTEXT RULES — apply these BEFORE picking:
 
@@ -538,22 +577,26 @@ MANDATORY CONTEXT RULES — apply these BEFORE picking:
 2. STANDINGS = TRUTH: sf_standings shows where teams actually sit in the table right now.
    Position 1 vs Position 12 = massive quality gap. Use this to validate or reject Kalshi's price.
 
-3. FORM MATTERS BUT CONTEXT MATTERS MORE: "WWWWW" against weak opponents ≠ "WWWWW" against
-   top-tier competition. Weight form by opponent quality. Recent H2H results are especially useful.
+3. SOFASCORE ODDS = MARKET TRUTH: sf_totals/sf_btts/sf_handicaps are REAL bookmaker lines.
+   If Kalshi prices "over 2.5 goals YES" at 55% but sf_totals shows over_implied=0.62, Kalshi is underpriced.
+   If Kalshi "BTTS YES" is 60% but sf_btts shows btts_yes_implied=0.45, Kalshi is overpriced → pick NO.
 
-4. EDGE DETECTION: Compare sf_home_implied% to kalshi_yes_% to find genuine mispricing.
+4. PROPS AWARENESS: Some candidates are team props or player props (e.g. "Will [player] score?").
+   For player props without Sofascore odds: rely on recent form, H2H scoring records, and opponent defense.
+
+5. EDGE DETECTION: Compare sf_*_implied% to kalshi_yes_% to find genuine mispricing.
    Gap of 8%+ = strong edge. Gap of 3-7% = moderate edge. Gap < 3% = weak or no edge.
 
-5. HIGH VOLUME = SHARP MONEY: Kalshi markets with high volume have been stress-tested by smart bettors.
+6. HIGH VOLUME = SHARP MONEY: Kalshi markets with high volume have been stress-tested by smart bettors.
    Do not fight the sharp money without a specific data-backed reason.
 
-6. SPORT-SPECIFIC RULES:
-   - Soccer: goals-based markets; draw is always a real outcome
+7. SPORT-SPECIFIC RULES:
+   - Soccer: draw is always a real outcome; BTTS and totals are excellent markets for edge
    - Basketball: higher scoring = tighter win margins; home court matters less in playoffs
-   - Baseball: starting pitcher is the single biggest variable — check sf_form for recent starts
+   - Baseball: starting pitcher is the single biggest variable
    - Tennis/MMA: head-to-head record is weighted heavily; recent form matters most
 
-Pick the SINGLE best contract where YES has the highest REAL confidence edge.
+Pick the SINGLE best contract where YES has the highest REAL confidence edge — game winner, total, BTTS, team prop, or player prop.
 
 Return ONLY valid JSON:
 {
@@ -563,7 +606,7 @@ Return ONLY valid JSON:
   "true_prob": <float 0.0-1.0 — your true probability of YES>,
   "confidence": <float 0.0-1.0>,
   "ev_pct": <float e.g. 0.06 = 6% edge>,
-  "reasoning": "<4-5 sentences: name both teams, cite standings position, form, H2H, and the specific Kalshi mispricing>"
+  "reasoning": "<4-5 sentences: name both teams, cite standings/form/H2H, state the specific Sofascore odds anchor used, and explain the Kalshi mispricing>"
 }
 
 HEAVY FAVORITE RULE: When Kalshi YES price is 85%+ AND Sofascore implied confirms the favorite,
@@ -606,11 +649,18 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             # Line movement — sharp/steam signal from our sportsbook DB
             "line_movement":    c.get("line_movement") or None,
             # Sofascore bookmaker odds — use to spot Kalshi mispricing
-            "sf_home_odds":     c.get("sf_home_odds") or None,
-            "sf_draw_odds":     c.get("sf_draw_odds") or None,
-            "sf_away_odds":     c.get("sf_away_odds") or None,
-            "sf_home_implied%": f"{round(c['sf_home_impl']*100)}%" if c.get("sf_home_impl") else None,
-            "sf_away_implied%": f"{round(c['sf_away_impl']*100)}%" if c.get("sf_away_impl") else None,
+            "sf_home_odds":      c.get("sf_home_odds") or None,
+            "sf_draw_odds":      c.get("sf_draw_odds") or None,
+            "sf_away_odds":      c.get("sf_away_odds") or None,
+            "sf_home_implied%":  f"{round(c['sf_home_impl']*100)}%" if c.get("sf_home_impl") else None,
+            "sf_draw_implied%":  f"{round(c['sf_draw_impl']*100)}%" if c.get("sf_draw_impl") else None,
+            "sf_away_implied%":  f"{round(c['sf_away_impl']*100)}%" if c.get("sf_away_impl") else None,
+            # Sofascore totals — over/under lines with bookmaker odds
+            "sf_totals":         c.get("sf_totals") if c.get("sf_totals") else None,
+            # Sofascore BTTS — both teams to score odds
+            "sf_btts":           c.get("sf_btts") if c.get("sf_btts") else None,
+            # Sofascore handicap lines
+            "sf_handicaps":      c.get("sf_handicaps") if c.get("sf_handicaps") else None,
             # Standings — league/tournament position (positions are real: 1 = top of table)
             "sf_standings":     c.get("sf_standings") if c.get("sf_standings") else None,
             # Recent form — last 5 results e.g. {"home": "WWLDW", "away": "DLWWW"}

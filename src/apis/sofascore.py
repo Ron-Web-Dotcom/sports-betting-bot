@@ -648,34 +648,45 @@ def _epoch_to_iso(ts: int | None) -> str:
 
 # ── Odds ──────────────────────────────────────────────────────────────────────
 
+def _decimal_to_american(odd: float) -> str:
+    """Convert decimal odds to American odds string."""
+    if odd >= 2.0:
+        return f"+{int((odd - 1) * 100)}"
+    elif odd > 1.0:
+        return str(int(-100 / (odd - 1)))
+    return ""
+
+
 def get_event_odds(event_id: str) -> dict:
     """
-    Return pre-match 1X2 odds for a given Sofascore event.
+    Return pre-match odds for a Sofascore event — all available market types.
     Sofascore aggregates odds from bookmakers (Bet365 = bookmaker 1).
-    Returns implied probabilities + American odds for home/draw/away.
+
+    Returns a dict with:
+      - 1X2 moneyline: home_odds, draw_odds, away_odds (+ _implied variants)
+      - Totals (over/under goals): totals list [{line, over_odds, under_odds, over_implied, under_implied}]
+      - BTTS (both teams to score): btts_yes_odds, btts_no_odds (+ _implied variants)
+      - Asian handicap: handicaps list [{line, home_odds, away_odds}]
     """
     data = _get(f"/event/{event_id}/odds/1/all")
     if not data:
         return {}
+    result: dict = {"source": "sofascore"}
     try:
         markets = data.get("markets", []) if isinstance(data, dict) else []
         for market in markets:
-            if market.get("marketName", "").lower() in ("1x2", "match winner", "moneyline"):
-                choices = market.get("choices", [])
-                result = {}
+            mname = (market.get("marketName") or "").lower()
+            choices = market.get("choices", [])
+
+            # ── 1X2 / Match winner ──────────────────────────────────────────
+            if mname in ("1x2", "match winner", "moneyline", "full time result"):
                 for c in choices:
                     name = c.get("name", "").upper()
-                    odd  = float(c.get("odd") or c.get("fractionalValue") or 0)
-                    if not odd:
+                    odd  = float(c.get("odd") or 0)
+                    if not odd or odd <= 1.0:
                         continue
-                    # Convert decimal to American
-                    if odd >= 2.0:
-                        american = f"+{int((odd - 1) * 100)}"
-                    elif odd > 1.0:
-                        american = str(int(-100 / (odd - 1)))
-                    else:
-                        continue  # odd == 1.0 means 100% probability — invalid, skip
-                    implied = round(1 / odd, 4)
+                    american = _decimal_to_american(odd)
+                    implied  = round(1 / odd, 4)
                     if name in ("1", "HOME"):
                         result["home_odds"]    = american
                         result["home_implied"] = implied
@@ -685,12 +696,64 @@ def get_event_odds(event_id: str) -> dict:
                     elif name in ("2", "AWAY"):
                         result["away_odds"]    = american
                         result["away_implied"] = implied
-                if result:
-                    result["source"] = "sofascore"
-                    return result
+
+            # ── Over/Under totals (goals / points / runs) ───────────────────
+            elif any(kw in mname for kw in ("over/under", "total goals", "total points",
+                                             "total runs", "total score", "goals over")):
+                # Each Sofascore total choice has name like "Over" / "Under" and a handicap
+                over_c  = next((c for c in choices if c.get("name", "").lower() == "over"),  None)
+                under_c = next((c for c in choices if c.get("name", "").lower() == "under"), None)
+                if not over_c or not under_c:
+                    continue
+                line = float(market.get("handicap") or market.get("line") or
+                             over_c.get("handicap") or 0)
+                over_odd  = float(over_c.get("odd")  or 0)
+                under_odd = float(under_c.get("odd") or 0)
+                if not over_odd or not under_odd or over_odd <= 1.0 or under_odd <= 1.0:
+                    continue
+                totals_entry = {
+                    "line":           line,
+                    "over_odds":      _decimal_to_american(over_odd),
+                    "under_odds":     _decimal_to_american(under_odd),
+                    "over_implied":   round(1 / over_odd,  4),
+                    "under_implied":  round(1 / under_odd, 4),
+                }
+                result.setdefault("totals", []).append(totals_entry)
+
+            # ── BTTS (both teams to score) ──────────────────────────────────
+            elif any(kw in mname for kw in ("both teams to score", "btts", "both to score")):
+                yes_c = next((c for c in choices if c.get("name", "").lower() in ("yes", "both score")), None)
+                no_c  = next((c for c in choices if c.get("name", "").lower() in ("no",  "no score")),   None)
+                if yes_c and no_c:
+                    yes_odd = float(yes_c.get("odd") or 0)
+                    no_odd  = float(no_c.get("odd")  or 0)
+                    if yes_odd > 1.0 and no_odd > 1.0:
+                        result["btts_yes_odds"]    = _decimal_to_american(yes_odd)
+                        result["btts_no_odds"]     = _decimal_to_american(no_odd)
+                        result["btts_yes_implied"] = round(1 / yes_odd, 4)
+                        result["btts_no_implied"]  = round(1 / no_odd,  4)
+
+            # ── Asian handicap ──────────────────────────────────────────────
+            elif "asian handicap" in mname or "handicap" in mname:
+                home_c = next((c for c in choices if c.get("name", "").upper() in ("1", "HOME")), None)
+                away_c = next((c for c in choices if c.get("name", "").upper() in ("2", "AWAY")), None)
+                if home_c and away_c:
+                    line     = float(market.get("handicap") or home_c.get("handicap") or 0)
+                    home_odd = float(home_c.get("odd") or 0)
+                    away_odd = float(away_c.get("odd") or 0)
+                    if home_odd > 1.0 and away_odd > 1.0:
+                        result.setdefault("handicaps", []).append({
+                            "line":      line,
+                            "home_odds": _decimal_to_american(home_odd),
+                            "away_odds": _decimal_to_american(away_odd),
+                        })
+
     except Exception as e:
         logger.warning("get_event_odds(%s) parse error: %s", event_id, e)
-    return {}
+
+    if len(result) <= 1:  # only "source" key → nothing parsed
+        return {}
+    return result
 
 
 # ── Head-to-head ──────────────────────────────────────────────────────────────
