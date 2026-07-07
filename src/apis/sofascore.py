@@ -137,7 +137,61 @@ def _get_sf_client():
     """
     return _get_decodo_client()
 
-# Maps our internal sport_key → SofaScore sport slug
+# ── Complete list of ALL Sofascore sport slugs ───────────────────────────────
+# Used by get_all_scheduled_events to scan EVERY sport worldwide — including sports
+# that have no Odds API equivalent (darts, cycling, futsal, beach volleyball, etc.)
+# Source: Sofascore's /sport/ endpoint catalogue.
+ALL_SF_SLUGS: list[str] = [
+    # ── Ball sports ───────────────────────────────────────────────────────────
+    "football",               # Soccer / association football (worldwide — largest category)
+    "basketball",             # NBA, EuroLeague, NBL, FIBA, WNBA, NCAAB, etc.
+    "american-football",      # NFL, NCAAF, CFL, Arena Football
+    "baseball",               # MLB, NPB (Japan), KBO (Korea), LMB (Mexico)
+    "ice-hockey",             # NHL, KHL, SHL, DEL, PWHL, IIHF
+    "handball",               # EHF Champions League, Bundesliga, Liga ASOBAL, IHF
+    "volleyball",             # FIVB, CEV Champions League, Serie A, Superliga
+    "beach-volleyball",       # FIVB Beach Pro Tour
+    "futsal",                 # FIFA Futsal World Cup, UEFA Futsal, Brazilian Futsal
+    "water-polo",             # LEN Champions League, World League, national leagues
+    "field-hockey",           # FIH Pro League, Hockey Champions Trophy, Bundesliga
+    "floorball",              # World Championship, Finnish and Swedish leagues
+    "bandy",                  # World Championship, Elitserien (Sweden), Superleague (Russia)
+    # ── Racket sports ─────────────────────────────────────────────────────────
+    "tennis",                 # ATP Tour, WTA Tour, Grand Slams, Davis Cup, BJK Cup
+    "table-tennis",           # WTT, ITTF, Bundesliga, Premier League
+    "badminton",              # BWF World Tour, Super Series, national leagues
+    "squash",                 # PSA World Tour, British Open, World Championship
+    # ── Combat sports ─────────────────────────────────────────────────────────
+    "mma",                    # UFC, Bellator, ONE Championship, PFL
+    "boxing",                 # All major sanctioning bodies worldwide
+    "sumo",                   # Japanese sumo tournaments
+    # ── Motor sports ─────────────────────────────────────────────────────────
+    "formula-1",              # F1 World Championship
+    "motorsport",             # MotoGP, Indycar, NASCAR, WRC, WSBK, DTM
+    # ── Golf ─────────────────────────────────────────────────────────────────
+    "golf",                   # PGA Tour, DP World Tour, LPGA, LIV, Majors
+    # ── Outdoor / track & field ───────────────────────────────────────────────
+    "cycling",                # Tour de France, Giro, Vuelta, Classics, UCI WorldTour
+    "athletics",              # Diamond League, World Championships, Olympic events
+    # ── Bat & ball ────────────────────────────────────────────────────────────
+    "cricket",                # Test, ODI, T20I, IPL, BBL, PSL, CPL, SA20
+    # ── Oval-ball sports ──────────────────────────────────────────────────────
+    "rugby",                  # Rugby Union: RWC, URC, Premiership, Super Rugby, Top 14
+    "rugby-league",           # NRL, Super League, State of Origin, RLWC
+    # ── Antipodean ────────────────────────────────────────────────────────────
+    "australian-football",    # AFL, AFLW
+    # ── Cue sports ────────────────────────────────────────────────────────────
+    "snooker",                # World Championship, UK Championship, Masters
+    "darts",                  # PDC World Championship, Premier League, World Series
+    # ── Snow & ice ────────────────────────────────────────────────────────────
+    "ski-jumping",            # FIS Ski Jumping World Cup
+    "biathlon",               # IBU World Cup, World Championships
+    "cross-country",          # FIS Cross-Country World Cup
+    # ── Esports ───────────────────────────────────────────────────────────────
+    "esports",                # LoL, CS2/CSGO, Dota 2, Valorant, Overwatch, Rocket League
+]
+
+# Maps our internal Odds API sport_key → SofaScore sport slug
 SPORT_MAP = {
     # ── US Sports ─────────────────────────────────────────────────────────────
     "americanfootball_nfl":                  "american-football",
@@ -282,6 +336,210 @@ SPORT_MAP = {
     "esports_lol":                           "esports",
     "esports_csgo":                          "esports",
     "esports_dota2":                         "esports",
+    # ── Basketball — International / European ────────────────────────────────
+    "basketball_euroleague":                 "basketball",
+    "basketball_eurocup":                    "basketball",
+    "basketball_fiba_world_cup":             "basketball",
+    "basketball_nbl":                        "basketball",   # Australia NBL
+    "basketball_bbl":                        "basketball",   # Germany BBL
+    "basketball_lnb":                        "basketball",   # France Pro A
+    "basketball_liga_acb":                   "basketball",   # Spain ACB
+    "basketball_lba":                        "basketball",   # Italy LBA
+    "basketball_bsl":                        "basketball",   # Turkey BSL
+    "basketball_bbl_uk":                     "basketball",   # UK BBL
+    "basketball_russia_vtb":                 "basketball",   # VTB United League
+    # ── Ice Hockey — International ───────────────────────────────────────────
+    "icehockey_khl":                         "ice-hockey",
+    "icehockey_shl":                         "ice-hockey",   # Sweden
+    "icehockey_liiga":                       "ice-hockey",   # Finland
+    "icehockey_del":                         "ice-hockey",   # Germany
+    "icehockey_nla":                         "ice-hockey",   # Switzerland NL
+    "icehockey_nl_a":                        "ice-hockey",   # Swiss NL
+    "icehockey_ahl":                         "ice-hockey",   # AHL (North America)
+    "icehockey_iihf_world_championship":     "ice-hockey",
+    # ── Baseball — International ─────────────────────────────────────────────
+    "baseball_npb":                          "baseball",     # Japan NPB
+    "baseball_kbo":                          "baseball",     # Korea KBO
+    "baseball_cpbl":                         "baseball",     # Chinese Taipei CPBL
+    "baseball_lmb":                          "baseball",     # Mexico LMB
+    "baseball_winter_leagues":               "baseball",
+    # ── American Football ────────────────────────────────────────────────────
+    "americanfootball_cfl":                  "american-football",  # CFL Canada
+    # ── Soccer — More European Leagues ───────────────────────────────────────
+    "soccer_ireland_premier_division":       "football",
+    "soccer_wales_premier_league":           "football",
+    "soccer_serbia_superliga":               "football",
+    "soccer_ukraine_premier_league":         "football",
+    "soccer_hungary_nb_i":                   "football",
+    "soccer_slovakia_superliga":             "football",
+    "soccer_bulgaria_efbet_liga":            "football",
+    "soccer_north_macedonia_1_liga":         "football",
+    "soccer_belarus_premier_league":         "football",
+    "soccer_israel_premier_league":          "football",
+    "soccer_cyprus_first_division":          "football",
+    "soccer_luxembourg_bgl_ligue":           "football",
+    "soccer_liechtenstein_cup":              "football",
+    "soccer_moldova_nationala":              "football",
+    "soccer_slovenia_1_snl":                 "football",
+    "soccer_albania_superliga":              "football",
+    "soccer_latvia_virsliga":                "football",
+    "soccer_estonia_meistriliiga":           "football",
+    "soccer_lithuania_a_lyga":               "football",
+    "soccer_kazakhstan_premier_league":      "football",
+    "soccer_azerbaijan_premier_league":      "football",
+    "soccer_georgia_erovnuli_liga":          "football",
+    "soccer_armenia_premier_league":         "football",
+    # ── Soccer — Asia (Extended) ──────────────────────────────────────────────
+    "soccer_india_super_league":             "football",    # ISL India
+    "soccer_thailand_league_1":              "football",
+    "soccer_vietnam_v_league_1":             "football",
+    "soccer_malaysia_super_league":          "football",
+    "soccer_indonesia_liga_1":               "football",
+    "soccer_philippines_pfl":                "football",
+    "soccer_uae_arabian_gulf_league":        "football",
+    "soccer_qatar_stars_league":             "football",
+    "soccer_kuwait_premier_league":          "football",
+    "soccer_iran_persian_gulf_pro":          "football",
+    "soccer_iraq_premier_league":            "football",
+    "soccer_jordan_pro_league":              "football",
+    "soccer_bahrain_premier_league":         "football",
+    "soccer_oman_professional_league":       "football",
+    "soccer_uzbekistan_super_league":        "football",
+    "soccer_tajikistan_vysshaya_liga":       "football",
+    # ── Soccer — Africa ───────────────────────────────────────────────────────
+    "soccer_egypt_premier_league":           "football",
+    "soccer_south_africa_psl":               "football",
+    "soccer_nigeria_premier_league":         "football",
+    "soccer_ghana_premier_league":           "football",
+    "soccer_kenya_premier_league":           "football",
+    "soccer_tanzania_premier_league":        "football",
+    "soccer_ethiopia_premier_league":        "football",
+    "soccer_senegal_premier_league":         "football",
+    "soccer_cameroon_elite_one":             "football",
+    "soccer_ivory_coast_mtn_ligue":          "football",
+    "soccer_morocco_botola_pro":             "football",
+    "soccer_tunisia_ligue_1":                "football",
+    "soccer_algeria_ligue_professionnelle":  "football",
+    "soccer_libya_premier_league":           "football",
+    "soccer_zambia_super_league":            "football",
+    "soccer_zimbabwe_premier_league":        "football",
+    # ── Soccer — Americas (Extended) ─────────────────────────────────────────
+    "soccer_usa_usl_championship":           "football",    # USL Championship
+    "soccer_canada_premier_league":          "football",
+    "soccer_costa_rica_primera_division":    "football",
+    "soccer_honduras_liga_nacional":         "football",
+    "soccer_guatemala_liga_nacional":        "football",
+    "soccer_panama_liga_panamena":           "football",
+    "soccer_el_salvador_primera_division":   "football",
+    "soccer_nicaragua_primera_division":     "football",
+    "soccer_bolivia_division_profesional":   "football",
+    "soccer_paraguay_division_profesional":  "football",
+    "soccer_conmebol_copa_sudamericana":     "football",
+    # ── Soccer — Oceania ─────────────────────────────────────────────────────
+    "soccer_new_zealand_npl":                "football",
+    "soccer_fiji_ofc":                       "football",
+    # ── Tennis — Full ATP/WTA Calendar ───────────────────────────────────────
+    "tennis_atp_challenger":                 "tennis",
+    "tennis_wta_challenger":                 "tennis",
+    "tennis_davis_cup":                      "tennis",
+    "tennis_billie_jean_king_cup":           "tennis",
+    "tennis_laver_cup":                      "tennis",
+    "tennis_united_cup":                     "tennis",
+    # ── Handball ─────────────────────────────────────────────────────────────
+    "handball_bundesliga":                   "handball",
+    "handball_starligue":                    "handball",    # France
+    "handball_liga_asobal":                  "handball",    # Spain
+    "handball_seha_league":                  "handball",
+    "handball_shl":                          "handball",    # Sweden
+    "handball_nbl":                          "handball",    # Denmark
+    "handball_pbp_ekstraklasa":              "handball",    # Poland
+    # ── Volleyball ────────────────────────────────────────────────────────────
+    "volleyball_cev_champions_league":       "volleyball",
+    "volleyball_superliga_men":              "volleyball",  # Russia/international
+    "volleyball_serie_a1":                   "volleyball",  # Italy
+    "volleyball_plusliga":                   "volleyball",  # Poland
+    "volleyball_bundesliga_vbl":             "volleyball",  # Germany
+    "volleyball_liga_max":                   "volleyball",  # Turkey
+    "volleyball_ncaav":                      "volleyball",  # NCAA volleyball
+    # ── Darts ─────────────────────────────────────────────────────────────────
+    "darts_pdc_world_championship":          "darts",
+    "darts_premier_league":                  "darts",
+    "darts_world_grand_prix":                "darts",
+    "darts_uk_open":                         "darts",
+    "darts_world_matchplay":                 "darts",
+    "darts_grand_slam":                      "darts",
+    "darts_bdo_world_championship":          "darts",
+    # ── Snooker (Extended) ────────────────────────────────────────────────────
+    "snooker_uk_championship":               "snooker",
+    "snooker_masters":                       "snooker",
+    "snooker_china_open":                    "snooker",
+    "snooker_players_championship":          "snooker",
+    # ── Cycling ───────────────────────────────────────────────────────────────
+    "cycling_tour_de_france":                "cycling",
+    "cycling_giro_d_italia":                 "cycling",
+    "cycling_la_vuelta":                     "cycling",
+    "cycling_paris_roubaix":                 "cycling",
+    "cycling_tour_of_flanders":              "cycling",
+    "cycling_milan_san_remo":                "cycling",
+    "cycling_uci_world_tour":                "cycling",
+    # ── Rugby Union (Extended) ────────────────────────────────────────────────
+    "rugbyunion_six_nations":                "rugby",
+    "rugbyunion_autumn_nations":             "rugby",
+    "rugbyunion_pacific_nations":            "rugby",
+    "rugbyunion_currie_cup":                 "rugby",       # South Africa
+    "rugbyunion_mitre_10_cup":               "rugby",       # New Zealand
+    "rugbyunion_super_w":                    "rugby",       # Women's Super Rugby
+    # ── Rugby League (Extended) ───────────────────────────────────────────────
+    "rugbyleague_super_league":              "rugby-league",
+    "rugbyleague_betfred_championship":      "rugby-league",
+    # ── Cricket (Extended) ────────────────────────────────────────────────────
+    "cricket_bbl":                           "cricket",     # Big Bash League
+    "cricket_psl":                           "cricket",     # Pakistan Super League
+    "cricket_cpl":                           "cricket",     # Caribbean Premier League
+    "cricket_sa20":                          "cricket",     # SA20 South Africa
+    "cricket_the_hundred":                   "cricket",     # The Hundred (England)
+    "cricket_vitality_blast":                "cricket",     # Vitality T20 Blast
+    "cricket_sheffield_shield":              "cricket",     # Sheffield Shield (Australia)
+    "cricket_plunket_shield":                "cricket",     # Plunket Shield (NZ)
+    # ── Beach Volleyball ─────────────────────────────────────────────────────
+    "beachvolleyball_fivb_pro_tour":         "beach-volleyball",
+    "beachvolleyball_world_championship":    "beach-volleyball",
+    # ── Futsal ────────────────────────────────────────────────────────────────
+    "futsal_fifa_world_cup":                 "futsal",
+    "futsal_uefa_futsal_euro":               "futsal",
+    "futsal_liga_nacional":                  "futsal",      # Spain
+    "futsal_liga_futsal":                    "futsal",      # Brazil
+    # ── Table Tennis (Extended) ───────────────────────────────────────────────
+    "tabletennis_bundesliga":                "table-tennis",
+    "tabletennis_ttsl":                      "table-tennis", # Table Tennis Super League (China)
+    # ── Badminton (Extended) ──────────────────────────────────────────────────
+    "badminton_all_england":                 "badminton",
+    "badminton_thomas_cup":                  "badminton",
+    "badminton_uber_cup":                    "badminton",
+    "badminton_sudirman_cup":                "badminton",
+    # ── Motorsport (Extended) ────────────────────────────────────────────────
+    "motorsport_motogp":                     "motorsport",
+    "motorsport_wrc":                        "motorsport",   # World Rally Championship
+    "motorsport_wsbk":                       "motorsport",   # World Superbike
+    "motorsport_dtm":                        "motorsport",
+    "motorsport_imsa":                       "motorsport",
+    "motorsport_lemans":                     "motorsport",
+    "motorsport_formula2":                   "motorsport",
+    "motorsport_formula3":                   "motorsport",
+    # ── Winter sports ────────────────────────────────────────────────────────
+    "skiing_alpine":                         "ski-jumping",  # placeholder slug
+    "biathlon_world_cup":                    "biathlon",
+    "crosscountry_world_cup":                "cross-country",
+    # ── Floorball ────────────────────────────────────────────────────────────
+    "floorball_world_championship":          "floorball",
+    "floorball_ssl":                         "floorball",    # Swedish SSL
+    "floorball_f_liiga":                     "floorball",    # Finnish F-liiga
+    # ── Water polo ────────────────────────────────────────────────────────────
+    "waterpolo_len_champions_league":        "water-polo",
+    "waterpolo_world_league":                "water-polo",
+    # ── Field hockey ─────────────────────────────────────────────────────────
+    "fieldhockey_fih_pro_league":            "field-hockey",
+    "fieldhockey_world_cup":                 "field-hockey",
 }
 
 _HEADERS = {
@@ -415,21 +673,28 @@ def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
 
 def get_all_scheduled_events(date: str | None = None) -> list[dict]:
     """
-    Return ALL of today's events (scheduled + live) across every sport worldwide.
+    Return ALL of today's events (scheduled + live) across EVERY sport worldwide.
 
-    Makes 30 requests (15 slugs × 2 endpoints: scheduled + live) instead of
-    110+ per-sport_key calls. Covers every sport Sofascore tracks globally:
-    soccer (World Cup, all leagues), NFL, NBA, MLB, NHL, tennis, cricket,
-    rugby, MMA, motorsport, golf, aussie rules, and more.
+    Scans ALL_SF_SLUGS — every sport Sofascore tracks globally including:
+    soccer, basketball, NFL, NBA, MLB, NHL, tennis, cricket, rugby, MMA,
+    motorsport, golf, AFL, handball, volleyball, futsal, beach volleyball,
+    cycling, darts, table tennis, badminton, squash, boxing, snooker,
+    esports, floorball, bandy, biathlon, ski jumping, and more.
+
+    2 requests per slug (scheduled + live) — batched with concurrency cap
+    to avoid rate-limiting.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     date = date or et_naive().strftime("%Y-%m-%d")
 
-    # slug → [sport_keys] reverse map
+    # Build slug → [sport_keys] reverse map (for events that have Odds API mappings)
     slug_to_keys: dict[str, list[str]] = {}
     for sk, slug in SPORT_MAP.items():
         slug_to_keys.setdefault(slug, []).append(sk)
+
+    # Use ALL_SF_SLUGS so sports without Odds API mapping are still scanned
+    all_slugs = list(dict.fromkeys(ALL_SF_SLUGS + list(slug_to_keys.keys())))
 
     all_events: list[dict] = []
     seen_ids: set[str] = set()
@@ -441,20 +706,21 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
         if not data:
             return []
         raw  = data if isinstance(data, list) else data.get("events", [])
-        keys = slug_to_keys.get(slug, [slug])
-        return [_normalise_event(e, keys[0]) for e in raw]
+        # Use first matching Odds API sport_key if available, else use the slug itself
+        key = (slug_to_keys.get(slug) or [slug])[0]
+        return [_normalise_event(e, key) for e in raw]
 
-    # Build task list: scheduled events + live events per slug
+    # Build task list: scheduled + live per slug
     tasks: list[tuple[str, str]] = []
-    for slug in slug_to_keys:
+    for slug in all_slugs:
         tasks.append((slug, f"/sport/{slug}/scheduled-events/{date}"))
         tasks.append((slug, f"/sport/{slug}/events/live"))
 
-    # ScraperAPI is slower than direct proxy — use 4 workers and generous per-future timeout
+    # Use more workers for direct proxy (fast), fewer for ScraperAPI (slower, rate-limited)
     import os as _os
     using_scraper = bool(_os.getenv("SOFASCORE_PROXY_URL", ""))
-    max_workers   = 3 if using_scraper else 6
-    fut_timeout   = 45 if using_scraper else 20
+    max_workers   = 4 if using_scraper else 8
+    fut_timeout   = 60 if using_scraper else 25
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch, slug, endpoint): (slug, endpoint) for slug, endpoint in tasks}
@@ -473,8 +739,8 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
 
     scheduled = sum(1 for e in all_events if not e.get("status_type", "").startswith("inprogress"))
     live      = len(all_events) - scheduled
-    logger.info("Sofascore batch scan: %d scheduled + %d live = %d total events across %d sports",
-                scheduled, live, len(all_events), len(slug_to_keys))
+    logger.info("Sofascore batch scan: %d scheduled + %d live = %d total across %d sport slugs",
+                scheduled, live, len(all_events), len(all_slugs))
     return all_events
 
 
