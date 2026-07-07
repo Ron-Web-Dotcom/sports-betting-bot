@@ -434,7 +434,6 @@ SPORT_MAP = {
     "soccer_nicaragua_primera_division":     "football",
     "soccer_bolivia_division_profesional":   "football",
     "soccer_paraguay_division_profesional":  "football",
-    "soccer_conmebol_copa_sudamericana":     "football",
     # ── Soccer — Oceania ─────────────────────────────────────────────────────
     "soccer_new_zealand_npl":                "football",
     "soccer_fiji_ofc":                       "football",
