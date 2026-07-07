@@ -119,6 +119,12 @@ LIVE DATA IN PAYLOAD — use these fields when present (they come from Sofascore
       Cross-reference: if Odds API prices BTTS YES at -110 but match_trends shows BTTS 5/5 + 5/5, that confirms the market
   • kalshi_markets: what prediction markets are pricing for this game — use as wisdom-of-crowds signal
   • season_stats / recent_form / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
+  • sofascore_player: full Sofascore player profile for prop bets
+      - attributes.attacking/technical/tactical/defending/creativity (0-99): ATT 90+ = elite, under 60 = weak
+      - last5_avg_rating: 8.5+ = dominant form, under 7.0 = cold; last5_goals/assists: recent scoring frequency
+      - recent_matches: actual game log with per-match rating, goals, assists, shots
+      - strengths/weaknesses: ["Scoring", "Ground duels", "Consistency"] from Sofascore profiling
+  • sofascore_season_stats: season totals — goals, assists, goals_per90, shots, rating average
   • pinnacle_signal: Pinnacle's implied probability for home/away — the sharpest book in the world. If home_implied or away_implied disagrees with Odds API implied by 5%+, Pinnacle is your anchor
   • sharp_action.public_implied_home/away: average implied probability across public books (DraftKings, FanDuel, Caesars) — derived from our own odds DB, no paid API needed
   • sharp_action.pinnacle_implied_home/away: Pinnacle's implied prob (sharp money anchor)
@@ -314,6 +320,11 @@ def analyse_pick(
             payload["match_trends"]        = sf["match_trends"]     # BTTS%, clean sheet%, o/u%
         if sf.get("sofascore_odds"):
             payload["sofascore_odds"]      = sf["sofascore_odds"]   # 1X2 + totals + BTTS + handicap
+        # Sofascore player profile (player props pipeline injects this)
+        if game_context.get("sofascore_player"):
+            payload["sofascore_player"]    = game_context["sofascore_player"]
+        if game_context.get("sofascore_season_stats"):
+            payload["sofascore_season_stats"] = game_context["sofascore_season_stats"]
         # Kalshi prediction market prices — cross-reference for edge detection
         if game_context.get("kalshi_markets"):
             payload["kalshi_markets"] = game_context["kalshi_markets"][:10]

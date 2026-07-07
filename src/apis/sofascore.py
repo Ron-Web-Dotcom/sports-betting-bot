@@ -888,6 +888,165 @@ def search_player(name: str, sport_key: str) -> list[dict]:
     return players
 
 
+def get_player_profile(player_id: str) -> dict:
+    """
+    Return a comprehensive player profile from Sofascore including:
+    - Basic info: name, age, nationality, position, club, jersey number
+    - Attribute overview: ATT, CRE, TEC, TAC, DEF scores (0-99)
+    - Strengths and weaknesses
+    - Recent match history: last 5 games with rating, goals, assists, minutes
+    - Season statistics: goals, assists, rating average, matches played
+
+    Results are Redis-cached for 4 hours to avoid repeat requests.
+    Returns {} if player not found.
+    """
+    # Redis cache check — player profiles are stable within a day
+    _cache_key = f"sf:player:{player_id}"
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _rc
+        import json as _jc
+        _r = _rc.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _cached = _r.get(_cache_key)
+        if _cached:
+            return _jc.loads(_cached)
+    except Exception:
+        _r = None
+
+    result: dict = {"player_id": player_id, "source": "sofascore"}
+
+    # 1. Basic profile — name, age, nationality, club, position
+    profile_data = _get(f"/player/{player_id}")
+    if profile_data:
+        p = profile_data.get("player", profile_data) if isinstance(profile_data, dict) else {}
+        team = (p.get("team") or {})
+        country = (p.get("country") or {})
+        result.update({
+            "name":       p.get("name", ""),
+            "short_name": p.get("shortName", p.get("name", "")),
+            "position":   p.get("position", ""),
+            "jersey":     p.get("jerseyNumber", ""),
+            "team":       team.get("name", ""),
+            "team_id":    str(team.get("id", "")),
+            "country":    country.get("name", ""),
+            "age":        p.get("age") or p.get("dateOfBirthTimestamp"),
+            "market_value": p.get("proposedMarketValue") or p.get("contractUntilTimestamp"),
+        })
+
+    # 2. Attribute overview — ATT/CRE/TEC/TAC/DEF (0-99 radar scores)
+    attr_data = _get(f"/player/{player_id}/attribute-overview")
+    if attr_data and isinstance(attr_data, dict):
+        attrs = attr_data.get("playerAttributeOverview", attr_data)
+        if isinstance(attrs, dict):
+            result["attributes"] = {
+                "attacking":   attrs.get("attacking"),
+                "technical":   attrs.get("technical"),
+                "tactical":    attrs.get("tactical"),
+                "defending":   attrs.get("defending"),
+                "creativity":  attrs.get("creativity"),
+            }
+
+    # 3. Characteristics — strengths, weaknesses, preferred positions
+    char_data = _get(f"/player/{player_id}/characteristics")
+    if char_data and isinstance(char_data, dict):
+        chars = char_data.get("playerCharacteristics", char_data)
+        if isinstance(chars, dict):
+            result["strengths"]  = [s.get("name", "") for s in (chars.get("strengths")  or [])]
+            result["weaknesses"] = [w.get("name", "") for w in (chars.get("weaknesses") or [])]
+            result["positions"]  = [pos.get("position", "") for pos in (chars.get("preferredPositions") or [])]
+
+    # 4. Recent matches — last 5 with ratings, goals, assists
+    recent_data = _get(f"/player/{player_id}/events/last/0")
+    if recent_data:
+        events_raw = recent_data if isinstance(recent_data, list) else recent_data.get("events", [])
+        recent_matches = []
+        for ev in events_raw[:5]:
+            home = ev.get("homeTeam", {})
+            away = ev.get("awayTeam", {})
+            stats = (ev.get("playerStatistics") or {})
+            recent_matches.append({
+                "date":        _epoch_to_iso(ev.get("startTimestamp")),
+                "home_team":   home.get("name", ""),
+                "away_team":   away.get("name", ""),
+                "home_score":  (ev.get("homeScore") or {}).get("current"),
+                "away_score":  (ev.get("awayScore") or {}).get("current"),
+                "result":      (ev.get("status") or {}).get("description", ""),
+                "rating":      stats.get("rating"),
+                "minutes":     stats.get("minutesPlayed"),
+                "goals":       stats.get("goals"),
+                "assists":     stats.get("goalAssist"),
+                "shots":       stats.get("onTargetScoringAttempt"),
+                "key_passes":  stats.get("keyPass"),
+            })
+        if recent_matches:
+            result["recent_matches"] = recent_matches
+            # Compute quick summary: avg rating + total goals over last 5
+            ratings = [m["rating"] for m in recent_matches if m.get("rating")]
+            goals   = sum(m.get("goals") or 0 for m in recent_matches)
+            result["last5_avg_rating"] = round(sum(ratings) / len(ratings), 2) if ratings else None
+            result["last5_goals"]      = goals
+            result["last5_assists"]    = sum(m.get("assists") or 0 for m in recent_matches)
+
+    # Cache for 4 hours
+    try:
+        if _r and result.get("name"):
+            import json as _jc2
+            _r.setex(_cache_key, 4 * 3600, _jc2.dumps(result))
+    except Exception:
+        pass
+
+    return result
+
+
+def get_player_season_stats(player_id: str, tournament_id: str = "", season_id: str = "") -> dict:
+    """
+    Return a player's current-season statistics for a specific competition.
+    If no season_id provided, fetches from the player's most recent season.
+    Covers goals, assists, rating, matches, shots, key passes, dribbles, etc.
+    """
+    # Try to find current season if not provided
+    if not season_id:
+        seasons_data = _get(f"/player/{player_id}/statistics/seasons")
+        if seasons_data and isinstance(seasons_data, dict):
+            seasons = seasons_data.get("seasons", [])
+            if seasons:
+                # Pick most recent season
+                latest = seasons[0]
+                season_id    = str(latest.get("season", {}).get("id", ""))
+                tournament_id = str(latest.get("uniqueTournament", {}).get("id", "") or tournament_id)
+
+    if not season_id:
+        return {}
+
+    path = f"/player/{player_id}/statistics/season/{season_id}"
+    if tournament_id:
+        path = f"/player/{player_id}/tournament/{tournament_id}/season/{season_id}/statistics/overall"
+
+    data = _get(path)
+    if not data:
+        return {}
+
+    stats = data.get("statistics", data) if isinstance(data, dict) else {}
+    if isinstance(stats, dict):
+        return {
+            "player_id":   player_id,
+            "season_id":   season_id,
+            "matches":     stats.get("appearances") or stats.get("matchesStarted"),
+            "goals":       stats.get("goals"),
+            "assists":     stats.get("assists"),
+            "rating":      stats.get("rating"),
+            "shots_total": stats.get("totalScoringAttempts"),
+            "shots_on_tgt": stats.get("onTargetScoringAttempt"),
+            "key_passes":  stats.get("keyPasses"),
+            "dribbles":    stats.get("successfulDribbles"),
+            "minutes":     stats.get("minutesPlayed"),
+            "goals_per90": round(stats["goals"] / stats["minutesPlayed"] * 90, 3)
+                           if stats.get("goals") and stats.get("minutesPlayed") else None,
+            "source":      "sofascore",
+        }
+    return {}
+
+
 def get_team_squad(team_id: str) -> list[dict]:
     """Return the full squad (players) for a team."""
     data = _get(f"/team/{team_id}/players")

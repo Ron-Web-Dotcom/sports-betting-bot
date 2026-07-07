@@ -476,6 +476,43 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             _sf_btts      = {k: v for k, v in _sf_odds.items() if k.startswith("btts_")}
             _sf_handicaps = _sf_odds.get("handicaps", [])
 
+            # ── Player profile — only for player prop markets ──────────────
+            # Detect player prop: subtitle is a single name (not "Team A vs Team B")
+            # e.g. "Lionel Messi", "Shohei Ohtani", "Patrick Mahomes"
+            _player_profile: dict = {}
+            _player_season_stats: dict = {}
+            _title_lower = m.get("title", "").lower()
+            _is_player_prop = (
+                subtitle
+                and " vs " not in subtitle.lower()
+                and " @ " not in subtitle.lower()
+                and len(subtitle.split()) <= 4   # names are short, team matchups are longer
+                and any(kw in _title_lower for kw in (
+                    "score", "goal", "assist", "hit", "home run", "strikeout",
+                    "point", "rebound", "assist", "block", "steal", "three",
+                    "passing yard", "rushing yard", "receiving yard", "touchdown",
+                    "saves", "shot", "ace", "birdie", "ko", "tko", "submission",
+                    "win by", "record", "player prop",
+                ))
+            )
+            if _is_player_prop:
+                try:
+                    from src.apis.sofascore import (
+                        search_player as _search_player,
+                        get_player_profile as _get_pprofile,
+                        get_player_season_stats as _get_pstats,
+                    )
+                    _search_results = _search_player(subtitle, sport_key)
+                    if _search_results:
+                        _pid = _search_results[0].get("id", "")
+                        if _pid:
+                            # Sequential — only 2 calls, no parallel to keep rate low
+                            _player_profile = _get_pprofile(_pid) or {}
+                            if _player_profile.get("team_id"):
+                                _player_season_stats = _get_pstats(_pid) or {}
+                except Exception as _pe:
+                    logger.debug("Player profile fetch failed for '%s': %s", subtitle, _pe)
+
             # Line movement from our DB — sharp/steam moves on this game
             _line_move: dict = {}
             if sf_game:
@@ -513,9 +550,11 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "sf_standings":       _sf_ctx.get("standings", {}),
                 "sf_h2h":             _sf_ctx.get("h2h", [])[:5],
                 "sf_form":            _sf_ctx.get("form", {}),
-                "sf_lineups":         _sf_ctx.get("lineups", {}),
+                "sf_lineups":          _sf_ctx.get("lineups", {}),
                 "sf_featured_players": _sf_ctx.get("featured_players", {}),
-                "sf_match_trends":    _sf_ctx.get("match_trends", {}),
+                "sf_match_trends":     _sf_ctx.get("match_trends", {}),
+                "player_profile":      _player_profile or None,
+                "player_season_stats": _player_season_stats or None,
                 "line_movement": _line_move or None,
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
@@ -581,6 +620,12 @@ Each candidate includes live data from Sofascore — USE ALL OF IT:
   → check formation (4-3-3 vs 5-4-1), key attackers (high rating = in-form), missing stars
 - "sf_featured_players": Sofascore's top-rated players — ATT/TEC/CRE/TAC/DEF radar stats and last-match rating
   → Messi 9.5 = dominant form; a 6.5-rated striker = cold. Use this for player props and BTTS calls.
+- "player_profile": full Sofascore profile for the specific player in a player-prop market
+  → attributes {attacking, technical, tactical, defending, creativity} — 0 to 99 scale
+  → last5_avg_rating, last5_goals, last5_assists — direct recent form numbers
+  → recent_matches: [{date, home_team, away_team, rating, goals, assists, shots, minutes}]
+  → strengths, weaknesses e.g. ["Scoring", "Ground duels", "Consistency"]
+- "player_season_stats": goals, assists, rating, shots, goals_per90 for current season
 - "sf_match_trends": Sofascore's pre-match statistical trends — BTTS %, clean sheet %, o/u %, fan vote
   → "both_teams_to_score: {home: '5/5', away: '5/5'}" = strong BTTS lean
   → "under_2.5_goals: {away: '5/7'}" = away team plays tight
@@ -609,9 +654,15 @@ MANDATORY CONTEXT RULES — apply these BEFORE picking:
    "under 2.5 away: 5/7" = 71% — meaningful but not absolute.
    Cross-reference: if Kalshi prices BTTS YES at 45% but trends say home BTTS 5/5 + away BTTS 5/5, that's a steal.
 
-6. PROPS AWARENESS: Some candidates are team props or player props (e.g. "Will [player] score?").
-   Use sf_featured_players ratings (9.5 Messi) + H2H scoring records + opponent defense stats from lineups.
-   A featured player with rating 8.5+ in last 3 matches AND playing against a weak defense = high scorer prop edge.
+6. PLAYER PROPS — when player_profile is present, USE IT:
+   - player_profile.attributes: ATT/TEC/CRE/TAC/DEF (0-99) — ATT 90+ = elite scorer, CRE 80+ = elite creator
+   - player_profile.last5_avg_rating: 8.5+ = dominant recent form, under 7.0 = cold
+   - player_profile.last5_goals: goals in last 5 matches — use as direct frequency signal
+   - player_profile.recent_matches: game-by-game log — check if goals came vs strong or weak opponents
+   - player_profile.strengths / weaknesses: "Scoring", "Dribbling" etc. — validates scorer prop
+   - player_season_stats.goals / goals_per90: season-level scoring rate
+   Decision rule: player rated 8.5+ last 5, ATT 85+, scored in 3 of last 5 → strong scorer YES.
+   Kalshi player YES at 30% when player has scored in 4 of last 5 = massive value. Take it.
 
 5. EDGE DETECTION: Compare sf_*_implied% to kalshi_yes_% to find genuine mispricing.
    Gap of 8%+ = strong edge. Gap of 3-7% = moderate edge. Gap < 3% = weak or no edge.
@@ -696,6 +747,12 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "sf_featured_players": c.get("sf_featured_players") if c.get("sf_featured_players") else None,
             # Match trends — BTTS %, clean sheet %, over/under %, fan vote from Sofascore
             "sf_match_trends":    c.get("sf_match_trends") if c.get("sf_match_trends") else None,
+            # Player profile — only set for player prop markets
+            # Includes: name, position, club, ATT/CRE/TEC/TAC/DEF, strengths, weaknesses,
+            #           last 5 matches with ratings/goals/assists, avg rating last 5
+            "player_profile":     c.get("player_profile") or None,
+            # Season stats — goals, assists, rating, shots, minutes for current season
+            "player_season_stats": c.get("player_season_stats") or None,
             # Standings — league/tournament position (positions are real: 1 = top of table)
             "sf_standings":     c.get("sf_standings") if c.get("sf_standings") else None,
             # Recent form — last 5 results e.g. {"home": "WWLDW", "away": "DLWWW"}

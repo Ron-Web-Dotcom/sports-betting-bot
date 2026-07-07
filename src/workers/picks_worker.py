@@ -1013,6 +1013,27 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         except Exception:
             player_ctx = {}
 
+        # Sofascore player profile — attributes, recent match ratings, season stats
+        # Sequential requests (not parallel) to stay within rate limits
+        try:
+            from src.apis.sofascore import (
+                search_player as _sf_search,
+                get_player_profile as _sf_pprofile,
+                get_player_season_stats as _sf_pstats,
+            )
+            _sf_results = _sf_search(player, sport_key)
+            if _sf_results:
+                _sf_pid = _sf_results[0].get("id", "")
+                if _sf_pid:
+                    _sf_pp = _sf_pprofile(_sf_pid) or {}
+                    if _sf_pp:
+                        player_ctx["sofascore_player"] = _sf_pp
+                    _sf_ps = _sf_pstats(_sf_pid) or {}
+                    if _sf_ps:
+                        player_ctx["sofascore_season_stats"] = _sf_ps
+        except Exception:
+            pass
+
         # Merge game-level context (injuries, H2H, weather) into prop analysis
         try:
             from src.apis.data_hub import build_game_context as _bgc
