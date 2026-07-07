@@ -907,6 +907,154 @@ def get_team_squad(team_id: str) -> list[dict]:
     return players
 
 
+# ── Lineups ───────────────────────────────────────────────────────────────────
+
+def get_event_lineups(event_id: str) -> dict:
+    """
+    Return probable/confirmed lineups for both teams.
+    Includes starting XI with jersey numbers, positions, and Sofascore ratings.
+    """
+    data = _get(f"/event/{event_id}/lineups")
+    if not data:
+        return {}
+    try:
+        result: dict = {"source": "sofascore"}
+        for side in ("home", "away"):
+            team_data = data.get(side, {})
+            if not team_data:
+                continue
+            players = []
+            for p in team_data.get("players", []):
+                pi = p.get("player", {})
+                players.append({
+                    "name":       pi.get("name", ""),
+                    "short_name": pi.get("shortName", pi.get("name", "")),
+                    "position":   p.get("position", ""),
+                    "jersey":     pi.get("jerseyNumber", ""),
+                    "substitute": p.get("substitute", False),
+                    "rating":     p.get("statistics", {}).get("rating"),
+                })
+            starters  = [p for p in players if not p["substitute"]]
+            subs      = [p for p in players if p["substitute"]]
+            formation = team_data.get("formation", "")
+            result[side] = {
+                "formation": formation,
+                "starters":  starters,
+                "subs":      subs[:6],
+            }
+        return result
+    except Exception as e:
+        logger.warning("get_event_lineups(%s) parse error: %s", event_id, e)
+    return {}
+
+
+def get_featured_players(event_id: str) -> dict:
+    """
+    Return featured/best players for a Sofascore event.
+    Includes ATT, CRE, TEC, TAC, DEF ratings and overall Sofascore rating.
+    """
+    data = _get(f"/event/{event_id}/best-players/summary")
+    if not data:
+        # Try alternate endpoint
+        data = _get(f"/event/{event_id}/best-players")
+    if not data:
+        return {}
+    try:
+        result: dict = {"source": "sofascore"}
+        players_raw = data.get("bestPlayers", data.get("players", []))
+        for side in ("home", "away"):
+            side_players = [
+                p for p in players_raw if p.get("side", "").lower() == side
+            ] or players_raw[:2]  # fallback: first 2 if no side field
+            side_list = []
+            for entry in side_players[:3]:
+                pi = entry.get("player", entry)
+                stats = entry.get("statistics", {})
+                side_list.append({
+                    "name":    pi.get("name", ""),
+                    "rating":  entry.get("value") or stats.get("rating"),
+                    "att":     stats.get("attackingDuelsWon"),
+                    "tec":     stats.get("keyPasses"),
+                    "cre":     stats.get("expectedAssists"),
+                    "tac":     stats.get("defensiveDuelsWon"),
+                    "def":     stats.get("clearances"),
+                    "goals":   stats.get("goals"),
+                    "assists": stats.get("assists"),
+                })
+            if side_list:
+                result[side] = side_list
+        return result
+    except Exception as e:
+        logger.warning("get_featured_players(%s) parse error: %s", event_id, e)
+    return {}
+
+
+def get_match_trends(event_id: str) -> dict:
+    """
+    Return Sofascore's pre-match statistical trends for both teams.
+    Includes: BTTS %, clean sheet %, under 2.5 %, first to score %,
+    first half winner %, cards under %, corners under %.
+    These are computed from both teams' recent match history.
+    """
+    data = _get(f"/event/{event_id}/votes")
+    trends_data = _get(f"/event/{event_id}/statistics/pregame") or {}
+
+    result: dict = {"source": "sofascore"}
+
+    # votes endpoint: contains vote percentages (home/draw/away predictions by fans)
+    if data and isinstance(data, dict):
+        vote = data.get("vote", {})
+        if vote:
+            result["fan_vote"] = {
+                "home_pct": vote.get("vote1"),
+                "draw_pct": vote.get("voteX"),
+                "away_pct": vote.get("vote2"),
+            }
+
+    # pregame statistics: BTTS, clean sheet, over/under trends
+    if trends_data and isinstance(trends_data, dict):
+        stats_groups = trends_data.get("statistics", [])
+        for group in stats_groups:
+            for item in group.get("groups", []):
+                for stat in item.get("statisticsItems", []):
+                    name = stat.get("name", "").lower().replace(" ", "_")
+                    result[name] = {
+                        "home": stat.get("home"),
+                        "away": stat.get("away"),
+                    }
+
+    return result
+
+
+def get_goal_distribution(event_id: str) -> dict:
+    """
+    Return goal distribution by time period (00-15, 15-30, 30-45, 45-60, 60-75, 75-90)
+    for both teams, split by scored/conceded.
+    Useful for first-half, second-half, and time-of-goal props.
+    """
+    data = _get(f"/event/{event_id}/statistics")
+    if not data:
+        return {}
+    try:
+        stats_groups = data if isinstance(data, list) else data.get("statistics", [])
+        goal_dist: dict = {"source": "sofascore"}
+        for group in stats_groups:
+            period = group.get("period", "")
+            for item in group.get("groups", []):
+                for stat in item.get("statisticsItems", []):
+                    sname = stat.get("name", "").lower()
+                    if "goal" in sname or "score" in sname:
+                        key = f"{period}_{sname}".replace(" ", "_").lower()
+                        goal_dist[key] = {
+                            "home": stat.get("home"),
+                            "away": stat.get("away"),
+                        }
+        return goal_dist
+    except Exception as e:
+        logger.warning("get_goal_distribution(%s) parse error: %s", event_id, e)
+    return {}
+
+
 # ── Standings ─────────────────────────────────────────────────────────────────
 
 def get_standings(tournament_id: str, season_id: str) -> list[dict]:
@@ -1007,13 +1155,17 @@ def enrich_game_context(
 
     from concurrent.futures import ThreadPoolExecutor
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        f_h2h       = pool.submit(get_h2h, eid)
-        f_form      = pool.submit(get_team_form, eid)
-        f_standings = pool.submit(get_team_standings_for_event, matched)
-        f_home_last = pool.submit(get_team_last_events, matched.get("home_team_id", ""))
-        f_away_last = pool.submit(get_team_last_events, matched.get("away_team_id", ""))
-        f_stats     = pool.submit(get_event_statistics, eid)
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        f_h2h         = pool.submit(get_h2h, eid)
+        f_form        = pool.submit(get_team_form, eid)
+        f_standings   = pool.submit(get_team_standings_for_event, matched)
+        f_home_last   = pool.submit(get_team_last_events, matched.get("home_team_id", ""))
+        f_away_last   = pool.submit(get_team_last_events, matched.get("away_team_id", ""))
+        f_stats       = pool.submit(get_event_statistics, eid)
+        f_lineups     = pool.submit(get_event_lineups, eid)
+        f_players     = pool.submit(get_featured_players, eid)
+        f_trends      = pool.submit(get_match_trends, eid)
+        f_odds        = pool.submit(get_event_odds, eid)
         # pool.__exit__ waits for all futures — safe to call .result() below
 
     def _get_result(f, default):
@@ -1023,16 +1175,20 @@ def enrich_game_context(
             return default
 
     context = {
-        "available":    True,
-        "event":        matched,
-        "tournament":   matched.get("tournament", ""),
-        "season":       matched.get("season", ""),
-        "h2h":          _get_result(f_h2h, []),
-        "form":         _get_result(f_form, {}),
-        "standings":    _get_result(f_standings, {}),
-        "home_last5":   _get_result(f_home_last, []),
-        "away_last5":   _get_result(f_away_last, []),
-        "event_stats":  _get_result(f_stats, {}),  # possession, shots, corners etc.
-        "source":       "sofascore",
+        "available":       True,
+        "event":           matched,
+        "tournament":      matched.get("tournament", ""),
+        "season":          matched.get("season", ""),
+        "h2h":             _get_result(f_h2h, []),
+        "form":            _get_result(f_form, {}),
+        "standings":       _get_result(f_standings, {}),
+        "home_last5":      _get_result(f_home_last, []),
+        "away_last5":      _get_result(f_away_last, []),
+        "event_stats":     _get_result(f_stats, {}),
+        "lineups":         _get_result(f_lineups, {}),     # starting XI + subs + formation
+        "featured_players": _get_result(f_players, {}),   # top rated players + ATT/TEC/CRE/TAC/DEF
+        "match_trends":    _get_result(f_trends, {}),      # BTTS%, clean sheet%, o/u%, fan vote
+        "sofascore_odds":  _get_result(f_odds, {}),        # 1X2 + totals + BTTS + handicap odds
+        "source":          "sofascore",
     }
     return context

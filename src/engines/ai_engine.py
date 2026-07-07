@@ -101,7 +101,22 @@ LIVE DATA IN PAYLOAD — use these fields when present (they come from Sofascore
   • sofascore_form / sofascore_h2h: last 5 results + H2H history with scores — more reliable than training knowledge for current-season form
   • home_last5_results / away_last5_results: each team's last 5 games with opponents + scores
   • live_match_stats: in-game possession, shots on target, corners, xG — use for live/early-game props
-  • sofascore_bookmaker_odds: real sportsbook implied probability — if this disagrees with Odds API by 5%+, sofascore is your anchor
+  • sofascore_odds: Sofascore bookmaker odds — 1X2 (home/draw/away implied%), PLUS:
+      - totals: [{line, over_implied, under_implied}] — real bookmaker probability for each goal line
+      - btts_yes_implied / btts_no_implied — real bookmaker BTTS probability
+      - handicaps: [{line, home_odds, away_odds}] — Asian handicap lines
+      Use sofascore_odds as ANCHOR — if Odds API disagrees by 5%+, Sofascore is your source of truth.
+  • lineups: {home: {formation, starters, subs}, away: {...}} — who is actually playing
+      KEY: check if a top scorer or key playmaker is missing from starters — massive impact on goals markets.
+      Formation: 4-3-3 = attacking, 5-4-1 = defensive, 4-2-3-1 = balanced
+  • featured_players: Sofascore's top-rated players for each team
+      - rating 9.0+ = dominant recent form — back them in scorer/assist props
+      - rating 6.0-6.5 = cold/poor form — fade scorer props
+  • match_trends: pre-match statistical trends from Sofascore (recent match data)
+      - both_teams_to_score: {home: '5/5', away: '4/5'} = strong BTTS lean
+      - under_2.5_goals: {away: '5/7'} = away team plays tight games
+      - first_to_score, first_half_winner, cards/corners trends
+      Cross-reference: if Odds API prices BTTS YES at -110 but match_trends shows BTTS 5/5 + 5/5, that confirms the market
   • kalshi_markets: what prediction markets are pricing for this game — use as wisdom-of-crowds signal
   • season_stats / recent_form / vs_opponent: player stats for props — use game logs, season averages, and splits vs this opponent
   • pinnacle_signal: Pinnacle's implied probability for home/away — the sharpest book in the world. If home_implied or away_implied disagrees with Odds API implied by 5%+, Pinnacle is your anchor
@@ -290,7 +305,15 @@ def analyse_pick(
         if game_context.get("web_search_news"):
             payload["breaking_news_web_search"] = game_context["web_search_news"]
         if sf.get("event_stats"):
-            payload["live_match_stats"] = sf["event_stats"]  # possession, shots, corners etc.
+            payload["live_match_stats"]    = sf["event_stats"]
+        if sf.get("lineups"):
+            payload["lineups"]             = sf["lineups"]          # starting XI, formation, ratings
+        if sf.get("featured_players"):
+            payload["featured_players"]    = sf["featured_players"] # ATT/TEC/CRE/TAC/DEF + rating
+        if sf.get("match_trends"):
+            payload["match_trends"]        = sf["match_trends"]     # BTTS%, clean sheet%, o/u%
+        if sf.get("sofascore_odds"):
+            payload["sofascore_odds"]      = sf["sofascore_odds"]   # 1X2 + totals + BTTS + handicap
         # Kalshi prediction market prices — cross-reference for edge detection
         if game_context.get("kalshi_markets"):
             payload["kalshi_markets"] = game_context["kalshi_markets"][:10]

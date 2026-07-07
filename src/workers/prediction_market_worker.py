@@ -448,23 +448,32 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                         get_team_standings_for_event as _get_standings,
                         get_h2h as _get_h2h,
                         get_team_form as _get_sf_form,
+                        get_event_lineups as _get_lineups,
+                        get_featured_players as _get_players,
+                        get_match_trends as _get_trends,
                     )
                     from concurrent.futures import ThreadPoolExecutor as _TPE
-                    with _TPE(max_workers=4) as _pool:
-                        _fo = _pool.submit(_get_sf_odds, _sf_id)
-                        _fs = _pool.submit(_get_standings, sf_game)
-                        _fh = _pool.submit(_get_h2h, _sf_id)
-                        _ff = _pool.submit(_get_sf_form, _sf_id)
+                    with _TPE(max_workers=7) as _pool:
+                        _fo  = _pool.submit(_get_sf_odds, _sf_id)
+                        _fs  = _pool.submit(_get_standings, sf_game)
+                        _fh  = _pool.submit(_get_h2h, _sf_id)
+                        _ff  = _pool.submit(_get_sf_form, _sf_id)
+                        _fl  = _pool.submit(_get_lineups, _sf_id)
+                        _fp  = _pool.submit(_get_players, _sf_id)
+                        _ft  = _pool.submit(_get_trends, _sf_id)
                     _sf_odds = _fo.result() or {}
-                    _sf_ctx["standings"]  = _fs.result() or {}
-                    _sf_ctx["h2h"]        = _fh.result() or []
-                    _sf_ctx["form"]       = _ff.result() or {}
+                    _sf_ctx["standings"]         = _fs.result() or {}
+                    _sf_ctx["h2h"]               = _fh.result() or []
+                    _sf_ctx["form"]              = _ff.result() or {}
+                    _sf_ctx["lineups"]           = _fl.result() or {}
+                    _sf_ctx["featured_players"]  = _fp.result() or {}
+                    _sf_ctx["match_trends"]      = _ft.result() or {}
                 except Exception:
                     pass
 
             # Build rich odds summary for AI — include totals, BTTS, handicap
-            _sf_totals   = _sf_odds.get("totals",   [])
-            _sf_btts     = {k: v for k, v in _sf_odds.items() if k.startswith("btts_")}
+            _sf_totals    = _sf_odds.get("totals",    [])
+            _sf_btts      = {k: v for k, v in _sf_odds.items() if k.startswith("btts_")}
             _sf_handicaps = _sf_odds.get("handicaps", [])
 
             # Line movement from our DB — sharp/steam moves on this game
@@ -498,12 +507,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "sf_home_impl":   _sf_odds.get("home_implied", 0),
                 "sf_draw_impl":   _sf_odds.get("draw_implied", 0),
                 "sf_away_impl":   _sf_odds.get("away_implied", 0),
-                "sf_totals":      _sf_totals[:3],   # top 3 lines (e.g. o/u 2.5, 3.5, 4.5 goals)
-                "sf_btts":        _sf_btts or {},
-                "sf_handicaps":   _sf_handicaps[:2],
-                "sf_standings":   _sf_ctx.get("standings", {}),
-                "sf_h2h":         _sf_ctx.get("h2h", [])[:5],
-                "sf_form":        _sf_ctx.get("form", {}),
+                "sf_totals":          _sf_totals[:3],
+                "sf_btts":            _sf_btts or {},
+                "sf_handicaps":       _sf_handicaps[:2],
+                "sf_standings":       _sf_ctx.get("standings", {}),
+                "sf_h2h":             _sf_ctx.get("h2h", [])[:5],
+                "sf_form":            _sf_ctx.get("form", {}),
+                "sf_lineups":         _sf_ctx.get("lineups", {}),
+                "sf_featured_players": _sf_ctx.get("featured_players", {}),
+                "sf_match_trends":    _sf_ctx.get("match_trends", {}),
                 "line_movement": _line_move or None,
                 "yes_prob":      yes_prob,
                 "no_prob":       no_prob,
@@ -565,6 +577,13 @@ Each candidate includes live data from Sofascore — USE ALL OF IT:
 - "sf_standings": live league/tournament table — position, points, W-D-L, GF-GA for EACH team
 - "sf_form": last 5 results for each team e.g. {"home": "WWLDW", "away": "LLWDL"}
 - "sf_h2h": last 5 head-to-head meetings with scores
+- "sf_lineups": starting XI + formation + player ratings from last match — KEY for team strength assessment
+  → check formation (4-3-3 vs 5-4-1), key attackers (high rating = in-form), missing stars
+- "sf_featured_players": Sofascore's top-rated players — ATT/TEC/CRE/TAC/DEF radar stats and last-match rating
+  → Messi 9.5 = dominant form; a 6.5-rated striker = cold. Use this for player props and BTTS calls.
+- "sf_match_trends": Sofascore's pre-match statistical trends — BTTS %, clean sheet %, o/u %, fan vote
+  → "both_teams_to_score: {home: '5/5', away: '5/5'}" = strong BTTS lean
+  → "under_2.5_goals: {away: '5/7'}" = away team plays tight
 - "line_movement": sharp money signals — steam_detected=True means rapid large move, sharp_moves > public_moves = smart money aligned
 
 MANDATORY CONTEXT RULES — apply these BEFORE picking:
@@ -581,8 +600,18 @@ MANDATORY CONTEXT RULES — apply these BEFORE picking:
    If Kalshi prices "over 2.5 goals YES" at 55% but sf_totals shows over_implied=0.62, Kalshi is underpriced.
    If Kalshi "BTTS YES" is 60% but sf_btts shows btts_yes_implied=0.45, Kalshi is overpriced → pick NO.
 
-4. PROPS AWARENESS: Some candidates are team props or player props (e.g. "Will [player] score?").
-   For player props without Sofascore odds: rely on recent form, H2H scoring records, and opponent defense.
+4. LINEUPS = TEAM STRENGTH: sf_lineups shows actual formations and who's starting.
+   A team missing its top striker/playmaker is drastically weaker for goals markets.
+   Lineup data overrides general form — a star player starting at 9.5 rating = confidence boost.
+
+5. MATCH TRENDS = BASE RATES: sf_match_trends gives recent statistical frequencies.
+   "BTTS home: 5/5" = 100% — strong lean regardless of current odds.
+   "under 2.5 away: 5/7" = 71% — meaningful but not absolute.
+   Cross-reference: if Kalshi prices BTTS YES at 45% but trends say home BTTS 5/5 + away BTTS 5/5, that's a steal.
+
+6. PROPS AWARENESS: Some candidates are team props or player props (e.g. "Will [player] score?").
+   Use sf_featured_players ratings (9.5 Messi) + H2H scoring records + opponent defense stats from lineups.
+   A featured player with rating 8.5+ in last 3 matches AND playing against a weak defense = high scorer prop edge.
 
 5. EDGE DETECTION: Compare sf_*_implied% to kalshi_yes_% to find genuine mispricing.
    Gap of 8%+ = strong edge. Gap of 3-7% = moderate edge. Gap < 3% = weak or no edge.
@@ -656,11 +685,17 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "sf_draw_implied%":  f"{round(c['sf_draw_impl']*100)}%" if c.get("sf_draw_impl") else None,
             "sf_away_implied%":  f"{round(c['sf_away_impl']*100)}%" if c.get("sf_away_impl") else None,
             # Sofascore totals — over/under lines with bookmaker odds
-            "sf_totals":         c.get("sf_totals") if c.get("sf_totals") else None,
+            "sf_totals":          c.get("sf_totals") if c.get("sf_totals") else None,
             # Sofascore BTTS — both teams to score odds
-            "sf_btts":           c.get("sf_btts") if c.get("sf_btts") else None,
+            "sf_btts":            c.get("sf_btts") if c.get("sf_btts") else None,
             # Sofascore handicap lines
-            "sf_handicaps":      c.get("sf_handicaps") if c.get("sf_handicaps") else None,
+            "sf_handicaps":       c.get("sf_handicaps") if c.get("sf_handicaps") else None,
+            # Lineups — starting XI formations (key injury/suspension signal)
+            "sf_lineups":         c.get("sf_lineups") if c.get("sf_lineups") else None,
+            # Featured players — Sofascore's top-rated players with ATT/TEC/CRE/TAC/DEF
+            "sf_featured_players": c.get("sf_featured_players") if c.get("sf_featured_players") else None,
+            # Match trends — BTTS %, clean sheet %, over/under %, fan vote from Sofascore
+            "sf_match_trends":    c.get("sf_match_trends") if c.get("sf_match_trends") else None,
             # Standings — league/tournament position (positions are real: 1 = top of table)
             "sf_standings":     c.get("sf_standings") if c.get("sf_standings") else None,
             # Recent form — last 5 results e.g. {"home": "WWLDW", "away": "DLWWW"}
