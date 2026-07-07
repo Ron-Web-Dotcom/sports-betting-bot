@@ -219,10 +219,11 @@ def save_slip(period: str, platform: str, picks: list[dict], ticket_id: str | No
 
 
 def _load_active_slips(r) -> list[dict]:
-    from datetime import datetime, timedelta
     all_slips = r.hgetall(_SLIP_KEY)
     out = []
-    cutoff = (datetime.now() - timedelta(hours=36)).isoformat()
+    from datetime import timedelta as _td_cut
+    from src.core.timezone import et_naive as _et_naive_cut
+    cutoff = (_et_naive_cut() - _td_cut(hours=36)).isoformat()
     for sid, raw in all_slips.items():
         try:
             slip = json.loads(raw)
