@@ -931,62 +931,44 @@ def track_slips() -> dict:
 
             for pick in picks:
                 ct = _parse_time(pick.get("commence_time", ""))
-                is_kalshi = bool(pick.get("question") or pick.get("market_id"))
-                if is_kalshi:
-                    # Don't check before game has started (or at least 10 min in)
-                    if ct and (now - ct).total_seconds() < 10 * 60:
-                        continue
-                    # Poll Kalshi API directly — it settles within minutes of game end.
-                    # No Sofascore gate needed: Kalshi's own result field is the truth.
-                    res = _check_pick_result(pick)
-                    if res:
-                        results.append(res)
-                    elif ct and (now - ct).total_seconds() > 24 * 3600:
-                        # 24h timeout — Kalshi can take hours to settle; mark unknown not dead
+
+                # Don't check results before the game has started (10 min buffer)
+                if ct and (now - ct).total_seconds() < 10 * 60:
+                    continue
+
+                # Try Sofascore first — instant result the moment game ends
+                res = _check_pick_result(pick)
+                if res:
+                    results.append(res)
+                    continue
+
+                # Not settled yet — check timeout to avoid waiting forever
+                if ct and (now - ct).total_seconds() > 24 * 3600:
+                    results.append("unknown")
+                    logger.warning("Slip %s pick: no result after 24h — marking unknown", slip.get("id"))
+                elif not ct:
+                    slip_created = _parse_time(slip.get("created", ""))
+                    if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
                         results.append("unknown")
-                        logger.warning("Kalshi slip %s: no settlement after 24h — marking unknown", slip.get("id"))
-                    elif not ct:
-                        # No commence_time — use slip creation time as 24h fallback
-                        slip_created = _parse_time(slip.get("created", ""))
-                        if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
-                            results.append("unknown")
-                            logger.warning("Kalshi slip %s: no settlement after 24h (no commence_time) — marking unknown", slip.get("id"))
-                    # Not settled yet — retry next tick
+                        logger.warning("Slip %s: no commence_time and no result after 24h — marking unknown", slip.get("id"))
                 else:
-                    if not ct:
-                        # No commence_time: use slip creation time as fallback
-                        slip_created = _parse_time(slip.get("created", ""))
-                        if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
-                            results.append("unknown")
-                        continue
                     mins = (ct - now).total_seconds() / 60
-                    # Don't check games that haven't started yet or just kicked off
-                    if mins > -10:
-                        continue
-                    res = _check_pick_result(pick)
-                    if res:
-                        results.append(res)
+                    sport = pick.get("sport_key", "")
+                    if any(k in sport for k in ("mma", "boxing")):
+                        _timeout = -120
+                    elif any(k in sport for k in ("baseball", "mlb")):
+                        _timeout = -240
+                    elif any(k in sport for k in ("basketball", "nba", "wnba", "tennis")):
+                        _timeout = -180
                     else:
-                        # Sport-specific timeout — mark unknown once game is certainly over.
-                        # Fire result as soon as last game ends, not hours later.
-                        sport = pick.get("sport_key", "")
-                        if any(k in sport for k in ("mma", "boxing")):
-                            _timeout = -120   # 2h
-                        elif any(k in sport for k in ("wnba", "nba", "basketball")):
-                            _timeout = -180   # 3h — WNBA/NBA games ~2h, no Odds API scores
-                        elif any(k in sport for k in ("tennis",)):
-                            _timeout = -180   # 3h — tennis matches vary
-                        elif any(k in sport for k in ("baseball", "mlb")):
-                            _timeout = -240   # 4h — MLB games ~3h
-                        else:
-                            _timeout = -210   # 3.5h default
-                        if mins < _timeout:
-                            results.append("unknown")
-                            logger.info(
-                                "Slip %s: no score after %dh for %s (%s) — marking unknown",
-                                slip.get("id"), abs(_timeout) // 60,
-                                pick.get("selection") or pick.get("player"), sport,
-                            )
+                        _timeout = -210
+                    if mins < _timeout:
+                        results.append("unknown")
+                        logger.info(
+                            "Slip %s: no score after %dh for %s (%s) — marking unknown",
+                            slip.get("id"), abs(_timeout) // 60,
+                            pick.get("selection") or pick.get("player"), sport,
+                        )
 
             # Settle only when ALL legs have a result (real or timeout-unknown).
             #   all won (no unknowns) → cashed
