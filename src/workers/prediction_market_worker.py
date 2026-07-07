@@ -482,6 +482,9 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     logger.info("Kalshi [%s]: %d candidates from %d markets (%d sf_games)",
                 period, len(candidates), len(kalshi_full), len(_sf_games))
+    if not candidates and kalshi_full:
+        logger.warning("Kalshi [%s]: 0 candidates after Sofascore filter — all %d markets had no Sofascore match",
+                       period, len(kalshi_full))
     if not candidates:
 
         # Odds API fallback — game winners only
@@ -489,18 +492,20 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             if not (0.20 <= g["home_prob"] <= 0.80):
                 continue
             candidates.append({
-                "source":       "odds_api",
-                "title":        g["title"],
-                "event_title":  g["title"],
-                "yes_prob":     g["home_prob"],
-                "no_prob":      round(1 - g["home_prob"], 4),
-                "yes_american": int(g["home_odds"]),
-                "no_american":  int(g["away_odds"]),
-                "home_team":    g["home_team"],
-                "away_team":    g["away_team"],
-                "sport_key":    g["sport_key"],
-                "volume":       0,
-                "close_time":   g.get("commence", ""),
+                "source":        "odds_api",
+                "title":         g["title"],
+                "event_title":   g["title"],
+                "subtitle":      g["title"],
+                "yes_prob":      g["home_prob"],
+                "no_prob":       round(1 - g["home_prob"], 4),
+                "yes_american":  int(g["home_odds"]),
+                "no_american":   int(g["away_odds"]),
+                "home_team":     g["home_team"],
+                "away_team":     g["away_team"],
+                "sport_key":     g["sport_key"],
+                "sofascore_id":  "",
+                "volume":        0,
+                "commence_time": g.get("commence", ""),
             })
 
     if not candidates:

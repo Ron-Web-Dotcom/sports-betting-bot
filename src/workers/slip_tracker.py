@@ -574,13 +574,12 @@ def _check_sofascore_result(pick: dict) -> str | None:
                 return "lost"  # CASHED/DEAD only — exact spread = lost
             return "won" if covered > 0 else "lost"
 
-        # Moneyline / Kalshi question — check if selected team/country won
-        if winner == "draw":
-            return "push"
         if winner == "unknown" or (hs is None or as_ is None):
             return None
 
         # Kalshi YES/NO questions — detect question type from wording
+        # Must come BEFORE the draw check — goals/totals props on a 1-1 game should
+        # still resolve correctly (over 0.5 goals = won), not return "push".
         if pick.get("question"):
             q = pick.get("question", "").lower()
             answer = (pick.get("answer") or pick.get("side") or "yes").lower()
@@ -610,7 +609,13 @@ def _check_sofascore_result(pick: dict) -> str | None:
             if _q_match:
                 yes_team = _q_match.group(1).strip()
             if not yes_team:
-                yes_team = (pick.get("home_team") or pick.get("selection") or "").lower()
+                # Fallback: check if away_team appears in question, else use home_team
+                _ht = (pick.get("home_team") or "").lower()
+                _at = (pick.get("away_team") or "").lower()
+                if _at and _at in q:
+                    yes_team = _at
+                else:
+                    yes_team = _ht or (pick.get("selection") or "").lower()
             yes_country = (pick.get("home_country") or "").lower()
 
             def _team_match(name: str, ref: str) -> bool:
@@ -627,7 +632,9 @@ def _check_sofascore_result(pick: dict) -> str | None:
             )
             return "won" if (answer == "yes" and yes_won) or (answer == "no" and not yes_won) else "lost"
 
-        # Standard moneyline
+        # Standard moneyline — draw = push (not applicable to Kalshi questions above)
+        if winner == "draw":
+            return "push"
         sel_won2 = bool(sel and (
             (sel in sf_home or sf_home in sel) and hs > as_ or
             (sel in sf_away or sf_away in sel) and as_ > hs
