@@ -195,7 +195,10 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
         else:
             from src.apis.kalshi import get_sports_events
             kalshi_full = get_sports_events(limit=200)
-            _r.setex("kalshi:live_markets", 2400, _jc.dumps(kalshi_full))
+            if kalshi_full:  # never cache empty results — a failed fetch would poison the cache for 40 min
+                _r.setex("kalshi:live_markets", 2400, _jc.dumps(kalshi_full))
+            else:
+                logger.warning("Kalshi live API returned 0 markets — not caching empty result")
             logger.info("Kalshi markets from live API: %d sub-markets", len(kalshi_full))
     except Exception as _ke:
         logger.warning("Kalshi market fetch failed: %s", _ke)
@@ -269,8 +272,8 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
         logger.info("Kalshi _build_entry [%s]: %d Sofascore games, %d Kalshi markets",
                     period, len(_sf_games), len(kalshi_full))
-    except Exception:
-        pass
+    except Exception as _sfe:
+        logger.warning("Kalshi _build_entry [%s]: Sofascore block failed — all markets will skip Sofascore match: %s", period, _sfe)
 
     def _match_sofascore(subtitle: str) -> dict | None:
         """Find the Sofascore game matching a Kalshi subtitle.
@@ -413,13 +416,13 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
             if not sf_kickoff:
                 # No Sofascore match — skip. Sofascore is the only source of truth.
-                logger.debug("Kalshi: skipping '%s' — no Sofascore match", subtitle)
+                logger.warning("Kalshi: skipping '%s' — no Sofascore match (have %d SF games)", subtitle, len(_sf_games))
                 continue
 
             # Sofascore is source of truth — skip if game already live or finished
             sf_status = (sf_game.get("status_type") or sf_game.get("status") or "") if sf_game else ""
             if sf_status in ("inprogress", "finished", "canceled", "postponed"):
-                logger.debug("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
+                logger.info("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
                 continue
 
             # commence_time = Sofascore kickoff (only path that reaches here)
@@ -869,6 +872,10 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
     # ── End last resort ────────────────────────────────────────────────────────
 
     if idx < 0 or idx >= len(candidates) or confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR:
+        logger.warning(
+            "Kalshi bail-out J [%s]: idx=%d candidates=%d conf=%.1f%% (floor %.1f%%) ev=%.2f%% (floor %.2f%%) — no pick",
+            period, idx, len(candidates), confidence * 100, _CONF_FLOOR * 100, ev_pct * 100, _EV_FLOOR * 100,
+        )
         return []
 
     pick      = candidates[idx]
@@ -1101,8 +1108,11 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
 
     try:
         from src.workers.alert_worker import _run_async
-        _run_async(_post({"embeds": [embed]}))
-        logger.info("Prediction market %s entry posted (%d picks)", period, len(picks))
+        _ok = _run_async(_post({"embeds": [embed]}))
+        if _ok:
+            logger.info("Prediction market %s entry posted successfully (%d picks)", period, len(picks))
+        else:
+            logger.error("Prediction market %s entry Discord post returned False — webhook may have failed", period)
     except Exception as e:
         logger.error("Failed to post prediction market entry: %s", e)
 
