@@ -529,7 +529,11 @@ def _check_sofascore_result(pick: dict) -> str | None:
         if sf_id:
             sf_ev = get_event_result(sf_id)
         if not sf_ev and home and away:
-            ev_found = find_event_by_teams(home, away)
+            # Pass the game date so we search the right day's events (yesterday's games
+            # are NOT in today's sofascore:today_events cache)
+            _ct = _parse_time(pick.get("commence_time", ""))
+            _date_str = _ct.strftime("%Y-%m-%d") if _ct else None
+            ev_found = find_event_by_teams(home, away, date_str=_date_str)
             if ev_found:
                 sf_ev = get_event_result(ev_found.get("id", "")) if ev_found.get("id") else None
 
@@ -939,16 +943,23 @@ def track_slips() -> dict:
 
             for pick in picks:
                 ct = _parse_time(pick.get("commence_time", ""))
+                _pick_name = (pick.get("subtitle") or pick.get("question") or
+                              pick.get("player") or
+                              f"{pick.get('away_team','')} @ {pick.get('home_team','')}").strip(" @") or "?"
 
                 # Don't check results before the game has started (10 min buffer)
                 if ct and (now - ct).total_seconds() < 10 * 60:
+                    _mins_to_start = int((ct - now).total_seconds() / 60)
+                    logger.info("Slip %s pick '%s': game starts in %d min — waiting", slip.get("id"), _pick_name, _mins_to_start)
                     continue
 
                 # Try Sofascore first — instant result the moment game ends
                 res = _check_pick_result(pick)
                 if res:
+                    logger.info("Slip %s pick '%s': result=%s", slip.get("id"), _pick_name, res)
                     results.append(res)
                     continue
+                logger.info("Slip %s pick '%s': no result yet (ct=%s)", slip.get("id"), _pick_name, pick.get("commence_time", "none"))
 
                 # Not settled yet — check timeout to avoid waiting forever
                 if ct and (now - ct).total_seconds() > 24 * 3600:
@@ -956,9 +967,10 @@ def track_slips() -> dict:
                     logger.warning("Slip %s pick: no result after 24h — marking unknown", slip.get("id"))
                 elif not ct:
                     slip_created = _parse_time(slip.get("created", ""))
-                    if slip_created and (now - slip_created).total_seconds() > 24 * 3600:
+                    # No commence_time: time out 6h after slip creation (games last at most 4h)
+                    if slip_created and (now - slip_created).total_seconds() > 6 * 3600:
                         results.append("unknown")
-                        logger.warning("Slip %s: no commence_time and no result after 24h — marking unknown", slip.get("id"))
+                        logger.warning("Slip %s: no commence_time and no result after 6h — marking unknown", slip.get("id"))
                 else:
                     mins = (ct - now).total_seconds() / 60
                     sport = pick.get("sport_key", "")

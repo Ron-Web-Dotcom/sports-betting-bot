@@ -803,16 +803,29 @@ def find_event_by_teams(home_team: str, away_team: str, date_str: str | None = N
     Uses cached scan data from Redis when available.
     """
     import json as _json
+    from src.core.timezone import et_naive as _et_n
+    _today = _et_n().strftime("%Y-%m-%d")
+    _searching_today = (date_str is None or date_str == _today)
+    events: list[dict] = []
     try:
         from src.core.config import REDIS_URL
         import redis as _redis
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        cached = r.get("sofascore:today_events")
-        if cached:
-            events = _json.loads(cached)
+        if _searching_today:
+            # Today's events: use the scan cache when available (fast path)
+            cached = r.get("sofascore:today_events")
+            if cached:
+                events = _json.loads(cached)
         else:
-            events = get_all_scheduled_events(date_str)
+            # Past date: today's cache doesn't have it — also check yesterday's DB key
+            _yest_key = f"sofascore:events:{date_str}"
+            _yest_raw = r.get(_yest_key)
+            if _yest_raw:
+                events = _json.loads(_yest_raw)
     except Exception:
+        pass
+
+    if not events:
         events = get_all_scheduled_events(date_str)
 
     home_n = home_team.lower().strip()

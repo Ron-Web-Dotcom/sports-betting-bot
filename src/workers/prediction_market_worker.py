@@ -953,7 +953,7 @@ _PLATFORM_EMOJI  = {"kalshi": "🔵"}
 _PLATFORM_LABEL  = {"kalshi": "Kalshi"}
 
 
-def _post_prediction_entry(period: str, picks: list[dict]) -> None:
+def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
     import hashlib
     import json
     from src.discord_bot.bot import _post
@@ -1117,10 +1117,13 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> None:
         _ok = _run_async(_post({"embeds": [embed]}))
         if _ok:
             logger.info("Prediction market %s entry posted successfully (%d picks)", period, len(picks))
+            return True
         else:
             logger.error("Prediction market %s entry Discord post returned False — webhook may have failed", period)
+            return False
     except Exception as e:
         logger.error("Failed to post prediction market entry: %s", e)
+        return False
 
 
 # ── Live movement alerts (interval scan) ──────────────────────────────────────
@@ -1227,7 +1230,16 @@ def _generate_entry(period: str) -> dict:
                 pass
             return {"picks": 0, "posted": False}
 
-        _post_prediction_entry(period, picks)
+        _posted = _post_prediction_entry(period, picks)
+
+        if not _posted:
+            logger.error("Kalshi %s entry: Discord post failed — releasing dedup lock so next run can retry", period)
+            try:
+                if _r_dedup and _dedup_key:
+                    _r_dedup.delete(_dedup_key)
+            except Exception:
+                pass
+            return {"picks": len(picks), "posted": False}
 
         # Extend to full 24h now that posting succeeded
         try:

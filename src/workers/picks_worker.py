@@ -528,6 +528,8 @@ def scan_todays_games():
     all_today = day_games + night_games
     # also populate sofascore:today_events — used by find_event_by_teams in slip_tracker
     r.setex("sofascore:today_events", 86400, json.dumps(all_today))
+    # Date-keyed copy (48h TTL) so tomorrow's settlement can still find today's games
+    r.setex(f"sofascore:events:{today}", 172800, json.dumps(all_today))
     team_index: dict[str, dict] = {}
     for ev in all_today:
         for field in ("home_team", "away_team"):
