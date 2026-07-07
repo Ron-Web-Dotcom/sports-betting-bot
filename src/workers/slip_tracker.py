@@ -604,13 +604,26 @@ def _check_sofascore_result(pick: dict) -> str | None:
                 return "won" if (answer == "yes" and prop_won) or (answer == "no" and not prop_won) else "lost"
 
             # Team winner question — "Will X defeat/beat Y?" or "Will X win?"
-            yes_team    = (pick.get("home_team") or pick.get("selection") or "").lower()
+            # Extract YES team from question text: "Will <team> beat/defeat/win..." → <team>
+            yes_team = ""
+            _q_match = _re.match(r"will\s+(.+?)\s+(beat|defeat|win|advance|cover)", q)
+            if _q_match:
+                yes_team = _q_match.group(1).strip()
+            if not yes_team:
+                yes_team = (pick.get("home_team") or pick.get("selection") or "").lower()
             yes_country = (pick.get("home_country") or "").lower()
+
+            def _team_match(name: str, ref: str) -> bool:
+                if not name or not ref:
+                    return False
+                tokens = [t for t in name.split() if len(t) > 3]
+                return name in ref or ref in name or any(t in ref or ref in t for t in tokens)
+
             yes_won = bool(
-                (yes_team and (yes_team in winner or winner in yes_team)) or
-                (yes_country and (yes_country in winner or winner in yes_country)) or
-                (yes_team and (yes_team in sf_home or sf_home in yes_team) and (hs > as_)) or
-                (yes_team and (yes_team in sf_away or sf_away in yes_team) and (as_ > hs))
+                _team_match(yes_team, winner) or
+                (yes_country and _team_match(yes_country, winner)) or
+                (_team_match(yes_team, sf_home) and hs > as_) or
+                (_team_match(yes_team, sf_away) and as_ > hs)
             )
             return "won" if (answer == "yes" and yes_won) or (answer == "no" and not yes_won) else "lost"
 
