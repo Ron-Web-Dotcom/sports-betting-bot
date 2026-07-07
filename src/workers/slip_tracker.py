@@ -580,11 +580,31 @@ def _check_sofascore_result(pick: dict) -> str | None:
         if winner == "unknown" or (hs is None or as_ is None):
             return None
 
-        # For Kalshi binary YES/NO questions, determine if the selected side won
+        # Kalshi YES/NO questions — detect question type from wording
         if pick.get("question"):
-            # "Will X defeat Y?" — YES means X wins
-            # Use home_team or selection as the "yes" team
-            yes_team = (pick.get("home_team") or pick.get("selection") or "").lower()
+            q = pick.get("question", "").lower()
+            answer = (pick.get("answer") or pick.get("side") or "yes").lower()
+
+            # Goals/points/runs scored props — "will over/under X goals/points be scored"
+            import re as _re
+            _total_match = _re.search(r"(over|under)\s+([\d.]+)", q)
+            if _total_match or any(w in q for w in ("goal", "point", "run", "score", "total")):
+                if hs is None or as_ is None:
+                    return None
+                total_scored = hs + as_
+                if _total_match:
+                    direction = _total_match.group(1)  # "over" or "under"
+                    line_f    = float(_total_match.group(2))
+                    if abs(total_scored - line_f) < 0.1:
+                        return "lost"  # exact = lost (no push)
+                    prop_won = (total_scored > line_f) if direction == "over" else (total_scored < line_f)
+                else:
+                    # "will goals be scored" style — any score > 0 = yes
+                    prop_won = total_scored > 0
+                return "won" if (answer == "yes" and prop_won) or (answer == "no" and not prop_won) else "lost"
+
+            # Team winner question — "Will X defeat/beat Y?" or "Will X win?"
+            yes_team    = (pick.get("home_team") or pick.get("selection") or "").lower()
             yes_country = (pick.get("home_country") or "").lower()
             yes_won = bool(
                 (yes_team and (yes_team in winner or winner in yes_team)) or
@@ -592,10 +612,7 @@ def _check_sofascore_result(pick: dict) -> str | None:
                 (yes_team and (yes_team in sf_home or sf_home in yes_team) and (hs > as_)) or
                 (yes_team and (yes_team in sf_away or sf_away in yes_team) and (as_ > hs))
             )
-            if answer == "yes":
-                return "won" if yes_won else "lost"
-            else:
-                return "won" if not yes_won else "lost"
+            return "won" if (answer == "yes" and yes_won) or (answer == "no" and not yes_won) else "lost"
 
         # Standard moneyline
         sel_won2 = bool(sel and (
