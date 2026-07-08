@@ -98,12 +98,32 @@ def purge_ghost_slips() -> int:
             r.hdel(_SLIP_KEY, sid)
             removed += 1
             logger.info("Purged ghost slip: %s", sid)
-        elif sid.split(":")[-1] not in _keep_dates:
+            continue
+        slip_date = sid.split(":")[-1]
+        if slip_date not in _keep_dates:
             # 8+ days old — safe to purge
             r.hdel(_SLIP_KEY, sid)
             removed += 1
             logger.info("Purged old slip: %s", sid)
-        # else: within 7-day window — keep for daily/weekly summaries
+            continue
+        # Force-settle any slip still "active" after 48h — games are long over
+        try:
+            slip = json.loads(raw)
+            if slip.get("status") == "active":
+                created = slip.get("created", "")
+                slip_dt = slip.get("created", "")
+                # Check slip date vs today — if 2+ days old and still active, it's stale
+                from datetime import date as _date
+                slip_day = _date.fromisoformat(slip_date)
+                today    = _now.date()
+                if (today - slip_day).days >= 2:
+                    slip["status"] = "dead"
+                    r.hset(_SLIP_KEY, sid, json.dumps(slip))
+                    _db_save_slip(slip)
+                    removed += 1
+                    logger.warning("Force-settled stale active slip %s → dead (2+ days old)", sid)
+        except Exception:
+            pass
     return removed
 
 

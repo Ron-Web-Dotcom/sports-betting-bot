@@ -794,7 +794,7 @@ def health_check():
             "fields": [
                 {"name": "Odds API Props",  "value": f"{len(odds_props):,}", "inline": True},
                 {"name": "Kalshi",          "value": f"{len(kalshi_props):,}", "inline": True},
-                {"name": "Active Picks",    "value": f"{picks_count} picks ✅" if picks_count else "None yet ⏳", "inline": True},
+                {"name": "Active Slips",    "value": f"{picks_count} slip{'s' if picks_count != 1 else ''} ✅" if picks_count else "None yet ⏳", "inline": True},
                 {"name": "📊 Record",       "value": _record_str, "inline": False},
             ],
             "footer": {"text": f"Health check · {time_str}"},
