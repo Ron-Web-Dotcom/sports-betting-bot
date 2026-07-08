@@ -373,11 +373,23 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 if _pgame:
                     _ticker_to_sf[_pticker] = _pgame
 
+        # Junk market titles — near-certain outcomes with no real edge
+        _JUNK_PATTERNS = [
+            "over 0.5", "will a goal be scored", "will any", "at least one",
+            "will there be a", "will a run be scored", "will a point be scored",
+        ]
+
         for m in kalshi_full[:200]:
             yes_prob = m.get("yes_price") or 0
             if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
                 continue
             no_prob  = m.get("no_price") or round(1 - yes_prob, 4)
+
+            # Block trivially obvious markets regardless of Kalshi price
+            _title_low = (m.get("title") or "").lower()
+            if any(p in _title_low for p in _JUNK_PATTERNS):
+                logger.info("Kalshi: skipping junk market '%s'", m.get("title", ""))
+                continue
 
             subtitle = m.get("subtitle", "")
 
@@ -701,6 +713,14 @@ Return ONLY valid JSON:
 HEAVY FAVORITE RULE: When Kalshi YES price is 85%+ AND Sofascore implied confirms the favorite,
 do NOT overthink it — take the obvious lock. 85-90% YES → confidence 0.85-0.90. 90-97% → 0.90-0.97.
 But VERIFY the teams are actually the implied favorite — do not apply this rule blindly.
+
+JUNK MARKET BLACKLIST — NEVER pick these regardless of price or edge:
+- "over 0.5 goals", "will a goal be scored", "will any team score" — trivially obvious, no real edge
+- "over 0.5 runs", "will any run be scored" — same issue for baseball
+- Any market where the true probability is above 95% — Kalshi prices it correctly, no edge
+- Any market phrased as "will at least one X happen" where X is near-guaranteed
+
+TRUNCATION RULE: Always write full team names. Never abbreviate — "Los Angeles Dodgers" not "Los Angeles D", "New York Yankees" not "NYY".
 
 Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if nothing qualifies."""
 

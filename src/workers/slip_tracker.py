@@ -33,7 +33,7 @@ def _normalize_team_name(name: str) -> str:
         return ""
     name = _SUFFIXES.sub("", name).strip()
     return _re.sub(r'\s+', ' ', name).lower().strip()
-_RATIO_KEY   = "slips:ratio"        # Redis hash: wins, losses, pushes
+_RATIO_KEY   = "slips:ratio"        # Redis hash: wins, losses
 _ALERTED_KEY = "slips:alerted"      # Redis set: {slip_id}:{event} already fired
 
 
@@ -304,18 +304,15 @@ def _get_ratio(r) -> dict:
     raw = r.hgetall(_RATIO_KEY)
     return {
         "wins":   int(raw.get("wins",   0)),
-        "losses": int(raw.get("losses", 0)),
-        "pushes": int(raw.get("pushes", 0)),
+        "losses": int(raw.get("losses", 0) or 0) + int(raw.get("pushes", 0) or 0),  # absorb old pushes into losses
     }
 
 
 def _update_ratio(r, result: str) -> dict:
     if result in ("cashed", "won"):
         r.hincrby(_RATIO_KEY, "wins",   1)
-    elif result == "push":
-        r.hincrby(_RATIO_KEY, "pushes", 1)
     else:
-        r.hincrby(_RATIO_KEY, "losses", 1)
+        r.hincrby(_RATIO_KEY, "losses", 1)  # push = loss — no draws in this system
     r.persist(_RATIO_KEY)  # W/L ratio is permanent running total — never auto-expire
     return _get_ratio(r)
 
@@ -338,7 +335,7 @@ def _platform_label(platform: str) -> str:
 def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
     """Render each leg in slip format. Pass results=['won','lost',...] to show outcome per leg."""
     _MARKET = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
-    _OUTCOME = {"won": "✅  WON", "cashed": "✅  CASHED", "lost": "❌  LOST", "dead": "❌  DEAD", "push": "➖  PUSH"}
+    _OUTCOME = {"won": "✅  WON", "cashed": "✅  CASHED", "lost": "❌  LOST", "dead": "❌  DEAD"}
     lines = []
     for i, p in enumerate(picks, 1):
         conf    = round((p.get("confidence") or 0) * 100)
@@ -392,7 +389,7 @@ def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | Non
     w, l     = ratio["wins"], ratio["losses"]
     total    = w + l
     pct_str  = f"  ·  {round(w / total * 100)}% win rate" if total > 0 else ""
-    record   = f"{w}W – {l}L{pct_str}"
+    record   = f"{w}W – {l}L{pct_str}"  # no push — a draw is a loss
 
     if result == "cashed":
         title  = "✅  SLIP CASHED"
@@ -516,7 +513,7 @@ def _check_kalshi_result(pick: dict) -> str | None:
 def _check_sofascore_result(pick: dict) -> str | None:
     """
     Try Sofascore for the game result — faster and more reliable than Kalshi/Odds API.
-    Returns 'won'/'lost'/'push' if Sofascore has a finished result, else None.
+    Returns 'won'/'lost' if Sofascore has a finished result, else None.
     """
     try:
         from src.apis.sofascore import get_event_result, find_event_by_teams
@@ -637,9 +634,9 @@ def _check_sofascore_result(pick: dict) -> str | None:
             )
             return "won" if (answer == "yes" and yes_won) or (answer == "no" and not yes_won) else "lost"
 
-        # Standard moneyline — draw = push (not applicable to Kalshi questions above)
+        # Standard moneyline — draw = lost (no push in this system)
         if winner == "draw":
-            return "push"
+            return "lost"
         sel_won2 = bool(sel and (
             (sel in sf_home or sf_home in sel) and hs > as_ or
             (sel in sf_away or sf_away in sel) and as_ > hs

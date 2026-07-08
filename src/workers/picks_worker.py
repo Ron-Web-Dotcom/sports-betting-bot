@@ -1657,6 +1657,8 @@ def _generate_hardrock_entry(period: str) -> dict:
                     pass
                 return {"picks": 0, "period": period, "posted": False}
 
+        entry = entry[:2]  # hard cap at 2 picks — never post more than the allowed maximum
+
         if len(entry) < 2:
             logger.info("HardRock %s: only %d qualifying pick(s) — need 2 to post", period, len(entry))
             try:
