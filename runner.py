@@ -263,6 +263,20 @@ def main():
     except Exception as _se:
         logger.warning("Startup: slip reload failed: %s", _se)
 
+    # ── One-time record reset (2026-07-08 fresh start) ───────────────────────
+    try:
+        from src.core.config import REDIS_URL
+        import redis as _redis_mod
+        _r_init = _redis_mod.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _reset_flag = "slips:record_reset:2026-07-08"
+        if not _r_init.get(_reset_flag):
+            from src.workers.slip_tracker import reset_record
+            reset_record()
+            _r_init.set(_reset_flag, "1")  # permanent — no TTL
+            logger.info("Startup: record reset to 0W-0L (fresh start 2026-07-08)")
+    except Exception as _re:
+        logger.warning("Startup: record reset failed: %s", _re)
+
     # ── Startup: refresh sports list then scan odds so catchup tasks have fresh data ──
     _startup_hour = datetime.now(ET).hour
     if 5 <= _startup_hour < 23:  # skip during dead hours (2:30–6 AM)

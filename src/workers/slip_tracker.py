@@ -247,6 +247,54 @@ def get_tracklist(limit: int = 50) -> list[dict]:
         return []
 
 
+def get_weekly_tracklist(week_start: str | None = None) -> dict:
+    """
+    Return wins + losses for a specific week, plus the full slip list for that week.
+    week_start: "YYYY-MM-DD" (Monday). Defaults to the current week.
+
+    Returns:
+        {
+          "week_start": "2026-07-06",
+          "wins": 3, "losses": 1,
+          "slips": [ {slip row dicts} ... ]
+        }
+    """
+    import sqlite3
+    if not week_start:
+        week_start = _get_week_start()
+    # week ends 7 days after Monday (exclusive)
+    from datetime import date
+    try:
+        _ws = date.fromisoformat(week_start)
+        _we = (_ws + timedelta(days=7)).isoformat()
+    except Exception:
+        _we = ""
+
+    try:
+        conn = sqlite3.connect(_db_path())
+        _db_init_history(conn)
+        rows = conn.execute(
+            """SELECT slip_id, date, period, platform, pick_names, result, settled_at
+               FROM slip_history
+               WHERE date >= ? AND date < ?
+               ORDER BY settled_at ASC""",
+            (week_start, _we),
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        logger.warning("get_weekly_tracklist: DB read failed: %s", e)
+        return {"week_start": week_start, "wins": 0, "losses": 0, "slips": []}
+
+    slips = [
+        {"slip_id": r[0], "date": r[1], "period": r[2], "platform": r[3],
+         "pick_names": r[4], "result": r[5], "settled_at": r[6]}
+        for r in rows
+    ]
+    wins   = sum(1 for s in slips if s["result"] == "cashed")
+    losses = sum(1 for s in slips if s["result"] == "dead")
+    return {"week_start": week_start, "wins": wins, "losses": losses, "slips": slips}
+
+
 def reset_record() -> None:
     """
     Reset all W/L tracking to zero.
