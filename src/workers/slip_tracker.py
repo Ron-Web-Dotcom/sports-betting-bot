@@ -22,6 +22,7 @@ from src.core.timezone import et_naive
 logger = logging.getLogger(__name__)
 
 _SLIP_KEY    = "slips:active"       # Redis hash: slip_id → slip JSON
+_WEEKLY_KEY  = "slips:weekly"       # Redis hash: wins, losses, week_start (resets each Monday)
 
 import re as _re
 _SUFFIXES = _re.compile(
@@ -33,7 +34,7 @@ def _normalize_team_name(name: str) -> str:
         return ""
     name = _SUFFIXES.sub("", name).strip()
     return _re.sub(r'\s+', ' ', name).lower().strip()
-_RATIO_KEY   = "slips:ratio"        # Redis hash: wins, losses
+_RATIO_KEY   = "slips:ratio"        # Redis hash: wins, losses (all-time)
 _ALERTED_KEY = "slips:alerted"      # Redis set: {slip_id}:{event} already fired
 
 
@@ -131,6 +132,179 @@ def _db_save_slip(slip: dict) -> None:
         conn.close()
     except Exception as e:
         logger.warning("slip_tracker: DB persist failed: %s", e)
+
+
+def _get_week_start() -> str:
+    """Return the ISO date of the most recent Monday (start of current week)."""
+    from src.core.timezone import et_naive
+    today = et_naive()
+    monday = today - timedelta(days=today.weekday())  # weekday() == 0 on Monday
+    return monday.strftime("%Y-%m-%d")
+
+
+def _get_weekly_ratio(r) -> dict:
+    """Return this week's W/L. Resets automatically when week rolls over."""
+    raw = r.hgetall(_WEEKLY_KEY)
+    week_start = _get_week_start()
+    if raw.get("week_start") != week_start:
+        # New week — reset
+        r.hset(_WEEKLY_KEY, mapping={"wins": 0, "losses": 0, "week_start": week_start})
+        r.persist(_WEEKLY_KEY)
+        return {"wins": 0, "losses": 0}
+    return {
+        "wins":   int(raw.get("wins",   0) or 0),
+        "losses": int(raw.get("losses", 0) or 0),
+    }
+
+
+def _update_weekly_ratio(r, result: str) -> dict:
+    week_start = _get_week_start()
+    raw = r.hgetall(_WEEKLY_KEY)
+    if raw.get("week_start") != week_start:
+        r.hset(_WEEKLY_KEY, mapping={"wins": 0, "losses": 0, "week_start": week_start})
+    if result in ("cashed", "won"):
+        r.hincrby(_WEEKLY_KEY, "wins",   1)
+    else:
+        r.hincrby(_WEEKLY_KEY, "losses", 1)
+    r.persist(_WEEKLY_KEY)
+    return _get_weekly_ratio(r)
+
+
+def _db_init_history(conn) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS slip_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            slip_id     TEXT NOT NULL,
+            date        TEXT NOT NULL,
+            period      TEXT NOT NULL,
+            platform    TEXT NOT NULL,
+            pick_names  TEXT NOT NULL,
+            result      TEXT NOT NULL,
+            settled_at  TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+
+def _db_save_result(slip: dict, result: str) -> None:
+    """Record a settled slip in the tracklist. One row per settled slip."""
+    import sqlite3
+    try:
+        picks = slip.get("picks", [])
+        names = []
+        for p in picks:
+            n = (p.get("question") or p.get("player") or
+                 f"{p.get('away_team', '')} @ {p.get('home_team', '')}").strip(" @") or "?"
+            names.append(n)
+        conn = sqlite3.connect(_db_path())
+        _db_init_history(conn)
+        # Don't duplicate — check slip_id not already in history
+        existing = conn.execute(
+            "SELECT 1 FROM slip_history WHERE slip_id=?", (slip["id"],)
+        ).fetchone()
+        if existing:
+            conn.close()
+            return
+        conn.execute(
+            """INSERT INTO slip_history
+               (slip_id, date, period, platform, pick_names, result, settled_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                slip["id"],
+                slip["id"].split(":")[-1] if ":" in slip["id"] else _now_et().strftime("%Y-%m-%d"),
+                slip.get("period", ""),
+                slip.get("platform", ""),
+                " | ".join(names),
+                result,
+                _now_et().isoformat(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("slip_history: DB write failed: %s", e)
+
+
+def get_tracklist(limit: int = 50) -> list[dict]:
+    """Return the last `limit` settled slips from the history table, newest first."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(_db_path())
+        _db_init_history(conn)
+        rows = conn.execute(
+            """SELECT slip_id, date, period, platform, pick_names, result, settled_at
+               FROM slip_history ORDER BY settled_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [
+            {"slip_id": r[0], "date": r[1], "period": r[2], "platform": r[3],
+             "pick_names": r[4], "result": r[5], "settled_at": r[6]}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.warning("get_tracklist: DB read failed: %s", e)
+        return []
+
+
+def reset_record() -> None:
+    """
+    Reset all W/L tracking to zero.
+    - Clears all-time ratio (slips:ratio)
+    - Clears weekly ratio (slips:weekly)
+    - Leaves slip_history intact (historical rows still there for reference)
+    Call this once for a fresh start; safe to call again anytime.
+    """
+    r = _redis()
+    r.hset(_RATIO_KEY,  mapping={"wins": 0, "losses": 0})
+    r.hset(_WEEKLY_KEY, mapping={"wins": 0, "losses": 0, "week_start": _get_week_start()})
+    r.persist(_RATIO_KEY)
+    r.persist(_WEEKLY_KEY)
+    logger.info("Record reset to 0W-0L (all-time and weekly)")
+
+
+def post_record_to_discord() -> None:
+    """
+    Post the full all-time record + recent tracklist to Discord.
+    Call from VPS: python -c "from src.workers.slip_tracker import post_record_to_discord; post_record_to_discord()"
+    """
+    from src.workers.alert_worker import _run_async
+    from src.discord_bot.bot import _post
+
+    r = _redis()
+    ratio   = _get_ratio(r)
+    weekly  = _get_weekly_ratio(r)
+    history = get_tracklist(limit=30)
+
+    w, l   = ratio["wins"], ratio["losses"]
+    ww, wl = weekly["wins"], weekly["losses"]
+    total  = w + l
+    win_pct = f"  ·  {round(w / total * 100)}% win rate" if total > 0 else ""
+
+    # Build tracklist lines — last 20, newest first
+    lines = []
+    for h in history[:20]:
+        icon = "✅" if h["result"] == "cashed" else "❌"
+        plat = h["platform"].upper()[:2]
+        period = h["period"].upper()[0] if h["period"] else "?"
+        date = h["date"]
+        picks_short = h["pick_names"][:60] + ("…" if len(h["pick_names"]) > 60 else "")
+        lines.append(f"{icon} `{date}` [{plat}/{period}]  {picks_short}")
+
+    desc = (
+        f"**All-time:**  `{w}W – {l}L{win_pct}`\n"
+        f"**This week:** `{ww}W – {wl}L`\n\n"
+        + ("**Recent Results:**\n" + "\n".join(lines) if lines else "_No settled slips yet._")
+    )
+
+    embed = {
+        "title": "📊  Full Record & History",
+        "description": desc[:4096],
+        "color": 0x1565C0,
+        "footer": {"text": f"Showing last {len(history)} settled slips"},
+    }
+    _run_async(_post({"embeds": [embed]}))
+    logger.info("Record posted to Discord: %dW-%dL all-time, %dW-%dL this week", w, l, ww, wl)
 
 
 def reload_slips_from_db() -> int:
@@ -314,6 +488,7 @@ def _update_ratio(r, result: str) -> dict:
     else:
         r.hincrby(_RATIO_KEY, "losses", 1)  # push = loss — no draws in this system
     r.persist(_RATIO_KEY)  # W/L ratio is permanent running total — never auto-expire
+    _update_weekly_ratio(r, result)
     return _get_ratio(r)
 
 
@@ -384,23 +559,32 @@ def _ticket_header(slip: dict) -> str:
 
 
 
-def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | None = None) -> None:
+def _alert_result(slip: dict, result: str, ratio: dict, results: list[str] | None = None,
+                  weekly: dict | None = None) -> None:
+    if weekly is None:
+        try:
+            weekly = _get_weekly_ratio(_redis())
+        except Exception:
+            weekly = {"wins": 0, "losses": 0}
+
     platform = _platform_label(slip["platform"])
     w, l     = ratio["wins"], ratio["losses"]
+    ww, wl   = weekly["wins"], weekly["losses"]
     total    = w + l
     pct_str  = f"  ·  {round(w / total * 100)}% win rate" if total > 0 else ""
-    record   = f"{w}W – {l}L{pct_str}"  # no push — a draw is a loss
+    alltime  = f"{w}W – {l}L{pct_str}"
+    this_wk  = f"{ww}W – {wl}L"
 
     if result == "cashed":
         title  = "✅  SLIP CASHED"
         stamp  = "W I N N E R"
         color  = 0x1B5E20
-        footer = f"🎉 All legs hit · {platform} · Record: {record}"
+        footer = f"🎉 All legs hit · {platform} · This week: {this_wk}  ·  All-time: {alltime}"
     else:
         title  = "❌  SLIP DEAD"
         stamp  = "L O S T"
         color  = 0xB71C1C
-        footer = f"💔 A leg missed · {platform} · Record: {record}"
+        footer = f"💔 A leg missed · {platform} · This week: {this_wk}  ·  All-time: {alltime}"
 
     _post_embed({
         "title":       title,
@@ -1005,8 +1189,10 @@ def track_slips() -> dict:
                     # Kalshi settled correctly after our timeout — clear old alert so correct result fires
                     r.srem(_ALERTED_KEY, result_key)
                 if not _alerted(r, result_key):
-                    ratio = _update_ratio(r, slip_result)
-                    _alert_result(slip, slip_result, ratio, results)
+                    ratio  = _update_ratio(r, slip_result)
+                    weekly = _get_weekly_ratio(r)
+                    _db_save_result(slip, slip_result)
+                    _alert_result(slip, slip_result, ratio, results, weekly=weekly)
                     _mark_alerted(r, result_key)
                     alerts_fired += 1
 

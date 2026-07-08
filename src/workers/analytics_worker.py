@@ -281,10 +281,28 @@ def send_weekly_summary():
         "footer": {"text": f"Week {week_num} closed  ·  Week {next_week} open  ·  {date_str}"},
     }
 
+    # Append all-time record to the embed
+    try:
+        from src.workers.slip_tracker import _get_ratio as _gr
+        _at = _gr(_r) if _r else {"wins": 0, "losses": 0}
+        _atw, _atl = _at["wins"], _at["losses"]
+        _at_total = _atw + _atl
+        _at_pct = f"  ({round(_atw/_at_total*100)}% all-time)" if _at_total > 0 else ""
+        embed["fields"].append({
+            "name": "📈 ALL-TIME RECORD",
+            "value": f"{_atw}W – {_atl}L{_at_pct}",
+            "inline": False,
+        })
+    except Exception:
+        pass
+
     _run_async(_post({"embeds": [embed]}))
 
+    # Reset weekly counter now that the week is over (new week starts Monday)
     try:
         if _r:
+            _r.hset("slips:weekly", mapping={"wins": 0, "losses": 0, "week_start": now_et.strftime("%Y-%m-%d")})
+            _r.persist("slips:weekly")
             _r.setex(_week_key, 7 * 86400, "1")
     except Exception:
         pass
@@ -755,6 +773,17 @@ def health_check():
         et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
         time_str = et.strftime("%I:%M %p ET")
 
+        # W/L record
+        try:
+            from src.workers.slip_tracker import _get_ratio as _gr, _get_weekly_ratio as _gwr
+            _ratio  = _gr(r)
+            _weekly = _gwr(r)
+            _w, _l  = _ratio["wins"], _ratio["losses"]
+            _ww, _wl = _weekly["wins"], _weekly["losses"]
+            _record_str = f"Week: {_ww}W-{_wl}L  ·  All-time: {_w}W-{_l}L"
+        except Exception:
+            _record_str = "—"
+
         embed = {
             "title": "🟢 Bot Online",
             "description": (
@@ -766,6 +795,7 @@ def health_check():
                 {"name": "Odds API Props",  "value": f"{len(odds_props):,}", "inline": True},
                 {"name": "Kalshi",          "value": f"{len(kalshi_props):,}", "inline": True},
                 {"name": "Active Picks",    "value": f"{picks_count} picks ✅" if picks_count else "None yet ⏳", "inline": True},
+                {"name": "📊 Record",       "value": _record_str, "inline": False},
             ],
             "footer": {"text": f"Health check · {time_str}"},
         }
