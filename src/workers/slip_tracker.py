@@ -1111,6 +1111,8 @@ def track_slips() -> dict:
             except Exception:
                 return {}
 
+        from datetime import datetime as _dt2
+
         for slip in slips:
             plat = _platform_label(slip["platform"])
             for pick in slip.get("picks", []):
@@ -1126,7 +1128,20 @@ def track_slips() -> dict:
                          f"{pick.get('away_team','')} @ {pick.get('home_team','')}").strip(" @") or gid
                 tag   = f"`[{plat}]`"
 
-                # Resolve sofascore_id — use stored id or look up by team names
+                # ── "Starting soon" — use stored commence_time (always available) ──
+                # Never skip this alert due to a Sofascore API failure: commence_time
+                # is written into the pick dict at entry-generation time and is reliable.
+                ct_stored = _parse_time(pick.get("commence_time", ""))
+                if ct_stored:
+                    mins_to_start = (ct_stored - now).total_seconds() / 60
+                    gt = ct_stored.strftime("%-I:%M %p ET")
+                    soon_key = f"game:soon:{gid}"
+                    if 5 <= mins_to_start <= 60 and not _alerted(r, soon_key):
+                        all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
+                        _mark_alerted(r, soon_key)
+
+                # ── "Live now" — requires Sofascore status (best-effort) ──────────
+                # Resolve sofascore_id: use stored value, else look up by team names
                 _resolved_sf_id = sf_id
                 if not _resolved_sf_id:
                     _home_t = pick.get("home_team", "")
@@ -1141,32 +1156,29 @@ def track_slips() -> dict:
                             pass
 
                 if not _resolved_sf_id:
-                    logger.debug("slip_tracker: no Sofascore id for pick gid=%s — skipping alerts", gid)
-                    continue
+                    logger.warning("slip_tracker: no sofascore_id for pick gid=%s — live alert unavailable", gid)
+                    # Still continue — starting-soon already handled above
+                else:
+                    ev        = _sf_event(_resolved_sf_id)
+                    sf_status = (ev.get("status") or {}).get("type", "")
+                    start_ts  = ev.get("startTimestamp")
 
-                # Everything from Sofascore — status, kickoff time, live signal
-                ev       = _sf_event(_resolved_sf_id)
-                sf_status = (ev.get("status") or {}).get("type", "")
-                start_ts  = ev.get("startTimestamp")
+                    live_key = f"game:live:{gid}"
+                    if sf_status == "inprogress" and not _alerted(r, live_key):
+                        gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else (
+                            ct_stored.strftime("%-I:%M %p ET") if ct_stored else ""
+                        )
+                        all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
+                        _mark_alerted(r, live_key)
 
-                from datetime import datetime as _dt2
-                if start_ts:
-                    start_et = _dt2.fromtimestamp(start_ts, tz=_ET)
-                    mins     = (start_et - now).total_seconds() / 60
-                    gt       = start_et.strftime("%-I:%M %p ET")
-
-                    # Soon: 5–60 min before kickoff
-                    soon_key = f"game:soon:{gid}"
-                    if 5 <= mins <= 60 and not _alerted(r, soon_key):
-                        all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
-                        _mark_alerted(r, soon_key)
-
-                # Live: fires the moment Sofascore returns inprogress — no timer
-                live_key = f"game:live:{gid}"
-                if sf_status == "inprogress" and not _alerted(r, live_key):
-                    gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else ""
-                    all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
-                    _mark_alerted(r, live_key)
+                    # Fallback live detection: if no Sofascore status but game started >5 min ago
+                    elif not sf_status and ct_stored:
+                        mins_since_start = (now - ct_stored).total_seconds() / 60
+                        live_key_fb = f"game:live:{gid}"
+                        if 5 <= mins_since_start <= 240 and not _alerted(r, live_key_fb):
+                            gt_live = ct_stored.strftime("%-I:%M %p ET")
+                            all_live.append(f"🔴 **{name}**  ·  🕐 {gt_live}  {tag}  *(tracking)*")
+                            _mark_alerted(r, live_key_fb)
 
         if all_soon:
             _post_embed({
