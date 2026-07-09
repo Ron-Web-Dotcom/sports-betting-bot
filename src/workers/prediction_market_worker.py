@@ -710,6 +710,18 @@ Return ONLY valid JSON:
   "reasoning": "<4-5 sentences: name both teams, cite standings/form/H2H, state the specific Sofascore odds anchor used, and explain the Kalshi mispricing>"
 }
 
+FAVORITES RULE (HARD): Always check the American odds equivalent of the Kalshi YES price.
+- Negative odds (kalshi_yes_odds like -150, -200) = the team is a FAVORITE. Lean YES on favorites.
+- Positive odds (kalshi_yes_odds like +120, +180) = the team is an UNDERDOG. Only pick YES on an underdog
+  if there is a SPECIFIC data-backed reason (injury to the opponent's starter, dominant recent H2H,
+  much better form). Never pick an underdog simply because the payout is higher.
+- When choosing between two similar-edge candidates: ALWAYS choose the one with negative odds (the favorite).
+  Favorites win more often — that's math. Underdogs are exciting but kill W/L records over time.
+- sf_home_odds / sf_away_odds shows the real sportsbook line. Negative = that team is favored by the market.
+  If sf_home_odds is -160 and Kalshi YES (home wins) is at 58%, that's a 4-point underpricing — take it.
+  If sf_home_odds is +130 and Kalshi YES (home wins) is at 45%, the sportsbook says this is an underdog
+  — be very cautious unless Sofascore data gives a strong reason to override.
+
 HEAVY FAVORITE RULE: When Kalshi YES price is 85%+ AND Sofascore implied confirms the favorite,
 do NOT overthink it — take the obvious lock. 85-90% YES → confidence 0.85-0.90. 90-97% → 0.90-0.97.
 But VERIFY the teams are actually the implied favorite — do not apply this rule blindly.
@@ -1074,6 +1086,17 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
     ev        = f"+{_ev_val}%" if _ev_val >= 0 else f"{_ev_val}%"
     cost      = round((_yes_p if answer == "YES" else _no_p) * 10, 2)
     reasoning = pick.get("reasoning", "")
+    # American odds for display
+    _our_odds_val   = pick.get("yes_american", 0) if answer == "YES" else pick.get("no_american", 0)
+    _other_odds_val = pick.get("no_american",  0) if answer == "YES" else pick.get("yes_american", 0)
+    def _fmt_am(v) -> str:
+        try:
+            vi = int(v or 0)
+            return f"+{vi}" if vi > 0 else str(vi)
+        except Exception:
+            return "—"
+    _our_odds   = _fmt_am(_our_odds_val)
+    _other_odds = _fmt_am(_other_odds_val)
 
     try:
         from dateutil.parser import parse as _p
@@ -1105,12 +1128,12 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
             },
             {
                 "name":   "✅  ANSWER",
-                "value":  f"**{answer}**  ·  {our_pct}% chance",
+                "value":  f"**{answer}**  ·  {our_pct}% chance  `{_our_odds}`",
                 "inline": True,
             },
             {
                 "name":   "❌  OTHER SIDE",
-                "value":  f"{'NO' if answer == 'YES' else 'YES'}  ·  {other_pct}% chance",
+                "value":  f"{'NO' if answer == 'YES' else 'YES'}  ·  {other_pct}% chance  `{_other_odds}`",
                 "inline": True,
             },
             {
