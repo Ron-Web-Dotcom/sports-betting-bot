@@ -444,6 +444,20 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             # commence_time = Sofascore kickoff (only path that reaches here)
             _kickoff_et = _to_naive_et(sf_kickoff)
 
+            # DATE GATE: only accept games whose kickoff is TODAY (ET).
+            # Tomorrow's games are "notstarted" and pass the status check — must filter by date.
+            try:
+                _kdt_et = _dp(_kickoff_et)
+                _today_et_date = _dt2.now(_ZI3("America/New_York")).date()
+                if _kdt_et.date() != _today_et_date:
+                    logger.info(
+                        "Kalshi: skipping '%s' — game is on %s, not today (%s)",
+                        subtitle, _kdt_et.date(), _today_et_date,
+                    )
+                    continue  # tomorrow's game — never pick it today
+            except Exception:
+                pass  # can't parse date — allow through rather than block
+
             # Period gate:
             #   Night entry: only games starting 4 PM ET+ (true evening games).
             #   Day entry:   any upcoming game — no time restriction.
