@@ -301,7 +301,10 @@ def send_weekly_summary():
     # Reset weekly counter now that the week is over (new week starts Monday)
     try:
         if _r:
-            _r.hset("slips:weekly", mapping={"wins": 0, "losses": 0, "week_start": now_et.strftime("%Y-%m-%d")})
+            # week_start must be a Monday — next Monday is the start of the new week
+            from datetime import timedelta as _td
+            _next_monday = (now_et + _td(days=(7 - now_et.weekday()) % 7 or 7)).strftime("%Y-%m-%d")
+            _r.hset("slips:weekly", mapping={"wins": 0, "losses": 0, "week_start": _next_monday})
             _r.persist("slips:weekly")
             _r.setex(_week_key, 7 * 86400, "1")
     except Exception:

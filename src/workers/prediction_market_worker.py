@@ -1106,9 +1106,11 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
     def _fmt_am(v) -> str:
         try:
             vi = int(v or 0)
+            if vi == 0:
+                return ""          # missing/unknown — don't show "0"
             return f"+{vi}" if vi > 0 else str(vi)
         except Exception:
-            return "—"
+            return ""
     _our_odds   = _fmt_am(_our_odds_val)
     _other_odds = _fmt_am(_other_odds_val)
 
@@ -1142,12 +1144,12 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
             },
             {
                 "name":   "✅  ANSWER",
-                "value":  f"**{answer}**  ·  {our_pct}% chance  `{_our_odds}`",
+                "value":  f"**{answer}**  ·  {our_pct}% chance" + (f"  `{_our_odds}`" if _our_odds else ""),
                 "inline": True,
             },
             {
                 "name":   "❌  OTHER SIDE",
-                "value":  f"{'NO' if answer == 'YES' else 'YES'}  ·  {other_pct}% chance  `{_other_odds}`",
+                "value":  f"{'NO' if answer == 'YES' else 'YES'}  ·  {other_pct}% chance" + (f"  `{_other_odds}`" if _other_odds else ""),
                 "inline": True,
             },
             {

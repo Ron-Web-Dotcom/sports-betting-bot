@@ -110,8 +110,6 @@ def purge_ghost_slips() -> int:
         try:
             slip = json.loads(raw)
             if slip.get("status") == "active":
-                created = slip.get("created", "")
-                slip_dt = slip.get("created", "")
                 # Check slip date vs today — if 2+ days old and still active, it's stale
                 from datetime import date as _date
                 slip_day = _date.fromisoformat(slip_date)
@@ -287,8 +285,9 @@ def get_weekly_tracklist(week_start: str | None = None) -> dict:
     try:
         _ws = date.fromisoformat(week_start)
         _we = (_ws + timedelta(days=7)).isoformat()
-    except Exception:
-        _we = ""
+    except ValueError:
+        logger.warning("get_weekly_tracklist: invalid week_start '%s'", week_start)
+        return {"week_start": week_start, "wins": 0, "losses": 0, "slips": []}
 
     try:
         conn = sqlite3.connect(_db_path())
