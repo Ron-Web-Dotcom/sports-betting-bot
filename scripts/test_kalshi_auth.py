@@ -20,5 +20,6 @@ if result is None:
     print("FAIL — request returned None (auth rejected or network error)")
     sys.exit(1)
 
-balance = result.get("balance", result)
-print(f"OK — Kalshi auth working. Balance: {balance}")
+balance_cents = result.get("balance", 0)
+balance_usd = balance_cents / 100
+print(f"OK — Kalshi auth working. Balance: ${balance_usd:.2f} USD")
