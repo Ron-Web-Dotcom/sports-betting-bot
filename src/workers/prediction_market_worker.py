@@ -608,9 +608,21 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     if not candidates:
 
         # Odds API fallback — game winners only
+        _today_et_date_fb = _dt2.now(_ZI3("America/New_York")).date()
         for g in games:
             if not (0.20 <= g["home_prob"] <= 0.80):
                 continue
+            _cmt = g.get("commence", "")
+            if _cmt:
+                try:
+                    _ct_fb = _dp(_cmt)
+                    if _ct_fb.tzinfo is None:
+                        _ct_fb = _ct_fb.replace(tzinfo=_ZI3("America/New_York"))
+                    if _ct_fb.astimezone(_ZI3("America/New_York")).date() != _today_et_date_fb:
+                        logger.info("Odds API fallback: skipping '%s' — game is not today", g["title"])
+                        continue
+                except Exception:
+                    pass
             candidates.append({
                 "source":        "odds_api",
                 "title":         g["title"],
