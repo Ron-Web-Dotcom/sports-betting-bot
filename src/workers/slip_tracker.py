@@ -106,14 +106,38 @@ def purge_ghost_slips() -> int:
             removed += 1
             logger.info("Purged old slip: %s", sid)
             continue
-        # Force-settle any slip still "active" after 48h — games are long over
+        # Void slips where any pick's game date doesn't match the slip's own date
+        # (e.g. a slip created July 9 that picked a July 10 game — date gate miss)
         try:
             slip = json.loads(raw)
             if slip.get("status") == "active":
-                # Check slip date vs today — if 2+ days old and still active, it's stale
                 from datetime import date as _date
+                from dateutil.parser import parse as _dp_pg
                 slip_day = _date.fromisoformat(slip_date)
                 today    = _now.date()
+                _wrong_date = False
+                for _pk in slip.get("picks", []):
+                    _ct = _pk.get("commence_time", "")
+                    if _ct:
+                        try:
+                            _gd = _dp_pg(_ct)
+                            from zoneinfo import ZoneInfo as _ZIpg
+                            if _gd.tzinfo is None:
+                                _gd = _gd.replace(tzinfo=_ZIpg("America/New_York"))
+                            _game_date = _gd.astimezone(_ZIpg("America/New_York")).date()
+                            if _game_date != slip_day:
+                                _wrong_date = True
+                                break
+                        except Exception:
+                            pass
+                if _wrong_date:
+                    slip["status"] = "void"
+                    r.hset(_SLIP_KEY, sid, json.dumps(slip))
+                    _db_save_slip(slip)
+                    removed += 1
+                    logger.warning("Voided slip %s — pick game date doesn't match slip date %s", sid, slip_date)
+                    continue
+                # Force-settle any slip still "active" after 48h — games are long over
                 if (today - slip_day).days >= 2:
                     slip["status"] = "dead"
                     r.hset(_SLIP_KEY, sid, json.dumps(slip))
@@ -312,6 +336,26 @@ def get_weekly_tracklist(week_start: str | None = None) -> dict:
     wins   = sum(1 for s in slips if s["result"] == "cashed")
     losses = sum(1 for s in slips if s["result"] == "dead")
     return {"week_start": week_start, "wins": wins, "losses": losses, "slips": slips}
+
+
+def adjust_record(wins_delta: int = 0, losses_delta: int = 0) -> dict:
+    """
+    Adjust W/L counts by delta (positive or negative).
+    Used to correct ghost slip credits without full reset.
+    Floors at 0 — can't go below zero.
+    """
+    r = _redis()
+    w = max(0, int(r.hget(_RATIO_KEY, "wins") or 0) + wins_delta)
+    l = max(0, int(r.hget(_RATIO_KEY, "losses") or 0) + losses_delta)
+    r.hset(_RATIO_KEY, mapping={"wins": w, "losses": l})
+    r.persist(_RATIO_KEY)
+    ww = max(0, int(r.hget(_WEEKLY_KEY, "wins") or 0) + wins_delta)
+    wl = max(0, int(r.hget(_WEEKLY_KEY, "losses") or 0) + losses_delta)
+    r.hset(_WEEKLY_KEY, mapping={"wins": ww, "losses": wl})
+    r.persist(_WEEKLY_KEY)
+    logger.info("Record adjusted by %+dW %+dL → %dW-%dL (all-time), %dW-%dL (weekly)",
+                wins_delta, losses_delta, w, l, ww, wl)
+    return {"wins": w, "losses": l, "weekly_wins": ww, "weekly_losses": wl}
 
 
 def reset_record() -> None:

@@ -277,6 +277,17 @@ def main():
     except Exception as _re:
         logger.warning("Startup: record reset failed: %s", _re)
 
+    # ── One-time correction: remove ghost win from Spain vs Belgium (July 9 slip) ──
+    try:
+        _ghost_fix_flag = "slips:ghost_win_fix:2026-07-10"
+        if not _r_init.get(_ghost_fix_flag):
+            from src.workers.slip_tracker import adjust_record
+            adjust_record(wins_delta=-1)
+            _r_init.set(_ghost_fix_flag, "1")  # permanent — runs once
+            logger.info("Startup: removed 1 ghost win from Spain vs Belgium (July 9 slip)")
+    except Exception as _re:
+        logger.warning("Startup: ghost win correction failed: %s", _re)
+
     # ── Startup: refresh sports list then scan odds so catchup tasks have fresh data ──
     _startup_hour = datetime.now(ET).hour
     if 5 <= _startup_hour < 23:  # skip during dead hours (2:30–6 AM)
