@@ -137,13 +137,13 @@ def purge_ghost_slips() -> int:
                     removed += 1
                     logger.warning("Voided slip %s — pick game date doesn't match slip date %s", sid, slip_date)
                     continue
-                # Force-settle any slip still "active" after 48h — games are long over
-                if (today - slip_day).days >= 2:
+                # Force-settle any slip from a previous date — games from yesterday are over
+                if (today - slip_day).days >= 1:
                     slip["status"] = "dead"
                     r.hset(_SLIP_KEY, sid, json.dumps(slip))
                     _db_save_slip(slip)
                     removed += 1
-                    logger.warning("Force-settled stale active slip %s → dead (2+ days old)", sid)
+                    logger.warning("Force-settled previous-day slip %s → dead", sid)
         except Exception:
             pass
     return removed

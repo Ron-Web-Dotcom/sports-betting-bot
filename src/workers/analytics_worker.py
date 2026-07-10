@@ -756,7 +756,13 @@ def health_check():
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-        # Prop counts from cache
+        # Game odds count from DB (source of truth — always populated after first scan)
+        try:
+            from src.engines.odds_engine import get_latest_snapshots_by_game as _snaps
+            odds_game_count = len(_snaps())
+        except Exception:
+            odds_game_count = 0
+        # Player props count from cache (populated every 20 min by scan_player_props)
         odds_raw = r.get("props:odds_api")
         odds_props = json.loads(odds_raw) if odds_raw else []
         kalshi_raw = r.get("kalshi:live_markets")
@@ -795,7 +801,7 @@ def health_check():
             ),
             "color": 0x00C851,
             "fields": [
-                {"name": "Odds API Props",  "value": f"{len(odds_props):,}", "inline": True},
+                {"name": "Odds API Games",  "value": f"{odds_game_count:,} games · {len(odds_props):,} props", "inline": True},
                 {"name": "Kalshi",          "value": f"{len(kalshi_props):,}", "inline": True},
                 {"name": "Active Slips",    "value": f"{picks_count} slip{'s' if picks_count != 1 else ''} ✅" if picks_count else "None yet ⏳", "inline": True},
                 {"name": "📊 Record",       "value": _record_str, "inline": False},
