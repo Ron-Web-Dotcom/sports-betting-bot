@@ -318,6 +318,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
     # Night entry: exclude any game/event already used in the day entry
     _blocked_subtitles: set[str] = set()
     _blocked_tickers:   set[str] = set()
+    _blocked_teams:     set[str] = set()
     if period == "night":
         try:
             import json as _jb
@@ -336,7 +337,13 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                         _blocked_subtitles.add(_sub)
                     if _tkr:
                         _blocked_tickers.add(_tkr)
-            logger.info("Night entry: blocking %d subtitle(s) from day slip", len(_blocked_subtitles))
+                    # Also block by team names — subtitle formatting can differ between picks
+                    for _tf in ("home_team", "away_team"):
+                        _tn = (_dp_pick.get(_tf) or "").lower().strip()
+                        if _tn:
+                            _blocked_teams.add(_tn)
+            logger.info("Night entry: blocking %d subtitle(s), %d team(s) from day slip",
+                        len(_blocked_subtitles), len(_blocked_teams))
         except Exception:
             pass
 
@@ -394,12 +401,15 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             subtitle = m.get("subtitle", "")
 
             # Night entry: skip any game already used in the day slip
-            if period == "night" and (_blocked_subtitles or _blocked_tickers):
+            if period == "night" and (_blocked_subtitles or _blocked_tickers or _blocked_teams):
                 _msub = subtitle.lower().strip()
                 _mtkr = (m.get("event_ticker") or "").upper()
                 if _msub and _msub in _blocked_subtitles:
                     continue
                 if _mtkr and any(_mtkr.startswith(bt) or bt.startswith(_mtkr) for bt in _blocked_tickers):
+                    continue
+                # Block by team name — catches subtitle format mismatches
+                if _blocked_teams and any(t in _msub for t in _blocked_teams):
                     continue
 
             # ── Sofascore: source of truth for game timing ─────────────────

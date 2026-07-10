@@ -724,6 +724,13 @@ def _build_hardrock_candidates(
         if sf_odds:
             ctx["sofascore_odds"] = sf_odds  # picked up by analyse_pick → AI sees it
 
+        # Use Sofascore's exact kickoff time when available — more accurate than Odds API
+        for _sf_name in (home_team.lower(), away_team.lower()):
+            _sf_ev = _sf_index.get(_sf_name)
+            if _sf_ev and _sf_ev.get("commence_time"):
+                commence = _sf_ev["commence_time"]
+                break
+
         # ── Try up to 3 markets per game ─────────────────────────────────────
         priority = ["h2h", "spreads", "totals", "team_totals", "alternate_totals",
                     "btts", "draw_no_bet", "innings_1_5_total", "team_points_q1"]
