@@ -1133,7 +1133,7 @@ def track_slips() -> dict:
                 ct_stored = _parse_time(pick.get("commence_time", ""))
                 if ct_stored:
                     mins_to_start = (ct_stored - now).total_seconds() / 60
-                    gt = ct_stored.strftime("%-I:%M %p ET")
+                    gt = ct_stored.astimezone(_ET).strftime("%-I:%M %p ET")
                     soon_key = f"game:soon:{gid}"
                     if 5 <= mins_to_start <= 60 and not _alerted(r, soon_key):
                         all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
@@ -1154,30 +1154,31 @@ def track_slips() -> dict:
                         except Exception:
                             pass
 
+                sf_status = ""
+                start_ts  = None
                 if not _resolved_sf_id:
-                    logger.warning("slip_tracker: no sofascore_id for pick gid=%s — live alert unavailable", gid)
-                    # Still continue — starting-soon already handled above
+                    logger.warning("slip_tracker: no sofascore_id for pick gid=%s — using time-based live detection", gid)
                 else:
                     ev        = _sf_event(_resolved_sf_id)
                     sf_status = (ev.get("status") or {}).get("type", "")
                     start_ts  = ev.get("startTimestamp")
 
-                    live_key = f"game:live:{gid}"
-                    if sf_status == "inprogress" and not _alerted(r, live_key):
-                        gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else (
-                            ct_stored.strftime("%-I:%M %p ET") if ct_stored else ""
-                        )
-                        all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
-                        _mark_alerted(r, live_key)
+                live_key = f"game:live:{gid}"
+                if sf_status == "inprogress" and not _alerted(r, live_key):
+                    gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else (
+                        ct_stored.astimezone(_ET).strftime("%-I:%M %p ET") if ct_stored else ""
+                    )
+                    all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
+                    _mark_alerted(r, live_key)
 
-                    # Fallback live detection: if no Sofascore status but game started >5 min ago
-                    elif not sf_status and ct_stored:
-                        mins_since_start = (now - ct_stored).total_seconds() / 60
-                        live_key_fb = f"game:live:{gid}"
-                        if 5 <= mins_since_start <= 240 and not _alerted(r, live_key_fb):
-                            gt_live = ct_stored.strftime("%-I:%M %p ET")
-                            all_live.append(f"🔴 **{name}**  ·  🕐 {gt_live}  {tag}  *(tracking)*")
-                            _mark_alerted(r, live_key_fb)
+                # Fallback live detection: if no Sofascore status but game started >5 min ago
+                # Runs regardless of whether sofascore_id is available — uses stored commence_time
+                elif not sf_status and ct_stored:
+                    mins_since_start = (now - ct_stored).total_seconds() / 60
+                    if 5 <= mins_since_start <= 240 and not _alerted(r, live_key):
+                        gt_live = ct_stored.astimezone(_ET).strftime("%-I:%M %p ET")
+                        all_live.append(f"🔴 **{name}**  ·  🕐 {gt_live}  {tag}  *(tracking)*")
+                        _mark_alerted(r, live_key)
 
         if all_soon:
             _post_embed({

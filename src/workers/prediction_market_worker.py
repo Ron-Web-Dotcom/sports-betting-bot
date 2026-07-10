@@ -469,6 +469,8 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 _is_night_game = _kdt_et.hour >= 16
                 if period == "night" and not _is_night_game:
                     continue  # day game in night entry — skip
+                if period == "day" and _is_night_game:
+                    continue  # night game in day entry — skip
             except Exception:
                 pass  # can't parse — allow through
 

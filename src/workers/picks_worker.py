@@ -150,6 +150,12 @@ def generate_picks():
                 sport               = sport_key,
                 market              = market,
             )
+            # Spread picks must have -odds (you're favored to cover) — +odds spread = underdog line
+            if market == "spreads" and best_odds_val > 0:
+                logger.info("picks: skipping %s spread — +%s odds means underdog to cover (favorites rule)",
+                            selection, best_odds_val)
+                continue
+
             # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ all markets
             _cal = confidence.calibrated_score
             _min_prob = CONF_FLOOR
@@ -687,8 +693,8 @@ def _build_hardrock_candidates(
             # are still posted pre-game and props are live early in a game.
             # Exclude games finished more than 3 hours ago to avoid stale data.
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
-            if _mins_since_start > 180:
-                continue  # game started 3+ hours ago — likely finished, skip
+            if _mins_since_start > 30:
+                continue  # game already started (>30 min ago) — lines closed, skip
             _is_night = _ct_et.hour >= 16
             if period == "day"   and _is_night:     continue
             if period == "night" and not _is_night: continue
