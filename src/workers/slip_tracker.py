@@ -176,10 +176,15 @@ def purge_ghost_slips() -> int:
                 if (today - slip_day).days >= 1:
                     _final_results = []
                     try:
-                        for _pk_f in slip.get("picks", []):
-                            _res_f = _check_pick_result(_pk_f)
-                            if _res_f:
-                                _final_results.append(_res_f)
+                        for _pk_idx_f, _pk_f in enumerate(slip.get("picks", [])):
+                            # Check Redis cache first (written same-day when Sofascore had it)
+                            _cached_res = r.get(f"picks:result:{sid}:{_pk_idx_f}")
+                            if _cached_res:
+                                _final_results.append(_cached_res if isinstance(_cached_res, str) else _cached_res.decode())
+                            else:
+                                _res_f = _check_pick_result(_pk_f)
+                                if _res_f:
+                                    _final_results.append(_res_f)
                     except Exception:
                         pass
                     if _final_results and len(_final_results) == len(slip.get("picks", [])):
@@ -1377,6 +1382,9 @@ def track_slips() -> dict:
                 res = _check_pick_result(pick)
                 if res:
                     logger.info("Slip %s pick '%s': result=%s", slip.get("id"), _pick_name, res)
+                    # Cache so purge_ghost_slips can read it next day (Sofascore drops results)
+                    _pick_idx = picks.index(pick)
+                    r.setex(f"picks:result:{slip.get('id')}:{_pick_idx}", 172800, res)
                     results.append(res)
                     continue
                 logger.info("Slip %s pick '%s': no result yet (ct=%s)", slip.get("id"), _pick_name, pick.get("commence_time", "none"))
