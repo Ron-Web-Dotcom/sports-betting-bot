@@ -188,15 +188,17 @@ def purge_ghost_slips() -> int:
                     except Exception:
                         pass
                     if _final_results and len(_final_results) == len(slip.get("picks", [])):
-                        # Got all results — update record silently (no Discord, game was yesterday)
+                        # Got all results — post to Discord regardless of when we found it
                         _final_outcome = "cashed" if all(x == "won" for x in _final_results) else "dead"
                         slip["status"] = _final_outcome
                         r.hset(_SLIP_KEY, sid, json.dumps(slip))
                         _db_save_slip(slip)
-                        _update_ratio(r, _final_outcome)
+                        _ratio_f = _update_ratio(r, _final_outcome)
+                        _weekly_f = _get_weekly_ratio(r)
                         _db_save_result(slip, _final_outcome)
+                        _alert_result(slip, _final_outcome, _ratio_f, _final_results, weekly=_weekly_f)
                         removed += 1
-                        logger.info("Force-settled previous-day slip %s → %s (silent, no Discord)", sid, _final_outcome)
+                        logger.info("Force-settled previous-day slip %s → %s", sid, _final_outcome)
                     else:
                         # Still no result — mark void, not dead (data gap, not a real loss)
                         slip["status"] = "void"
@@ -1400,14 +1402,18 @@ def track_slips() -> dict:
                 else:
                     mins = (ct - now).total_seconds() / 60
                     sport = pick.get("sport_key", "")
+                    # Generous timeouts — don't give up before Sofascore posts the result.
+                    # Only fire after game has been over long enough that a result must exist.
                     if any(k in sport for k in ("mma", "boxing")):
-                        _timeout = -120
+                        _timeout = -180   # 3h after start
                     elif any(k in sport for k in ("baseball", "mlb")):
-                        _timeout = -240
-                    elif any(k in sport for k in ("basketball", "nba", "wnba", "tennis")):
-                        _timeout = -180
+                        _timeout = -360   # 6h after start (extra innings, delays)
+                    elif any(k in sport for k in ("basketball", "nba", "wnba")):
+                        _timeout = -240   # 4h after start (OT)
+                    elif any(k in sport for k in ("tennis",)):
+                        _timeout = -300   # 5h after start
                     else:
-                        _timeout = -210
+                        _timeout = -300   # 5h default
                     if mins < _timeout:
                         results.append("unknown")
                         logger.info(
