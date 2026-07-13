@@ -59,14 +59,15 @@ PLAYER_PROP_MARKETS = [
     "player_sets_won", "player_games_won", "player_to_win_set",
 ]
 
-# Soccer — all leagues share same prop market names
+# Soccer — all leagues worldwide (men + women, all confederations)
 _SOCCER_LEAGUES = {
-    # US
-    "soccer_usa_mls", "soccer_usa_nwsl",
-    # Europe Top 5
+    # ── US / Canada ───────────────────────────────────────────────────────────
+    "soccer_usa_mls", "soccer_usa_nwsl", "soccer_usa_usl_championship",
+    "soccer_canada_premier_league",
+    # ── Europe Top 5 ──────────────────────────────────────────────────────────
     "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga",
     "soccer_italy_serie_a", "soccer_france_ligue_one",
-    # Europe Other
+    # ── Europe Other ──────────────────────────────────────────────────────────
     "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga",
     "soccer_turkey_super_league", "soccer_spl",
     "soccer_belgium_first_div", "soccer_greece_super_league",
@@ -75,23 +76,57 @@ _SOCCER_LEAGUES = {
     "soccer_austria_bundesliga", "soccer_swiss_superleague",
     "soccer_czech_liga", "soccer_poland_ekstraklasa",
     "soccer_romania_liga_1", "soccer_croatia_hnl",
-    # UEFA / Cups
+    "soccer_ireland_premier_division", "soccer_wales_premier_league",
+    "soccer_serbia_superliga", "soccer_ukraine_premier_league",
+    "soccer_hungary_nb_i", "soccer_slovakia_superliga",
+    "soccer_bulgaria_efbet_liga", "soccer_north_macedonia_1_liga",
+    "soccer_belarus_premier_league", "soccer_israel_premier_league",
+    "soccer_cyprus_first_division", "soccer_luxembourg_bgl_ligue",
+    "soccer_moldova_nationala", "soccer_slovenia_1_snl",
+    "soccer_albania_superliga", "soccer_latvia_virsliga",
+    "soccer_estonia_meistriliiga", "soccer_lithuania_a_lyga",
+    "soccer_kazakhstan_premier_league", "soccer_azerbaijan_premier_league",
+    "soccer_georgia_erovnuli_liga", "soccer_armenia_premier_league",
+    # ── UEFA / Cups / International ───────────────────────────────────────────
     "soccer_uefa_champs_league", "soccer_uefa_europa_league",
     "soccer_uefa_europa_conference_league", "soccer_uefa_nations_league",
     "soccer_fifa_world_cup", "soccer_fifa_club_world_cup",
     "soccer_africa_cup_of_nations",
-    # South America
+    # ── South America / Mexico / CONCACAF ─────────────────────────────────────
     "soccer_brazil_campeonato", "soccer_argentina_primera_division",
     "soccer_mexico_ligamx", "soccer_conmebol_copa_america",
     "soccer_conmebol_copa_libertadores", "soccer_conmebol_copa_sudamericana",
     "soccer_chile_primera_division", "soccer_colombia_primera_a",
     "soccer_ecuador_liga_pro", "soccer_uruguay_primera_division",
     "soccer_peru_primera_division", "soccer_venezuela_primera_liga",
-    # Asia / Oceania / Middle East
+    "soccer_bolivia_division_profesional", "soccer_paraguay_division_profesional",
+    "soccer_costa_rica_primera_division", "soccer_honduras_liga_nacional",
+    "soccer_guatemala_liga_nacional", "soccer_panama_liga_panamena",
+    "soccer_el_salvador_primera_division", "soccer_nicaragua_primera_division",
+    # ── Asia / Middle East ────────────────────────────────────────────────────
     "soccer_japan_j_league", "soccer_south_korea_kleague1",
     "soccer_china_superleague", "soccer_saudi_arabia_premier_league",
-    "soccer_australia_aleague",
-    # Women's soccer
+    "soccer_australia_aleague", "soccer_india_super_league",
+    "soccer_thailand_league_1", "soccer_vietnam_v_league_1",
+    "soccer_malaysia_super_league", "soccer_indonesia_liga_1",
+    "soccer_philippines_pfl", "soccer_uae_arabian_gulf_league",
+    "soccer_qatar_stars_league", "soccer_kuwait_premier_league",
+    "soccer_iran_persian_gulf_pro", "soccer_iraq_premier_league",
+    "soccer_jordan_pro_league", "soccer_bahrain_premier_league",
+    "soccer_oman_professional_league", "soccer_uzbekistan_super_league",
+    "soccer_tajikistan_vysshaya_liga",
+    # ── Africa ────────────────────────────────────────────────────────────────
+    "soccer_egypt_premier_league", "soccer_south_africa_psl",
+    "soccer_nigeria_premier_league", "soccer_ghana_premier_league",
+    "soccer_kenya_premier_league", "soccer_tanzania_premier_league",
+    "soccer_ethiopia_premier_league", "soccer_senegal_premier_league",
+    "soccer_cameroon_elite_one", "soccer_ivory_coast_mtn_ligue",
+    "soccer_morocco_botola_pro", "soccer_tunisia_ligue_1",
+    "soccer_algeria_ligue_professionnelle", "soccer_libya_premier_league",
+    "soccer_zambia_super_league", "soccer_zimbabwe_premier_league",
+    # ── Oceania ───────────────────────────────────────────────────────────────
+    "soccer_new_zealand_npl", "soccer_fiji_ofc",
+    # ── Women's Soccer (all regions) ─────────────────────────────────────────
     "soccer_fifa_womens_world_cup", "soccer_uefa_womens_champs_league",
     "soccer_england_wsl", "soccer_germany_frauen_bundesliga",
     "soccer_spain_liga_f", "soccer_france_d1_feminine",
@@ -107,7 +142,7 @@ _GOLF_TOURNAMENTS = {
     "golf_dp_world_tour",
 }
 
-# Tennis — grand slams + all active tour events
+# Tennis — all ATP + WTA events (Grand Slams, Masters, challengers, team cups)
 _TENNIS = {
     # Grand Slams (ATP + WTA)
     "tennis_atp_french_open",       "tennis_wta_french_open",
@@ -117,33 +152,115 @@ _TENNIS = {
     # ATP Masters 1000 + Tour events
     "tennis_atp_madrid",            "tennis_atp_rome",
     "tennis_atp_miami",             "tennis_atp_indian_wells",
-    "tennis_atp_toronto",           "tennis_atp_cincinnati",
-    "tennis_atp_queens_club_champ", "tennis_atp_halle_open",
+    "tennis_atp_toronto",           "tennis_atp_montreal",
+    "tennis_atp_cincinnati",        "tennis_atp_queens_club_champ",
+    "tennis_atp_halle_open",
     # WTA tour events
-    "tennis_wta_german_open",
+    "tennis_wta_german_open",       "tennis_wta_toronto",
+    "tennis_wta_montreal",          "tennis_wta_cincinnati",
+    # Challenger + team competitions
+    "tennis_atp_challenger",        "tennis_wta_challenger",
+    "tennis_davis_cup",             "tennis_billie_jean_king_cup",
+    "tennis_laver_cup",             "tennis_united_cup",
+}
+
+# International basketball leagues (Europe + Oceania + Asia)
+_INTL_BASKETBALL = {
+    "basketball_euroleague", "basketball_eurocup",
+    "basketball_fiba_world_cup", "basketball_nbl",
+    "basketball_bbl", "basketball_lnb", "basketball_liga_acb",
+    "basketball_lba", "basketball_bsl", "basketball_bbl_uk",
+    "basketball_russia_vtb",
+}
+
+# International ice hockey leagues
+_INTL_HOCKEY = {
+    "icehockey_ahl", "icehockey_khl", "icehockey_shl",
+    "icehockey_liiga", "icehockey_del", "icehockey_nla",
+    "icehockey_iihf_world_championship",
+}
+
+# International baseball leagues
+_INTL_BASEBALL = {
+    "baseball_npb", "baseball_kbo", "baseball_cpbl", "baseball_lmb",
+    "baseball_winter_leagues",
+}
+
+# Extended rugby (six nations, autumn, domestic cups, women's)
+_RUGBY_EXTENDED = {
+    "rugbyunion_six_nations", "rugbyunion_autumn_nations",
+    "rugbyunion_pacific_nations", "rugbyunion_currie_cup",
+    "rugbyunion_mitre_10_cup", "rugbyunion_super_w",
+    "rugbyleague_super_league", "rugbyleague_betfred_championship",
+}
+
+# Extended cricket (franchise T20s, domestic competitions)
+_CRICKET_EXTENDED = {
+    "cricket_bbl", "cricket_psl", "cricket_cpl", "cricket_sa20",
+    "cricket_the_hundred", "cricket_vitality_blast",
+    "cricket_sheffield_shield", "cricket_plunket_shield",
+}
+
+# Darts — PDC + BDO events
+_DARTS = {
+    "darts_pdc_world_championship", "darts_premier_league",
+    "darts_world_grand_prix", "darts_uk_open",
+    "darts_world_matchplay", "darts_grand_slam",
+    "darts_bdo_world_championship",
+}
+
+# Snooker — world ranking events
+_SNOOKER = {
+    "snooker_world_championship", "snooker_uk_championship",
+    "snooker_masters", "snooker_china_open",
+    "snooker_players_championship",
+}
+
+# Cycling — Grand Tours + Monuments
+_CYCLING = {
+    "cycling_tour_de_france", "cycling_giro_d_italia",
+    "cycling_la_vuelta", "cycling_paris_roubaix",
+    "cycling_tour_of_flanders", "cycling_milan_san_remo",
+    "cycling_uci_world_tour",
+}
+
+# Extended motorsport
+_MOTORSPORT_EXTENDED = {
+    "motorsport_motogp", "motorsport_wrc", "motorsport_wsbk",
+    "motorsport_dtm", "motorsport_imsa", "motorsport_lemans",
+    "motorsport_formula2", "motorsport_formula3",
 }
 
 # All sports that support player props on Odds API
 PLAYER_PROP_SPORTS = {
-    "basketball_nba", "basketball_nba_summer_league", "basketball_wnba", "basketball_ncaab", "basketball_wncaab",
-    "americanfootball_nfl", "americanfootball_ncaaf",
+    # ── Basketball (US + International) ───────────────────────────────────────
+    "basketball_nba", "basketball_nba_summer_league",
+    "basketball_wnba", "basketball_ncaab", "basketball_wncaab",
+    # ── American / Canadian Football ──────────────────────────────────────────
+    "americanfootball_nfl", "americanfootball_ncaaf", "americanfootball_cfl",
+    # ── Baseball (US + International) ────────────────────────────────────────
     "baseball_mlb",
-    "icehockey_nhl",
+    # ── Ice Hockey (US + International) ──────────────────────────────────────
+    "icehockey_nhl", "icehockey_pwhl",
+    # ── Combat Sports ────────────────────────────────────────────────────────
     "mma_mixed_martial_arts", "boxing_boxing",
+    # ── Aussie Rules (Men + Women) ────────────────────────────────────────────
     "aussierules_afl", "aussierules_aflw",
-    "icehockey_pwhl",
-    # Cricket — men + women
+    # ── Cricket — all formats (Men + Women) ──────────────────────────────────
     "cricket_icc_world_cup", "cricket_ipl", "cricket_icc_womens_t20_wc",
     "cricket_test_match", "cricket_odi", "cricket_international_t20",
     "cricket_t20_world_cup_womens", "cricket_t20_blast",
-    # Rugby union + league
+    # ── Rugby (Men + Women) ───────────────────────────────────────────────────
     "rugbyunion_world_cup", "rugbyunion_women_world_cup",
     "rugbyunion_super_rugby", "rugbyunion_premiership",
     "rugbyunion_top14", "rugbyunion_united_rugby_championship",
     "rugbyleague_nrl", "rugbyleague_nrl_state_of_origin",
-    # Motorsport
+    # ── Motorsport ────────────────────────────────────────────────────────────
     "motorsport_formula_1", "motorsport_indycar", "motorsport_nascar_cup_series",
-} | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS
+} | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS \
+  | _INTL_BASKETBALL | _INTL_HOCKEY | _INTL_BASEBALL \
+  | _RUGBY_EXTENDED | _CRICKET_EXTENDED \
+  | _DARTS | _SNOOKER | _CYCLING | _MOTORSPORT_EXTENDED
 
 
 # ── Redis helpers for credits-exhausted flag ───────────────────────────────────
@@ -312,53 +429,98 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
         "player_win_by_ko", "player_win_by_submission", "player_win_by_decision",
     ]
 
+    _AUSSIE_RULES_MARKETS = [
+        "player_goals", "player_disposals", "player_marks",
+        "player_tackles", "player_hit_outs", "player_goal_assists",
+    ]
+    _CRICKET_MARKETS = [
+        "player_runs", "player_wickets", "player_fours", "player_sixes",
+        "player_fifties", "player_hundreds", "player_catches",
+        "player_run_outs", "player_stumpings",
+    ]
+    _RUGBY_MARKETS = [
+        "player_tries", "player_conversions", "player_penalty_goals",
+        "player_tackles", "player_carries", "player_lineout_wins",
+    ]
+    _MOTOR_MARKETS = [
+        "player_podium_finish", "player_race_winner", "player_fastest_lap",
+        "player_top_5_finish", "player_top_10_finish", "player_points_finish",
+    ]
+    _DARTS_MARKETS = [
+        "player_match_winner", "player_most_180s",
+        "player_checkout_over", "player_highest_checkout",
+    ]
+    _SNOOKER_MARKETS = [
+        "player_match_winner", "player_frame_handicap",
+        "player_century_break", "player_first_to_5_frames",
+    ]
+    _CYCLING_MARKETS = [
+        "player_stage_winner", "player_win", "player_top_5_finish",
+        "player_top_10_finish", "player_podium_finish",
+    ]
+
     _sport_markets = {
+        # ── Basketball (US) ──────────────────────────────────────────────────
         "basketball_nba":               _BASKETBALL_FULL + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        "basketball_nba_summer_league": _BASKETBALL_FULL + _TEAM_BASKETBALL + _GAME_BASKETBALL,
         "basketball_wnba":              _BASKETBALL_FULL + _TEAM_BASKETBALL + _GAME_BASKETBALL,
         "basketball_ncaab":             ["player_points", "player_rebounds", "player_assists", "player_threes", "player_double_double"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
         "basketball_wncaab":            ["player_points", "player_rebounds", "player_assists", "player_threes"] + _TEAM_BASKETBALL + _GAME_BASKETBALL,
+        # ── Basketball (International) ────────────────────────────────────────
+        **{sk: ["player_points", "player_rebounds", "player_assists", "player_threes",
+                "player_double_double"] + _TEAM_BASKETBALL + _GAME_BASKETBALL
+           for sk in _INTL_BASKETBALL},
+        # ── American / Canadian Football ──────────────────────────────────────
         "americanfootball_nfl":         _FOOTBALL_FULL + _TEAM_FOOTBALL + _GAME_FOOTBALL,
         "americanfootball_ncaaf":       ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_anytime_td"] + _TEAM_FOOTBALL + _GAME_FOOTBALL,
+        "americanfootball_cfl":         ["player_pass_tds", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_anytime_td"] + _TEAM_FOOTBALL,
+        # ── Baseball (US + International) ────────────────────────────────────
         "baseball_mlb":                 _BASEBALL_FULL + _TEAM_BASEBALL + _GAME_BASEBALL,
+        **{sk: _BASEBALL_FULL + _TEAM_BASEBALL for sk in _INTL_BASEBALL},
+        # ── Ice Hockey (US + International) ──────────────────────────────────
         "icehockey_nhl":                _HOCKEY_FULL + _TEAM_HOCKEY + _GAME_HOCKEY,
+        "icehockey_pwhl":               _HOCKEY_FULL + _TEAM_HOCKEY,
+        **{sk: _HOCKEY_FULL + _TEAM_HOCKEY for sk in _INTL_HOCKEY},
+        # ── Combat Sports ────────────────────────────────────────────────────
         "mma_mixed_martial_arts":       _MMA_FULL,
         "boxing_boxing":                _MMA_FULL,
-        # Aussie Rules
-        "aussierules_afl":              ["player_goals", "player_disposals", "player_marks", "player_tackles"],
-        "aussierules_aflw":             ["player_goals", "player_disposals", "player_marks", "player_tackles"],
-        # Ice hockey — PWHL (women)
-        "icehockey_pwhl":               _HOCKEY_FULL,
-        # Cricket — all formats
-        **{sk: ["player_runs", "player_wickets", "player_fours", "player_sixes",
-                "player_fifties", "player_hundreds", "player_catches"]
+        # ── Aussie Rules (Men + Women) ────────────────────────────────────────
+        "aussierules_afl":              _AUSSIE_RULES_MARKETS,
+        "aussierules_aflw":             _AUSSIE_RULES_MARKETS,
+        # ── Cricket — all formats + franchise leagues ─────────────────────────
+        **{sk: _CRICKET_MARKETS
            for sk in [
                "cricket_icc_world_cup", "cricket_ipl", "cricket_icc_womens_t20_wc",
                "cricket_test_match", "cricket_odi", "cricket_international_t20",
                "cricket_t20_world_cup_womens", "cricket_t20_blast",
-           ]},
-        # Rugby union + league
-        **{sk: ["player_tries", "player_conversions", "player_penalty_goals",
-                "player_tackles", "player_carries"]
+           ] + list(_CRICKET_EXTENDED)},
+        # ── Rugby union + league (Men + Women + all domestic) ─────────────────
+        **{sk: _RUGBY_MARKETS
            for sk in [
                "rugbyunion_world_cup", "rugbyunion_women_world_cup",
                "rugbyunion_super_rugby", "rugbyunion_premiership",
                "rugbyunion_top14", "rugbyunion_united_rugby_championship",
                "rugbyleague_nrl", "rugbyleague_nrl_state_of_origin",
-           ]},
-        # Motorsport — race/podium/fastest-lap outrights only
-        **{sk: ["player_podium_finish", "player_race_winner", "player_fastest_lap",
-                "player_top_5_finish", "player_top_10_finish"]
+           ] + list(_RUGBY_EXTENDED)},
+        # ── Motorsport ────────────────────────────────────────────────────────
+        **{sk: _MOTOR_MARKETS
            for sk in [
                "motorsport_formula_1", "motorsport_indycar", "motorsport_nascar_cup_series",
-           ]},
-        # Golf — outrights
+           ] + list(_MOTORSPORT_EXTENDED)},
+        # ── Golf — outrights ──────────────────────────────────────────────────
         **{sk: ["player_win", "player_top_5_finish", "player_top_10_finish",
                 "player_top_20_finish", "player_make_cut"]
            for sk in _GOLF_TOURNAMENTS},
-        # All tennis events (ATP + WTA — slams and tour)
+        # ── Tennis — ATP + WTA (all events) ──────────────────────────────────
         **{t: _TENNIS_MARKETS for t in _TENNIS},
-        # All soccer leagues (men + women, all regions)
+        # ── Soccer — worldwide (all regions, men + women) ─────────────────────
         **{league: _SOCCER_MARKETS + _TEAM_SOCCER + _GAME_SOCCER for league in _SOCCER_LEAGUES},
+        # ── Darts ─────────────────────────────────────────────────────────────
+        **{sk: _DARTS_MARKETS for sk in _DARTS},
+        # ── Snooker ───────────────────────────────────────────────────────────
+        **{sk: _SNOOKER_MARKETS for sk in _SNOOKER},
+        # ── Cycling ───────────────────────────────────────────────────────────
+        **{sk: _CYCLING_MARKETS for sk in _CYCLING},
     }
     markets = _sport_markets.get(sport_key, [])
     if not markets:
