@@ -42,14 +42,25 @@ def _load_slip_results(days_back: int = 1) -> tuple[int, int, int, list, list]:
     winner_slips: list = []
     loser_slips:  list = []
     push_slips:   list = []
+    seen_ids: set = set()
 
     for raw in raw_slips.values():
         try:
             slip = json.loads(raw)
+            # Skip voids — not real results
+            status = slip.get("status", "active")
+            if status in ("void", "active"):
+                continue
+            # Deduplicate by slip ID
+            slip_id = slip.get("id", "")
+            if slip_id and slip_id in seen_ids:
+                continue
+            if slip_id:
+                seen_ids.add(slip_id)
+            # Date filter
             created_date = slip.get("created", "")[:10]
             if created_date < str(cutoff):
                 continue
-            status = slip.get("status", "active")
             if status == "cashed":
                 winner_slips.append(slip)
             elif status == "dead":
@@ -232,8 +243,8 @@ def send_weekly_summary():
     pct_str = f" ({round(wins/settled*100)}% hit rate)" if settled > 0 else ""
     record  = f"{wins}W – {losses}L{pct_str}" if settled > 0 else "No settled slips this week"
 
-    win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips[:5]) or "—"
-    loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips[:5])  or "—"
+    win_lines  = "\n".join(_slip_summary_line(s) for s in winner_slips) or "—"
+    loss_lines = "\n".join(_slip_summary_line(s) for s in loser_slips)  or "—"
 
     # Sport breakdown
     sport_stats: dict = {}
@@ -406,8 +417,8 @@ def enter_sleep_mode():
                 w_total   = w_wins + w_losses + w_pushes
                 w_pct    = f" ({round(w_wins/w_settled*100)}% hit rate)" if w_settled > 0 else ""
                 w_record = f"{w_wins}W – {w_losses}L{w_pct}" if w_settled > 0 else "No settled slips this week"
-                w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners[:5]) or "—"
-                w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers[:5])  or "—"
+                w_win_lines  = "\n".join(_slip_summary_line(s) for s in w_winners) or "—"
+                w_loss_lines = "\n".join(_slip_summary_line(s) for s in w_losers)  or "—"
                 w_sport: dict = {}
                 for slip in w_winners + w_losers:
                     for pick in slip.get("picks", []):
