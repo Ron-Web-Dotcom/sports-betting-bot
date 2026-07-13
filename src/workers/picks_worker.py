@@ -13,8 +13,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Floors — never lower these
-CONF_FLOOR = 0.765  # 77%+ calibrated confidence for -odds picks
-EV_FLOOR   = 0.005  # 0.5% minimum expected value
+CONF_FLOOR = 0.80   # 80%+ calibrated confidence — wide sport coverage keeps volume high
+EV_FLOOR   = 0.03   # 3% minimum expected value — filters marginal edge bets
 
 
 def _post_parlay_bundles(pick_dicts: list[dict], hr_task) -> None:
