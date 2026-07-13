@@ -1144,7 +1144,6 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
     ev        = f"+{_ev_val}%" if _ev_val >= 0 else f"{_ev_val}%"
     # Contract cost on Kalshi: buying YES at 70¢ means you pay $7.00 to win $10
     _our_price = _yes_p if answer == "YES" else _no_p
-    cost_per_dollar = round(_our_price, 2)          # e.g. 0.70
     cost_per_ten    = round(_our_price * 10, 2)     # e.g. 7.00  (pay to win $10)
     profit_per_ten  = round((1 - _our_price) * 10, 2)  # e.g. 3.00  (profit if correct)
 
@@ -1182,7 +1181,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
             f"```\n"
             f"  Ticket #{ticket_id}          {date_str}\n"
             f"  Posted: {time_str}" + (f"  ·  Game: {game_time}" if game_time else "") + "\n"
-            f"```"
+            "```"
         ),
         "fields": [
             {
