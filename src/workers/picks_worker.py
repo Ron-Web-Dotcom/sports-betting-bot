@@ -1717,18 +1717,31 @@ def _generate_hardrock_entry(period: str) -> dict:
                         _r_dedup.delete(_dedup_key)
                 except Exception:
                     pass
+                # Notify Discord so the user knows why there's no entry
+                try:
+                    from src.discord_bot.bot import _post
+                    from src.workers.alert_worker import _run_async
+                    _period_label = period.upper()
+                    _run_async(_post({"embeds": [{
+                        "title": f"⚠️  No {_period_label} Entry Today",
+                        "description": (
+                            f"No picks cleared the 76.5% confidence + 0.5% EV floor for the **{_period_label}** entry.\n"
+                            f"Best confidence seen: **{best_conf}%**\n\n"
+                            "_Bot is still tracking odds — will retry next scan._"
+                        ),
+                        "color": 0xF57F17,
+                        "footer": {"text": "HardRock · Strict quality gates active"},
+                    }]}))
+                except Exception as _nd_err:
+                    logger.warning("No-entry notification failed: %s", _nd_err)
                 return {"picks": 0, "period": period, "posted": False}
 
         entry = entry[:2]  # hard cap at 2 picks — never post more than the allowed maximum
 
         if len(entry) < 2:
-            logger.info("HardRock %s: only %d qualifying pick(s) — need 2 to post", period, len(entry))
-            try:
-                if _r_dedup and _dedup_key:
-                    _r_dedup.delete(_dedup_key)  # release lock so next scan can retry
-            except Exception:
-                pass
-            return {"picks": len(entry), "period": period, "posted": False, "reason": "need_2_picks"}
+            # Post with 1 pick rather than miss the entry entirely.
+            # A single qualifying pick is better than silence.
+            logger.info("HardRock %s: only %d qualifying pick(s) — posting single-pick entry", period, len(entry))
 
         _post_hardrock_embed(period, entry)
 

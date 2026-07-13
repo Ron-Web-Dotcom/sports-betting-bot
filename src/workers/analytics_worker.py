@@ -801,8 +801,8 @@ def health_check():
             ),
             "color": 0x00C851,
             "fields": [
-                {"name": "Odds API Games",  "value": f"{odds_game_count:,} games · {len(odds_props):,} props", "inline": True},
-                {"name": "Kalshi",          "value": f"{len(kalshi_props):,}", "inline": True},
+                {"name": "Odds API Games",  "value": f"{odds_game_count:,} games", "inline": True},
+                {"name": "Props Available", "value": f"{len(odds_props):,} Odds API  ·  {len(kalshi_props):,} Kalshi", "inline": True},
                 {"name": "Active Slips",    "value": f"{picks_count} slip{'s' if picks_count != 1 else ''} ✅" if picks_count else "None yet ⏳", "inline": True},
                 {"name": "📊 Record",       "value": _record_str, "inline": False},
             ],

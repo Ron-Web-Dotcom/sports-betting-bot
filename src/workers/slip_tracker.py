@@ -137,6 +137,39 @@ def purge_ghost_slips() -> int:
                     removed += 1
                     logger.warning("Voided slip %s — pick game date doesn't match slip date %s", sid, slip_date)
                     continue
+                # Void slips where any pick's game had ALREADY STARTED when the slip was created.
+                # This catches entries posted after a game kicked off (e.g. 4:35 PM entry for a 4:11 PM game).
+                # Grace: only check slips created within 4h (fresh). Void if game started 30+ min before creation.
+                try:
+                    _created_str = slip.get("created", "")
+                    if _created_str:
+                        from zoneinfo import ZoneInfo as _ZIpg2
+                        from dateutil.parser import parse as _dp_pg2
+                        _slip_created = _dp_pg2(_created_str)
+                        if _slip_created.tzinfo is None:
+                            _slip_created = _slip_created.replace(tzinfo=_ZIpg2("America/New_York"))
+                        _since_created = (_now.replace(tzinfo=_ZIpg2("America/New_York")) - _slip_created).total_seconds() / 3600
+                        if _since_created <= 4:  # only check fresh slips
+                            _stale_start = False
+                            for _pk2 in slip.get("picks", []):
+                                _ct2 = _pk2.get("commence_time", "")
+                                if _ct2:
+                                    _gd2 = _dp_pg2(_ct2)
+                                    if _gd2.tzinfo is None:
+                                        _gd2 = _gd2.replace(tzinfo=_ZIpg2("America/New_York"))
+                                    _mins_before_creation = (_slip_created - _gd2).total_seconds() / 60
+                                    if _mins_before_creation >= 30:  # game started 30+ min before slip was saved
+                                        _stale_start = True
+                                        logger.warning("Slip %s: pick game started %.0f min before slip was created — voiding", sid, _mins_before_creation)
+                                        break
+                            if _stale_start:
+                                slip["status"] = "void"
+                                r.hset(_SLIP_KEY, sid, json.dumps(slip))
+                                _db_save_slip(slip)
+                                removed += 1
+                                continue
+                except Exception:
+                    pass
                 # Force-settle any slip from a previous date — games from yesterday are over
                 if (today - slip_day).days >= 1:
                     slip["status"] = "dead"
