@@ -667,6 +667,27 @@ def _build_hardrock_candidates(
 
     logger.info("HardRock [%s]: %d games in DB window", period, len(snapshots))
 
+    # Night entry: block any game the day entry already picked today
+    _day_blocked_keys: set[str] = set()
+    if period == "night":
+        try:
+            from src.core.config import REDIS_URL as _RU_db
+            import redis as _redis_db
+            import json as _json_db
+            from src.core.timezone import et_naive as _et_naive_db
+            _rr_db = _redis_db.from_url(_RU_db, decode_responses=True, socket_connect_timeout=2)
+            _today_db = _et_naive_db().strftime("%Y-%m-%d")
+            _day_slip_raw = _rr_db.hget("slips:active", f"day:hardrock:{_today_db}")
+            if _day_slip_raw:
+                _day_slip = _json_db.loads(_day_slip_raw)
+                for _dp_pick in _day_slip.get("picks", []):
+                    _gk = f"{_dp_pick.get('home_team','').lower()}:{_dp_pick.get('away_team','').lower()}"
+                    if _gk and _gk != ":":
+                        _day_blocked_keys.add(_gk)
+            logger.info("HardRock night: blocking %d game(s) from day slip", len(_day_blocked_keys))
+        except Exception:
+            pass
+
     # Recent-game dedup: skip a matchup if it was picked in both of the last 2 days.
     # Prevents the same game (e.g. KC Royals vs Orioles) appearing 3+ days in a row.
     _recent_key = "picks:recent_game_keys"
@@ -711,7 +732,11 @@ def _build_hardrock_candidates(
             if _mins_since_start > 30:
                 continue  # game already started (>30 min ago) — lines closed, skip
             _is_night = _ct_et.hour >= 16
-            if period == "day"   and _is_night:     continue
+            # Night entry: only 4 PM+ games.
+            # Day entry: ALL of today's upcoming games — no time restriction.
+            # In July, nearly all games start at 7 PM ET so a "before-4PM" gate
+            # produces zero candidates every day. Night entry blocks the day pick
+            # via _hardrock_day_picks_key so the same game isn't doubled.
             if period == "night" and not _is_night: continue
         except Exception:
             if sofascore_events and not (
@@ -720,8 +745,13 @@ def _build_hardrock_candidates(
             ):
                 continue
 
-        # Recent-game dedup: if this matchup was picked the last 2 days, skip today
+        # Night entry: skip game already picked in the day entry today
         _game_key_rg = f"{home_team.lower()}:{away_team.lower()}"
+        if _day_blocked_keys and _game_key_rg in _day_blocked_keys:
+            logger.info("HardRock night: skipping %s — already in day slip", _game_key_rg)
+            continue
+
+        # Recent-game dedup: if this matchup was picked the last 2 days, skip today
         _pick_dates  = _recent_games.get(_game_key_rg, [])
         _yesterday   = (_today_et - _dt.timedelta(days=1)).isoformat()
         _day_before  = (_today_et - _dt.timedelta(days=2)).isoformat()
