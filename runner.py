@@ -173,8 +173,8 @@ def _run_bg(fn, name: str):
 CRON_WINDOWS = {
     "generate_hardrock_day_entry":           60,  # 10:30–11:30 AM
     "generate_prediction_market_day_entry":  60,  # 10:35–11:35 AM
-    "generate_hardrock_night_entry":         60,  # 4:30–5:30 PM
-    "generate_prediction_market_night_entry":60,  # 4:35–5:35 PM
+    "generate_hardrock_night_entry":         360,  # 4:30–10:30 PM
+    "generate_prediction_market_night_entry":360,  # 4:35–10:35 PM
 }
 
 
@@ -198,8 +198,8 @@ CATCHUP_TASKS = [
     (10, 30, 180, "generate_hardrock_day_entry"),
     (10, 35, 180, "generate_prediction_market_day_entry"),
     (15, 0,  90,  "scan_todays_games"),
-    (16, 30, 180, "generate_hardrock_night_entry"),
-    (16, 35, 180, "generate_prediction_market_night_entry"),
+    (16, 30, 360, "generate_hardrock_night_entry"),
+    (16, 35, 360, "generate_prediction_market_night_entry"),
 ]
 
 
