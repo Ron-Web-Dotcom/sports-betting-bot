@@ -748,14 +748,11 @@ def _build_hardrock_candidates(
             # are still posted pre-game and props are live early in a game.
             # Exclude games finished more than 3 hours ago to avoid stale data.
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
-            if _mins_since_start > 30:
-                continue  # game already started (>30 min ago) — lines closed, skip
+            if _mins_since_start > 120:
+                continue  # game started 2h+ ago — lines closed, skip
             _is_night = _ct_et.hour >= 17
-            # Night entry: only 4 PM+ games.
-            # Day entry: ALL of today's upcoming games — no time restriction.
-            # In July, nearly all games start at 7 PM ET so a "before-4PM" gate
-            # produces zero candidates every day. Night entry blocks the day pick
-            # via _hardrock_day_picks_key so the same game isn't doubled.
+            # Night entry: only 5 PM ET+ games.
+            # Day entry: ALL of today's games — no time restriction.
             if period == "night" and not _is_night: continue
         except Exception:
             if sofascore_events and not (
