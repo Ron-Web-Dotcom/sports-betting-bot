@@ -30,22 +30,105 @@ _BASE = "https://external-api.kalshi.com/trade-api/v2"
 
 # Sports-relevant category tags Kalshi uses
 _SPORT_TAGS = {
+    # ── US Major ──────────────────────────────────────────────────────────────
     "americanfootball_nfl":           ["NFL", "FOOTBALL"],
+    "americanfootball_ncaaf":         ["NCAAF", "COLLEGE FOOTBALL", "CFB"],
+    "americanfootball_cfl":           ["CFL", "CANADIAN FOOTBALL"],
     "basketball_nba":                 ["NBA", "BASKETBALL"],
+    "basketball_nba_summer_league":   ["NBA SUMMER", "SUMMER LEAGUE"],
+    "basketball_wnba":                ["WNBA", "WOMEN'S BASKETBALL"],
+    "basketball_ncaab":               ["NCAAB", "COLLEGE BASKETBALL"],
+    "basketball_wncaab":              ["NCAAW", "WOMEN'S COLLEGE BASKETBALL"],
     "baseball_mlb":                   ["MLB", "BASEBALL"],
     "icehockey_nhl":                  ["NHL", "HOCKEY"],
-    "basketball_ncaab":               ["NCAAB", "COLLEGE_BASKETBALL"],
-    "americanfootball_ncaaf":         ["NCAAF", "COLLEGE_FOOTBALL"],
-    "soccer_epl":                     ["SOCCER", "EPL", "FOOTBALL"],
-    "soccer_usa_mls":                 ["MLS", "SOCCER"],
-    "soccer_fifa_world_cup":          ["WORLD CUP", "FIFA", "SOCCER", "FOOTBALL"],
-    "tennis_atp_french_open":         ["TENNIS"],
-    "mma_mixed_martial_arts":         ["UFC", "MMA"],
-    "golf_us_open_winner":            ["GOLF", "PGA", "US OPEN"],
-    "motorsport_formula_1":           ["F1", "FORMULA1"],
-    "cricket":                        ["CRICKET", "IPL", "T20", "TEST MATCH"],
+    "icehockey_pwhl":                 ["PWHL", "WOMEN'S HOCKEY"],
+    # ── Basketball — International ────────────────────────────────────────────
+    "basketball_euroleague":          ["EUROLEAGUE", "EURO LEAGUE"],
+    "basketball_eurocup":             ["EUROCUP"],
+    "basketball_fiba_world_cup":      ["FIBA", "BASKETBALL WORLD CUP"],
+    "basketball_nbl":                 ["NBL", "AUSTRALIAN BASKETBALL"],
+    # ── Baseball — International ──────────────────────────────────────────────
+    "baseball_npb":                   ["NPB", "JAPAN BASEBALL", "NIPPON PROFESSIONAL"],
+    "baseball_kbo":                   ["KBO", "KOREA BASEBALL", "KOREAN BASEBALL"],
+    # ── Soccer (Men's) ───────────────────────────────────────────────────────
+    "soccer_epl":                     ["SOCCER", "EPL", "PREMIER LEAGUE", "ENGLISH PREMIER"],
+    "soccer_usa_mls":                 ["MLS", "MAJOR LEAGUE SOCCER"],
+    "soccer_usa_usl_championship":    ["USL"],
+    "soccer_spain_la_liga":           ["LA LIGA", "LALIGA"],
+    "soccer_germany_bundesliga":      ["BUNDESLIGA"],
+    "soccer_italy_serie_a":           ["SERIE A"],
+    "soccer_france_ligue_one":        ["LIGUE 1", "LIGUE ONE"],
+    "soccer_netherlands_eredivisie":  ["EREDIVISIE"],
+    "soccer_portugal_primeira_liga":  ["PRIMEIRA LIGA"],
+    "soccer_turkey_super_league":     ["SUPER LIG", "TURKISH SUPER"],
+    "soccer_fifa_world_cup":          ["WORLD CUP", "FIFA", "FOOTBALL"],
+    "soccer_fifa_club_world_cup":     ["CLUB WORLD CUP", "CWC"],
+    "soccer_uefa_champs_league":      ["CHAMPIONS LEAGUE", "UCL"],
+    "soccer_uefa_europa_league":      ["EUROPA LEAGUE"],
+    "soccer_conmebol_copa_libertadores": ["COPA LIBERTADORES"],
+    "soccer_conmebol_copa_america":   ["COPA AMERICA"],
+    "soccer_africa_cup_of_nations":   ["AFCON"],
+    "soccer_brazil_campeonato":       ["BRASILEIRAO", "CAMPEONATO BRASILEIRO"],
+    "soccer_argentina_primera_division": ["LIGA PROFESIONAL"],
+    "soccer_mexico_ligamx":           ["LIGA MX"],
+    "soccer_saudi_arabia_premier_league": ["SAUDI PRO LEAGUE", "ROSHN"],
+    "soccer_japan_j_league":          ["J LEAGUE", "J-LEAGUE"],
+    "soccer_south_korea_kleague1":    ["K LEAGUE", "K-LEAGUE"],
+    "soccer_australia_aleague":       ["A-LEAGUE"],
+    # ── Soccer (Women's) ─────────────────────────────────────────────────────
+    "soccer_usa_nwsl":                ["NWSL", "NATIONAL WOMEN'S SOCCER"],
+    "soccer_fifa_womens_world_cup":   ["WOMEN'S WORLD CUP", "WWC"],
+    "soccer_england_wsl":             ["WSL", "WOMEN'S SUPER LEAGUE"],
+    # ── Tennis (Men's & Women's) ─────────────────────────────────────────────
+    "tennis_atp_wimbledon":           ["WIMBLEDON", "TENNIS"],
+    "tennis_wta_wimbledon":           ["WIMBLEDON WOMEN", "WTA WIMBLEDON"],
+    "tennis_atp_us_open":             ["US OPEN TENNIS"],
+    "tennis_wta_us_open":             ["US OPEN WOMEN"],
+    "tennis_atp_australian_open":     ["AUSTRALIAN OPEN"],
+    "tennis_atp_french_open":         ["FRENCH OPEN", "ROLAND GARROS"],
+    "tennis_atp_toronto":             ["ATP TORONTO", "CANADIAN OPEN"],
+    "tennis_atp_cincinnati":          ["ATP CINCINNATI", "WESTERN SOUTHERN"],
+    "tennis_davis_cup":               ["DAVIS CUP"],
+    "tennis_billie_jean_king_cup":    ["BILLIE JEAN KING CUP"],
+    # ── Golf (Men's & Women's) ───────────────────────────────────────────────
+    "golf_pga_tour":                  ["GOLF", "PGA TOUR"],
+    "golf_lpga":                      ["LPGA", "WOMEN'S GOLF"],
+    "golf_masters_tournament_winner": ["MASTERS"],
+    "golf_the_open_championship_winner": ["THE OPEN", "BRITISH OPEN"],
+    "golf_dp_world_tour":             ["DP WORLD TOUR", "EUROPEAN TOUR"],
+    # ── Combat Sports ────────────────────────────────────────────────────────
+    "mma_mixed_martial_arts":         ["UFC", "MMA", "MIXED MARTIAL ARTS"],
+    "boxing_boxing":                  ["BOXING", "BOX"],
+    # ── Motorsport ───────────────────────────────────────────────────────────
+    "motorsport_formula_1":           ["F1", "FORMULA 1", "FORMULA ONE", "GRAND PRIX"],
+    "motorsport_nascar_cup_series":   ["NASCAR", "NASCAR CUP"],
+    "motorsport_indycar":             ["INDYCAR", "INDY 500"],
+    "motorsport_motogp":              ["MOTOGP", "MOTO GP"],
+    # ── Cricket ───────────────────────────────────────────────────────────────
+    "cricket_ipl":                    ["IPL", "INDIAN PREMIER LEAGUE"],
+    "cricket_international_t20":      ["T20", "CRICKET T20"],
+    "cricket_test_match":             ["TEST MATCH", "TEST CRICKET"],
+    "cricket_odi":                    ["ODI", "ONE DAY INTERNATIONAL"],
+    "cricket_bbl":                    ["BIG BASH", "BBL"],
+    "cricket_psl":                    ["PSL", "PAKISTAN SUPER LEAGUE"],
+    "cricket_cpl":                    ["CPL", "CARIBBEAN PREMIER"],
+    "cricket_sa20":                   ["SA20"],
+    "cricket_the_hundred":            ["THE HUNDRED"],
+    # ── Aussie Rules (Men + Women) ────────────────────────────────────────────
     "aussierules_afl":                ["AFL", "AUSTRALIAN FOOTBALL"],
-    "rugbyleague_nrl":                ["NRL", "RUGBY LEAGUE"],
+    "aussierules_aflw":               ["AFLW", "WOMEN'S AFL"],
+    # ── Rugby ─────────────────────────────────────────────────────────────────
+    "rugbyleague_nrl":                ["NRL", "NATIONAL RUGBY LEAGUE", "RUGBY LEAGUE"],
+    "rugbyleague_nrl_state_of_origin": ["STATE OF ORIGIN"],
+    "rugbyleague_super_league":       ["SUPER LEAGUE", "RUGBY SUPER LEAGUE"],
+    "rugbyunion_six_nations":         ["SIX NATIONS"],
+    "rugbyunion_super_rugby":         ["SUPER RUGBY"],
+    "rugbyunion_world_cup":           ["RUGBY WORLD CUP", "RWC"],
+    # ── Darts ─────────────────────────────────────────────────────────────────
+    "darts_pdc_world_championship":   ["DARTS", "PDC"],
+    "darts_premier_league":           ["DARTS PREMIER LEAGUE"],
+    # ── Snooker ───────────────────────────────────────────────────────────────
+    "snooker_world_championship":     ["SNOOKER"],
 }
 
 
@@ -174,46 +257,96 @@ def get_markets(sport_key: str | None = None, limit: int = 200) -> list[dict]:
 
 
 _SPORTS_KEYWORDS = [
-    # Men's leagues
-    "nba", "nfl", "mlb", "nhl", "ufc", "mma",
+    # ── US Major Leagues ──────────────────────────────────────────────────────
+    "nba", "nfl", "mlb", "nhl", "ufc", "mma", "ncaa",
+    "wnba", "nwsl", "pwhl", "lpga", "wta", "ncaaw",
+    # ── Basketball (International) ────────────────────────────────────────────
+    "summer league", "nba summer", "euroleague", "euro league", "eurocup",
+    "fiba", "nbl", "liga acb", "lba basket", "bbl basketball", "vtb united",
+    # ── Baseball (International) ──────────────────────────────────────────────
+    "npb", "kbo", "cpbl", "nippon professional", "korean baseball",
+    # ── Ice Hockey ────────────────────────────────────────────────────────────
+    "khl", "shl hockey", "liiga", "ahl hockey", "iihf",
+    # ── American / Canadian Football ─────────────────────────────────────────
+    "cfl", "canadian football",
+    # ── Soccer / Football ─────────────────────────────────────────────────────
     "champions league", "premier league", "mls", "liga", "serie a",
-    "wimbledon", "us open", "french open", "masters", "pga", "atp",
-    "formula 1", "f1", "ncaa", "fifa", "world cup", "copa", "bundesliga",
-    # Women's leagues
-    "wnba", "nwsl", "pwhl", "lpga", "wta",
-    "women's", "womens", "ncaaw",
-    # single-game terms
-    "game ", "match", "points", "score", "innings", "quarter",
+    "bundesliga", "ligue 1", "eredivisie", "primeira liga",
+    "copa libertadores", "copa america", "afcon", "world cup",
+    "super lig", "super liga", "primera division",
+    "fifa", "uefa", "conmebol",
+    "j league", "k league", "a-league", "a league",
+    "brasileirao", "liga mx", "saudi pro",
+    "nwsl", "wsl", "women's super league",
+    "both teams to score", "btts", "clean sheet",
+    # ── Tennis ────────────────────────────────────────────────────────────────
+    "wimbledon", "us open", "french open", "australian open", "roland garros",
+    "masters", "atp", "wta", "grand slam", "davis cup", "laver cup",
+    "billie jean",
+    # ── Golf ──────────────────────────────────────────────────────────────────
+    "pga", "lpga", "the open", "british open", "dp world tour", "european tour",
+    "birdies", "bogeys", "eagles", "make the cut",
+    # ── Motorsport ────────────────────────────────────────────────────────────
+    "formula 1", "formula one", "f1", "grand prix", "nascar",
+    "indycar", "indy 500", "motogp", "moto gp",
+    "fastest lap", "pole position", "laps led",
+    # ── Cricket ────────────────────────────────────────────────────────────────
+    "cricket", "ipl", "test match", "odi", "t20",
+    "big bash", "bbl", "psl", "caribbean premier", "cpl",
+    "sa20", "the hundred", "six nations cricket",
+    # ── Australian Rules ──────────────────────────────────────────────────────
+    "afl", "aflw", "australian football", "collingwood", "richmond",
+    "geelong", "hawthorn", "essendon", "carlton", "melbourne",
+    "sydney swans", "west coast", "port adelaide", "brisbane lions",
+    "gold coast", "gws giants", "fremantle", "north melbourne",
+    # ── Rugby ─────────────────────────────────────────────────────────────────
+    "nrl", "national rugby league", "rugby league", "super league",
+    "super rugby", "six nations", "rugby world cup", "state of origin",
+    "broncos", "roosters", "storm", "rabbitohs", "panthers",
+    "eels", "sharks", "knights", "bulldogs", "titans",
+    # ── Darts ─────────────────────────────────────────────────────────────────
+    "darts", "pdc", "premier league darts", "world matchplay",
+    "180", "checkout", "oche",
+    # ── Snooker ───────────────────────────────────────────────────────────────
+    "snooker", "century break", "maximum break", "frame",
+    # ── MMA / Boxing ─────────────────────────────────────────────────────────
+    "ufc", "boxing", "ko", "tko", "submission", "decision", "knockdown",
+    # ── General game terms ────────────────────────────────────────────────────
+    "game ", "match", "score", "innings", "quarter", "half",
+    "total ", "over ", "under ", "spread",
     "goals", "goal", "runs", "sets", "aces",
-    # US teams (men's)
-    "heat", "celtics", "lakers", "warriors", "knicks", "nuggets",
-    "yankees", "dodgers", "mets", "red sox", "cubs", "astros",
-    "orioles", "baltimore", "san diego", "kansas city", "detroit",
-    "tampa bay", "atlanta", "los angeles",
+    # ── US NBA / NFL / MLB / NHL teams ────────────────────────────────────────
+    "heat", "celtics", "lakers", "warriors", "knicks", "nuggets", "bucks",
+    "suns", "clippers", "nets", "sixers", "hawks", "bulls", "cavs",
+    "cavaliers", "thunder", "jazz", "pelicans", "spurs", "rockets",
+    "mavericks", "timberwolves", "blazers", "kings", "pacers",
+    "magic", "pistons", "raptors", "hornets", "wizards", "grizzlies",
+    "yankees", "dodgers", "mets", "red sox", "cubs", "astros", "braves",
+    "orioles", "phillies", "cardinals", "giants", "padres", "angels",
+    "mariners", "tigers", "twins", "pirates", "reds", "rockies",
     "oilers", "panthers", "rangers", "avalanche", "lightning",
-    # WNBA teams
+    "bruins", "canadiens", "maple leafs", "sabres", "blackhawks",
+    "penguins", "capitals", "flyers", "islanders", "blue jackets",
+    # ── WNBA teams ────────────────────────────────────────────────────────────
     "fever", "liberty", "aces", "sun", "lynx", "sky", "storm", "mystics",
     "wings", "dream", "sparks", "mercury",
-    # World soccer teams/tournaments
+    # ── International soccer teams ────────────────────────────────────────────
+    "real madrid", "barcelona", "manchester city", "manchester united",
+    "liverpool", "arsenal", "chelsea", "tottenham", "inter milan",
+    "ac milan", "juventus", "napoli", "psg", "paris saint-germain",
+    "bayern munich", "dortmund", "atletico madrid",
     "england", "portugal", "brazil", "france", "germany", "spain",
-    "argentina", "morocco", "algeria", "colombia", "croatia",
-    "both teams to score", "btts",
-    "basketball", "baseball", "hockey", "soccer", "football",
-    "tennis", "golf", "racing", "boxing", "nascar",
-    "cricket", "ipl", "test match", "odi", "t20",
-    "afl", "australian football", "collingwood", "richmond", "geelong",
-    "nrl", "national rugby league", "rugby league", "broncos", "roosters", "storm",
-    "total ", "over ", "under ", "wins by",
-    # Player/team props
-    "hits", "home run", "strikeout", "rbi", "stolen base",
+    "argentina", "morocco", "senegal", "nigeria", "algeria", "colombia",
+    "croatia", "netherlands", "italy", "mexico", "usa", "japan", "korea",
+    "saudi arabia", "australia", "belgium", "denmark", "uruguay",
+    # ── Player prop terms ────────────────────────────────────────────────────
+    "player ", "will ", "score more than", "record ",
     "points", "rebounds", "assists", "blocks", "steals", "threes",
     "passing yards", "rushing yards", "receiving yards", "touchdowns",
+    "hits", "home run", "strikeout", "rbi", "stolen base",
     "saves", "shots on goal", "goalkeeper",
     "aces", "double faults", "break points",
-    "birdies", "bogeys", "eagles",
-    "knockdown", "round ", "decision", "ko", "tko", "submission",
-    "laps led", "fastest lap", "pole position",
-    "player ", "will ", "score more than", "record ",
+    "round ",
 ]
 
 # Futures / politics patterns — always block (only long-term non-game markets)
@@ -367,104 +500,177 @@ def get_sports_events(limit: int = 500) -> list[dict]:
     """
     # Known Kalshi sports series tickers — query each directly for best results
     _SERIES = [
-        # ── Baseball ──────────────────────────────────────────────
-        "KXMLBGAME",      # MLB game winners
-        "KXMLBTOTAL",     # MLB run totals
-        "KXMLBHITS",      # MLB player hits props
-        "KXMLBHR",        # MLB home runs props
-        "KXMLBRBI",       # MLB RBI props
-        "KXMLBSO",        # MLB strikeouts props (pitcher)
-        "KXMLBTEAM",      # MLB team props
+        # ── Baseball (US) ─────────────────────────────────────────
+        "KXMLBGAME",        # MLB game winners
+        "KXMLBTOTAL",       # MLB run totals
+        "KXMLBHITS",        # MLB player hits props
+        "KXMLBHR",          # MLB home runs props
+        "KXMLBRBI",         # MLB RBI props
+        "KXMLBSO",          # MLB strikeouts props (pitcher)
+        "KXMLBTEAM",        # MLB team props
+        "KXMLBPITCHER",     # MLB pitcher props
+        "KXMLBBATTER",      # MLB batter props
+        # ── Baseball (International) ──────────────────────────────
+        "KXKBOGAME",        # KBO (Korea) game winners
+        "KXKBOTOTAL",       # KBO totals
+        "KXNPBGAME",        # NPB (Japan) game winners
+        "KXNPBTOTAL",       # NPB totals
         # ── Soccer (Men's) ────────────────────────────────────────
-        "KXWCGAME",       # FIFA Club World Cup game winners
-        "KXWCTOTAL",      # FIFA Club World Cup goal totals
-        "KXWCGOAL",       # FIFA CWC goalscorer props
-        "KXWCTEAM",       # FIFA CWC team props
-        "KXMLSGAME",      # MLS game winners
-        "KXMLSTOTAL",     # MLS totals
-        "KXMLSGOAL",      # MLS goalscorer props
-        "KXEPLGAME",      # English Premier League
-        "KXEPLTOTAL",     # EPL totals
-        "KXEPLGOAL",      # EPL goalscorer props
-        "KXUEFAGAME",     # UEFA Champions League
-        "KXUEFATOTAL",    # UEFA totals
-        "KXUEFAGOAL",     # UEFA goalscorer props
-        "KXLALIGAGAME",   # La Liga
+        "KXWCGAME",         # FIFA Club World Cup game winners
+        "KXWCTOTAL",        # FIFA Club World Cup goal totals
+        "KXWCGOAL",         # FIFA CWC goalscorer props
+        "KXWCTEAM",         # FIFA CWC team props
+        "KXWCBTTS",         # FIFA CWC both teams to score
+        "KXMLSGAME",        # MLS game winners
+        "KXMLSTOTAL",       # MLS totals
+        "KXMLSGOAL",        # MLS goalscorer props
+        "KXMLSBTTS",        # MLS both teams to score
+        "KXEPLGAME",        # English Premier League
+        "KXEPLTOTAL",       # EPL totals
+        "KXEPLGOAL",        # EPL goalscorer props
+        "KXEPLBTTS",        # EPL both teams to score
+        "KXUEFAGAME",       # UEFA Champions League
+        "KXUEFATOTAL",      # UEFA totals
+        "KXUEFAGOAL",       # UEFA goalscorer props
+        "KXUEFABTTS",       # UEFA BTTS
+        "KXEUROPAGAME",     # UEFA Europa League
+        "KXLALIGAGAME",     # La Liga
+        "KXLALIGABTTS",     # La Liga BTTS
         "KXBUNDESLIGAGAME", # Bundesliga
-        "KXSERIEAGAME",   # Serie A
+        "KXSERIEAGAME",     # Serie A
+        "KXLIGUE1GAME",     # Ligue 1
+        "KXBRAZILGAME",     # Brasileirao
+        "KXARGENTINAGAME",  # Liga Profesional Argentina
+        "KXLIGAMXGAME",     # Liga MX
+        "KXJLEAGUEGAME",    # J League
+        "KXKLEAGUEGAME",    # K League
+        "KXSAUDIGAME",      # Saudi Pro League
+        "KXCL2025GAME",     # Champions League 2024-25
         # ── Soccer (Women's) ──────────────────────────────────────
-        "KXNWSLGAME",     # NWSL game winners
-        "KXNWSLTOTAL",    # NWSL totals
-        "KXNWSLGOAL",     # NWSL goalscorer props
-        "KXWWCGAME",      # FIFA Women's World Cup
-        "KXWWCTOTAL",     # FIFA Women's WC totals
+        "KXNWSLGAME",       # NWSL game winners
+        "KXNWSLTOTAL",      # NWSL totals
+        "KXNWSLGOAL",       # NWSL goalscorer props
+        "KXWSLGAME",        # WSL (England Women's)
+        "KXWWCGAME",        # FIFA Women's World Cup
+        "KXWWCTOTAL",       # FIFA Women's WC totals
         # ── Basketball (Men's) ────────────────────────────────────
-        "KXNBAGAME",      # NBA game winners
-        "KXNBATOTAL",     # NBA totals
-        "KXNBAPOINTS",    # NBA player points props
-        "KXNBAREBOUNDS",  # NBA player rebounds props
-        "KXNBAASSISTS",   # NBA player assists props
-        "KXNBATEAM",      # NBA team props
-        "KXNCAABGAME",    # NCAA Men's Basketball
+        "KXNBAGAME",        # NBA game winners
+        "KXNBATOTAL",       # NBA totals
+        "KXNBAPOINTS",      # NBA player points props
+        "KXNBAREBOUNDS",    # NBA player rebounds props
+        "KXNBAASSISTS",     # NBA player assists props
+        "KXNBATEAM",        # NBA team props
+        "KXNBATHREES",      # NBA three-pointers props
+        "KXNBABLOCKS",      # NBA blocks/steals props
+        "KXNCAABGAME",      # NCAA Men's Basketball
+        # ── Basketball — Summer League ────────────────────────────
+        "KXNBASUMMERGAME",  # NBA Summer League game winners
+        "KXNBASUMMERTOTAL", # NBA Summer League totals
+        "KXSUMMERGAME",     # Summer League (alt ticker)
+        "KXSUMMERLEAGUE",   # Summer League (alt ticker)
+        # ── Basketball — International ────────────────────────────
+        "KXEUROLBGAME",     # EuroLeague game winners
+        "KXEUROLBTOTAL",    # EuroLeague totals
+        "KXFIBAGAME",       # FIBA games
+        "KXNBLGAME",        # NBL (Australia)
         # ── Basketball (Women's) ──────────────────────────────────
-        "KXWNBAGAME",     # WNBA game winners
-        "KXWNBATOTAL",    # WNBA totals
-        "KXWNBAPOINTS",   # WNBA player points props
-        "KXWNBAREBOUNDS", # WNBA player rebounds props
-        "KXWNBAASSISTS",  # WNBA player assists props
-        "KXWNBATEAM",     # WNBA team props
-        "KXNCAAWGAME",    # NCAA Women's Basketball
+        "KXWNBAGAME",       # WNBA game winners
+        "KXWNBATOTAL",      # WNBA totals
+        "KXWNBAPOINTS",     # WNBA player points props
+        "KXWNBAREBOUNDS",   # WNBA player rebounds props
+        "KXWNBAASSISTS",    # WNBA player assists props
+        "KXWNBATEAM",       # WNBA team props
+        "KXNCAAWGAME",      # NCAA Women's Basketball
         # ── American Football ─────────────────────────────────────
-        "KXNFLGAME",      # NFL game winners
-        "KXNFLTOTAL",     # NFL totals
-        "KXNFLPASS",      # NFL passing yards props
-        "KXNFLRUSH",      # NFL rushing yards props
-        "KXNFLREC",       # NFL receiving yards props
-        "KXNFLTD",        # NFL touchdown props
-        "KXNFLTEAM",      # NFL team props
-        "KXNCAAFGAME",    # College Football
+        "KXNFLGAME",        # NFL game winners
+        "KXNFLTOTAL",       # NFL totals
+        "KXNFLPASS",        # NFL passing yards props
+        "KXNFLRUSH",        # NFL rushing yards props
+        "KXNFLREC",         # NFL receiving yards props
+        "KXNFLTD",          # NFL touchdown props
+        "KXNFLTEAM",        # NFL team props
+        "KXNCAAFGAME",      # College Football
+        "KXCFLGAME",        # CFL (Canada)
+        "KXCFLTOTAL",       # CFL totals
         # ── Hockey ────────────────────────────────────────────────
-        "KXNHLGAME",      # NHL game winners
-        "KXNHLTOTAL",     # NHL totals
-        "KXNHLGOAL",      # NHL goalscorer props
-        "KXNHLSAVES",     # NHL goalie saves props
-        "KXNHLTEAM",      # NHL team props
-        "KXPWHLGAME",     # PWHL (women's hockey)
-        "KXPWHLTOTAL",    # PWHL totals
+        "KXNHLGAME",        # NHL game winners
+        "KXNHLTOTAL",       # NHL totals
+        "KXNHLGOAL",        # NHL goalscorer props
+        "KXNHLSAVES",       # NHL goalie saves props
+        "KXNHLTEAM",        # NHL team props
+        "KXPWHLGAME",       # PWHL (women's hockey)
+        "KXPWHLTOTAL",      # PWHL totals
         # ── Tennis (Men's & Women's) ──────────────────────────────
-        "KXTENNIS",       # Tennis general
-        "KXATPGAME",      # ATP (men's tennis)
-        "KXATPSETS",      # ATP sets props
-        "KXWTGAME",       # WTA (women's tennis)
-        "KXWTSETS",       # WTA sets props
+        "KXTENNIS",         # Tennis general
+        "KXATPGAME",        # ATP (men's tennis)
+        "KXATPSETS",        # ATP sets props
+        "KXWTGAME",         # WTA (women's tennis)
+        "KXWTSETS",         # WTA sets props
+        "KXWIMBLEDON",      # Wimbledon
+        "KXATPWIMBLEDON",   # ATP Wimbledon
+        "KXWTAWIMBLEDON",   # WTA Wimbledon
+        "KXUSOPEN",         # US Open Tennis
+        "KXAUSOPEN",        # Australian Open
+        "KXROLGARROS",      # French Open / Roland Garros
+        "KXDAVISCUP",       # Davis Cup
         # ── Golf (Men's & Women's) ────────────────────────────────
-        "KXGOLF",         # Golf general
-        "KXPGAGAME",      # PGA Tour
-        "KXPGACUTS",      # PGA cut props
-        "KXLPGAGAME",     # LPGA Tour (women's golf)
-        "KXLPGACUTS",     # LPGA cut props
+        "KXGOLF",           # Golf general
+        "KXPGAGAME",        # PGA Tour
+        "KXPGACUTS",        # PGA cut props
+        "KXPGAWIN",         # PGA winner outright
+        "KXLPGAGAME",       # LPGA Tour (women's golf)
+        "KXLPGACUTS",       # LPGA cut props
+        "KXMASTERS",        # The Masters
+        "KXTHEOPEN",        # The Open Championship
+        "KXDPWORLDTOUR",    # DP World Tour (European Tour)
         # ── Combat Sports ─────────────────────────────────────────
-        "KXUFC",          # UFC/MMA
-        "KXUFCMETHOD",    # UFC method of victory props
-        "KXBOXGAME",      # Boxing
-        "KXBOXMETHOD",    # Boxing method of victory props
+        "KXUFC",            # UFC/MMA
+        "KXUFCMETHOD",      # UFC method of victory props
+        "KXUFCROUND",       # UFC round props
+        "KXBOXGAME",        # Boxing
+        "KXBOXMETHOD",      # Boxing method of victory props
         # ── Racing ────────────────────────────────────────────────
-        "KXF1GAME",       # Formula 1
-        "KXF1DRIVER",     # F1 driver props
-        "KXNASCARGAME",   # NASCAR
-        "KXNASCARDRIVER", # NASCAR driver props
+        "KXF1GAME",         # Formula 1
+        "KXF1DRIVER",       # F1 driver props
+        "KXF1RACE",         # F1 race winner
+        "KXF1FASTEST",      # F1 fastest lap
+        "KXNASCARGAME",     # NASCAR
+        "KXNASCARDRIVER",   # NASCAR driver props
+        "KXINDYCARGAME",    # IndyCar
+        "KXMOTOGPGAME",     # MotoGP
         # ── Cricket ───────────────────────────────────────────────
-        "KXCRICKET",      # Cricket general
-        "KXCRICKETGAME",  # Cricket match winner
-        "KXIPLTOTAL",     # IPL totals
-        "KXIPLGAME",      # IPL match winner
-        "KXTEST",         # Test match cricket
+        "KXCRICKET",        # Cricket general
+        "KXCRICKETGAME",    # Cricket match winner
+        "KXIPLTOTAL",       # IPL totals
+        "KXIPLGAME",        # IPL match winner
+        "KXTEST",           # Test match cricket
+        "KXODIMATCH",       # ODI match
+        "KXBBLGAME",        # Big Bash League
+        "KXPSLGAME",        # Pakistan Super League
+        "KXCPLGAME",        # Caribbean Premier League
+        "KXSA20GAME",       # SA20 South Africa
+        "KXHUNDREDGAME",    # The Hundred
         # ── Australian Football (AFL) ──────────────────────────────
-        "KXAFLGAME",      # AFL match winner
-        "KXAFLTOTAL",     # AFL totals
-        # ── National Rugby League (NRL) ───────────────────────────
-        "KXNRLGAME",      # NRL match winner
-        "KXNRLTOTAL",     # NRL totals
+        "KXAFLGAME",        # AFL match winner
+        "KXAFLTOTAL",       # AFL totals
+        "KXAFLTIPS",        # AFL tips
+        "KXAFLWGAME",       # AFLW (women's)
+        # ── Rugby League ──────────────────────────────────────────
+        "KXNRLGAME",        # NRL match winner
+        "KXNRLTOTAL",       # NRL totals
+        "KXNRLTIPS",        # NRL tips
+        "KXSUPERLEAGUEGAME",# Super League (UK)
+        "KXSOGAME",         # State of Origin
+        # ── Rugby Union ───────────────────────────────────────────
+        "KXSIXNATIONSGAME", # Six Nations
+        "KXRWCGAME",        # Rugby World Cup
+        "KXSUPERRUGBYGAME", # Super Rugby
+        # ── Darts ─────────────────────────────────────────────────
+        "KXDARTSGAME",      # Darts match winner
+        "KXDARTSPREMIER",   # Darts Premier League
+        "KXPDCGAME",        # PDC event
+        # ── Snooker ───────────────────────────────────────────────
+        "KXSNOOKERGAME",    # Snooker match
     ]
 
     all_markets: list[dict] = []
