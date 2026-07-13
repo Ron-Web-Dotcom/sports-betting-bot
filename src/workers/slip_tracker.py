@@ -338,6 +338,46 @@ def get_weekly_tracklist(week_start: str | None = None) -> dict:
     return {"week_start": week_start, "wins": wins, "losses": losses, "slips": slips}
 
 
+def _is_flag_set(flag_key: str) -> bool:
+    """Check if a one-time flag is set — checks SQLite first (survives Redis restart), then Redis."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_db_path())
+        conn.execute("CREATE TABLE IF NOT EXISTS bot_flags (flag_key TEXT PRIMARY KEY, set_at TEXT NOT NULL)")
+        conn.commit()
+        row = conn.execute("SELECT 1 FROM bot_flags WHERE flag_key=?", (flag_key,)).fetchone()
+        conn.close()
+        if row:
+            return True
+    except Exception:
+        pass
+    # Fallback: check Redis
+    try:
+        r = _redis()
+        return bool(r.get(flag_key))
+    except Exception:
+        return False
+
+
+def _set_flag(flag_key: str) -> None:
+    """Set a one-time flag in both SQLite and Redis so it survives restarts."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_db_path())
+        conn.execute("CREATE TABLE IF NOT EXISTS bot_flags (flag_key TEXT PRIMARY KEY, set_at TEXT NOT NULL)")
+        conn.execute("INSERT OR IGNORE INTO bot_flags (flag_key, set_at) VALUES (?, ?)",
+                     (flag_key, _now_et().isoformat()))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("_set_flag SQLite failed for %s: %s", flag_key, e)
+    try:
+        r = _redis()
+        r.set(flag_key, "1")
+    except Exception:
+        pass
+
+
 def adjust_record(wins_delta: int = 0, losses_delta: int = 0) -> dict:
     """
     Adjust W/L counts by delta (positive or negative).
@@ -647,9 +687,16 @@ def _slip_legs(picks: list[dict], results: list[str] | None = None) -> str:
         else:
             mkt = _MARKET.get(p.get("market", ""), p.get("market", "").upper())
             fmt_odds = (lambda v: f"+{v}" if isinstance(v, (int, float)) and v > 0 else str(v))(p.get("best_odds", ""))
+            _lv = p.get("line_value")
+            _lv_str = ""
+            if _lv is not None and p.get("market") in ("spreads", "totals"):
+                try:
+                    _lv_str = f" {'+' if float(_lv) > 0 else ''}{_lv}"
+                except Exception:
+                    pass
             lines.append(
                 f"`LEG {i}`  **{p.get('away_team', '')} @ {p.get('home_team', '')}**\n"
-                f"┣  {mkt}  **{p.get('selection', '')}**  `{fmt_odds}`\n"
+                f"┣  {mkt}  **{p.get('selection', '')}{_lv_str}**  `{fmt_odds}`\n"
                 f"┣  Conf **{conf}%**"
                 + outcome_line
             )

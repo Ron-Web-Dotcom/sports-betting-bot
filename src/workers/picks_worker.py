@@ -667,6 +667,21 @@ def _build_hardrock_candidates(
 
     logger.info("HardRock [%s]: %d games in DB window", period, len(snapshots))
 
+    # Recent-game dedup: skip a matchup if it was picked in both of the last 2 days.
+    # Prevents the same game (e.g. KC Royals vs Orioles) appearing 3+ days in a row.
+    _recent_key = "picks:recent_game_keys"
+    _recent_games: dict[str, list[str]] = {}
+    try:
+        from src.core.config import REDIS_URL as _RU_rg
+        import redis as _redis_rg
+        import json as _json_rg
+        _rr_rg = _redis_rg.from_url(_RU_rg, decode_responses=True, socket_connect_timeout=2)
+        _raw_rg = _rr_rg.get(_recent_key)
+        if _raw_rg:
+            _recent_games = _json_rg.loads(_raw_rg)
+    except Exception:
+        pass
+
     _today_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York")).date()
 
     for game_id, snap_list in list(snapshots.items())[:200]:
@@ -704,6 +719,15 @@ def _build_hardrock_candidates(
                 _team_matches(away_team, sofascore_events)
             ):
                 continue
+
+        # Recent-game dedup: if this matchup was picked the last 2 days, skip today
+        _game_key_rg = f"{home_team.lower()}:{away_team.lower()}"
+        _pick_dates  = _recent_games.get(_game_key_rg, [])
+        _yesterday   = (_today_et - _dt.timedelta(days=1)).isoformat()
+        _day_before  = (_today_et - _dt.timedelta(days=2)).isoformat()
+        if _yesterday in _pick_dates and _day_before in _pick_dates:
+            logger.info("HardRock [%s]: skipping %s — picked 2 days in a row (dedup)", period, _game_key_rg)
+            continue
 
         # ── Build market groups ───────────────────────────────────────────────
         by_mkt: dict[str, list] = {}
@@ -786,20 +810,24 @@ def _build_hardrock_candidates(
             best_odds = max(books.values())
 
             # ── Simple gate ───────────────────────────────────────────────────
-            # h2h (game winner) requires full 77% — it's the hardest market to edge.
-            # All markets require the same 77% floor — no exceptions
+            # CONF_FLOOR (76.5%) is a hard universal floor — applies to ALL picks.
+            # +odds picks additionally need 42%+ implied AND 5% edge over market.
+            # -300 cap: skip heavy favorites (too much to risk, very little upside).
             _min_prob = CONF_FLOOR
             _top_seen_conf = max(_top_seen_conf, ai_prob)
+            if best_odds < -300:
+                logger.info("SKIP extreme ML [%s vs %s] %s: odds=%d (cap -300)",
+                            home_team, away_team, market, best_odds)
+                continue
+            if ai_prob < _min_prob:
+                logger.info("SKIP conf floor [%s vs %s] %s: prob=%.1f%% < %.1f%%",
+                            home_team, away_team, market, ai_prob*100, _min_prob*100)
+                continue
             if best_odds > 0:
                 implied = 100 / (100 + best_odds)
-                if ai_prob < 0.42 or (ai_prob - implied) < 0.05:
-                    logger.info("SKIP +odds [%s vs %s] %s: prob=%.0f%% implied=%.0f%%",
+                if (ai_prob - implied) < 0.05:
+                    logger.info("SKIP +odds edge [%s vs %s] %s: prob=%.0f%% implied=%.0f%%",
                                 home_team, away_team, market, ai_prob*100, implied*100)
-                    continue
-            else:
-                if ai_prob < _min_prob:
-                    logger.info("SKIP -odds [%s vs %s] %s: prob=%.0f%% < %.0f%%",
-                                home_team, away_team, market, ai_prob*100, _min_prob*100)
                     continue
 
             # Simple EV: our_prob × decimal_payout - 1 > 0
@@ -1380,6 +1408,27 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
 
     _run_async(_post({"embeds": [embed]}))
     logger.info("HardRock %s entry posted: %d picks", period, len(entry))
+
+    # Record game keys picked today for recent-game dedup (persist 3 days)
+    try:
+        import redis as _redis_rp
+        import json as _json_rp
+        from src.core.config import REDIS_URL as _RU_rp
+        from src.core.timezone import et_naive as _et_naive_rp
+        _today_str_rp = _et_naive_rp().strftime("%Y-%m-%d")
+        _rp = _redis_rp.from_url(_RU_rp, decode_responses=True, socket_connect_timeout=2)
+        _recent_raw_rp = _rp.get("picks:recent_game_keys")
+        _recent_map_rp: dict[str, list[str]] = _json_rp.loads(_recent_raw_rp) if _recent_raw_rp else {}
+        for _ep in entry:
+            if _ep.get("type") == "team":
+                _gk_rp = f"{_ep.get('home_team','').lower()}:{_ep.get('away_team','').lower()}"
+                _dates_rp = _recent_map_rp.get(_gk_rp, [])
+                if _today_str_rp not in _dates_rp:
+                    _dates_rp.append(_today_str_rp)
+                _recent_map_rp[_gk_rp] = _dates_rp[-3:]  # keep last 3 dates only
+        _rp.setex("picks:recent_game_keys", 259200, _json_rp.dumps(_recent_map_rp))  # 3 days TTL
+    except Exception as _rp_err:
+        logger.debug("Could not update recent game keys: %s", _rp_err)
 
 
 def _generate_hardrock_entry(period: str) -> dict:
