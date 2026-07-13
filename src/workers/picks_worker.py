@@ -185,11 +185,23 @@ def generate_picks():
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
             insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
-            # Favorite bonus: -odds picks get a small score boost to bubble up in slip builder.
-            # Keeps confidence×EV as the core but prefers stackable favorites for parlay value.
-            # Close-match penalty: both sides + odds = coin flip / draw risk, rank lower.
+            # Scoring bonus/penalty by odds type:
+            # -odds heavy favorite  → +4% bonus (most reliable)
+            # -odds light favorite  → +2% bonus
+            # +odds both sides      → pick the LEAST positive (lower number = more likely to win)
+            #   lower +odds side gets no penalty; higher +odds side gets -6% penalty
+            # +odds one side only   → no adjustment, EV gate handles it
             _both_plus = best_odds_val > 0 and (opponent_odds is not None and opponent_odds > 0)
-            _fav_bonus = 0.04 if best_odds_val < -120 else (0.02 if best_odds_val < 0 else (-0.06 if _both_plus else 0.0))
+            if _both_plus:
+                # Least positive wins — penalise only the higher +odds side
+                _is_higher_plus = best_odds_val > opponent_odds
+                _fav_bonus = -0.06 if _is_higher_plus else 0.0
+            elif best_odds_val < -120:
+                _fav_bonus = 0.04
+            elif best_odds_val < 0:
+                _fav_bonus = 0.02
+            else:
+                _fav_bonus = 0.0
             game_pool.append({
                 "type":         "game",
                 "score":        confidence.calibrated_score * (1 + ev_result.ev_pct) * (1 + _fav_bonus),
