@@ -170,13 +170,37 @@ def purge_ghost_slips() -> int:
                                 continue
                 except Exception:
                     pass
-                # Force-settle any slip from a previous date — games from yesterday are over
+                # Force-settle any slip from a previous date — games from yesterday are over.
+                # Before marking dead, try one final result check — Sofascore may have
+                # updated overnight even if it wasn't available during the game window.
                 if (today - slip_day).days >= 1:
-                    slip["status"] = "dead"
-                    r.hset(_SLIP_KEY, sid, json.dumps(slip))
-                    _db_save_slip(slip)
-                    removed += 1
-                    logger.warning("Force-settled previous-day slip %s → dead", sid)
+                    _final_results = []
+                    try:
+                        for _pk_f in slip.get("picks", []):
+                            _res_f = _check_pick_result(_pk_f)
+                            if _res_f:
+                                _final_results.append(_res_f)
+                    except Exception:
+                        pass
+                    if _final_results and len(_final_results) == len(slip.get("picks", [])):
+                        # Got all results — settle properly
+                        _final_outcome = "cashed" if all(x == "won" for x in _final_results) else "dead"
+                        slip["status"] = _final_outcome
+                        r.hset(_SLIP_KEY, sid, json.dumps(slip))
+                        _db_save_slip(slip)
+                        _ratio_f = _update_ratio(r, _final_outcome)
+                        _weekly_f = _get_weekly_ratio(r)
+                        _db_save_result(slip, _final_outcome)
+                        _alert_result(slip, _final_outcome, _ratio_f, _final_results, weekly=_weekly_f)
+                        removed += 1
+                        logger.info("Force-settled previous-day slip %s → %s (late result found)", sid, _final_outcome)
+                    else:
+                        # Still no result — mark void, not dead (data gap, not a real loss)
+                        slip["status"] = "void"
+                        r.hset(_SLIP_KEY, sid, json.dumps(slip))
+                        _db_save_slip(slip)
+                        removed += 1
+                        logger.warning("Force-settled previous-day slip %s → void (no result found)", sid)
         except Exception:
             pass
     # Remove all void slips from Redis (log-only, no Discord, no W/L impact)
