@@ -115,30 +115,42 @@ def generate_picks():
             if not ai:
                 continue
             market    = ai.get("market", best_snap.get("market", "h2h"))
-            selection = ai.get("selection", "")
+
+            # ── Side selection: always pick - odds; if both +, pick least positive ──
+            # Build best odds per selection for this market from snapshot data
+            _side_best: dict[str, int | float] = {}
+            for _s in snap_list:
+                if _s.get("market") != market or not _s.get("selection") or _s.get("best_odds") is None:
+                    continue
+                _sel = _s["selection"]
+                if _sel not in _side_best or _s["best_odds"] > _side_best[_sel]:
+                    _side_best[_sel] = _s["best_odds"]
+
+            if _side_best:
+                _neg = {sel: o for sel, o in _side_best.items() if o < 0}
+                if _neg:
+                    selection = min(_neg, key=lambda s: _neg[s])  # most negative = heaviest fav
+                else:
+                    selection = min(_side_best, key=lambda s: _side_best[s])  # least positive
+            else:
+                selection = ai.get("selection", "")
+
             books_odds = {s["book"]: s["best_odds"] for s in snap_list
                           if s.get("market") == market and s.get("selection") == selection
                           and s.get("book") and s.get("best_odds") is not None}
-            if not books_odds:
-                # Fuzzy fallback: AI may return "White Sox" instead of "Chicago White Sox"
-                # Try partial match against snapshot selections
+            if not books_odds and selection:
+                _sl = selection.lower()
                 for s in snap_list:
                     s_sel = (s.get("selection") or "").lower()
-                    s_mkt = s.get("market", "")
-                    if s_mkt == market and s.get("book") and (
-                        selection.lower() in s_sel or s_sel in selection.lower()
+                    if s.get("market") == market and s.get("book") and s.get("best_odds") is not None and (
+                        _sl in s_sel or s_sel in _sl
                     ):
-                        if s.get("best_odds") is not None:
-                            books_odds[s["book"]] = s["best_odds"]
+                        books_odds[s["book"]] = s["best_odds"]
             if not books_odds:
-                logger.warning("picks: no odds matched selection=%r market=%r for %s @ %s — skipping pick to avoid wrong-team odds", selection, market, away_team, home_team)
+                logger.warning("picks: no odds for selection=%r market=%r %s @ %s — skip", selection, market, away_team, home_team)
                 continue
-            # Derive best_odds from AI's actual selection — not snapshot[0] which may be the other side
-            def _odds_sort_key(v):
-                if v > 0: return v
-                denom = 100 + abs(v)
-                return 1 / (1 - 100 / denom) if denom != 100 else -999
-            best_odds_val = max(books_odds.values(), key=_odds_sort_key) if books_odds else best_snap.get("best_odds", -110)
+
+            best_odds_val = max(books_odds.values()) if books_odds else best_snap.get("best_odds", -110)
             opp_prob      = ai.get("opponent_probability")
             opponent_odds = (decimal_to_american(1.0 / opp_prob)
                              if opp_prob and 0 < opp_prob < 1 else None)
@@ -150,37 +162,25 @@ def generate_picks():
                 sport               = sport_key,
                 market              = market,
             )
-            # Spread picks must have -odds (you're favored to cover) — +odds spread = underdog line
-            if market == "spreads" and best_odds_val > 0:
-                logger.info("picks: skipping %s spread — +%s odds means underdog to cover (favorites rule)",
-                            selection, best_odds_val)
-                continue
 
-            # Confidence gate:
-            # -odds: market implied prob is the floor — heavy favorites (-500, -1000 etc)
-            #   are already priced at 83%+ by the market, that counts as high confidence.
-            #   Use max(ai_calibrated, market_implied) so a strong favorite is never blocked
-            #   by an AI score that's slightly below the manual threshold.
-            # +odds: need 42%+ AI conf AND 5%+ edge over implied — EV gate does the rest.
-            _cal = confidence.calibrated_score
+            # Market implied probability from the chosen side's odds
             if best_odds_val < 0:
                 _market_implied = abs(best_odds_val) / (abs(best_odds_val) + 100)
-                _effective_conf = max(_cal, _market_implied)
-                if _effective_conf < CONF_FLOOR:
-                    continue
             else:
-                _implied = 100 / (100 + best_odds_val)
-                if _cal < 0.42 or (_cal - _implied) < 0.05:
-                    continue
-            # Use effective confidence for EV — for heavy favorites this is market implied
-            _proj = _effective_conf if best_odds_val < 0 else _cal
-            ev_result  = evaluate(american_odds=best_odds_val,
-                                   projected_prob=_proj,
-                                   opponent_odds=opponent_odds)
-            # Require positive EV — skip no-vig check when opponent_odds unknown (avoids blocking favorites)
-            if ev_result.ev_pct < EV_FLOOR:
+                _market_implied = 100 / (100 + best_odds_val)
+
+            # Use higher of AI confidence or market implied — never block a market favorite
+            _effective_conf = max(confidence.calibrated_score, _market_implied)
+
+            if _effective_conf < CONF_FLOOR:
+                logger.info("SKIP conf [%s @ %s] %s: eff=%.1f%% < %.1f%%",
+                            away_team, home_team, market, _effective_conf*100, CONF_FLOOR*100)
                 continue
-            if opponent_odds is not None and _cal <= ev_result.no_vig_prob:
+
+            ev_result = evaluate(american_odds=best_odds_val,
+                                 projected_prob=_effective_conf,
+                                 opponent_odds=opponent_odds)
+            if ev_result.ev_pct < EV_FLOOR:
                 continue
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
@@ -857,35 +857,47 @@ def _build_hardrock_candidates(
             if not books:
                 continue  # no matching selection odds — skip rather than use wrong team's odds
 
-            # Best odds = highest payout: max by raw value (least negative for -odds, highest for +odds)
-            best_odds = max(books.values())
+            # ── Side selection: always pick - odds; if both +, pick least positive ──
+            # Gather all distinct selections + their best available odds
+            _side_best: dict[str, int | float] = {}
+            for s in snaps:
+                if s.get("market") != market or not s.get("selection") or s.get("best_odds") is None:
+                    continue
+                sel = s["selection"]
+                cur = _side_best.get(sel)
+                if cur is None or s["best_odds"] > cur:
+                    _side_best[sel] = s["best_odds"]
 
-            # ── Simple gate ───────────────────────────────────────────────────
-            # Heavy negative odds (-500, -1000 etc.) are heavy favorites — the
-            # market is already pricing them at 83–91%+ implied probability which
-            # meets or exceeds CONF_FLOOR. Use implied prob for confidence on
-            # large favorites so they're never blocked just because the AI score
-            # is slightly below the manual threshold.
-            _top_seen_conf = max(_top_seen_conf, ai_prob)
+            if not _side_best:
+                continue
+
+            # Pick the side with negative odds; if none negative, pick least positive
+            _neg_sides = {sel: o for sel, o in _side_best.items() if o < 0}
+            if _neg_sides:
+                # Most negative = heaviest favorite
+                selection = min(_neg_sides, key=lambda s: _neg_sides[s])
+            else:
+                # All +odds — pick the lowest (least positive = most likely)
+                selection = min(_side_best, key=lambda s: _side_best[s])
+
+            best_odds = _side_best[selection]
+
+            # Market implied probability from the chosen odds
             if best_odds < 0:
                 _market_implied = abs(best_odds) / (abs(best_odds) + 100)
-                # For heavy favorites use the higher of AI or market implied
-                _effective_prob = max(ai_prob, _market_implied)
             else:
-                _effective_prob = ai_prob
-            _min_prob = CONF_FLOOR
-            if _effective_prob < _min_prob:
-                logger.info("SKIP conf floor [%s vs %s] %s: prob=%.1f%% < %.1f%%",
-                            home_team, away_team, market, ai_prob*100, _min_prob*100)
-                continue
-            if best_odds > 0:
-                implied = 100 / (100 + best_odds)
-                if (ai_prob - implied) < 0.05:
-                    logger.info("SKIP +odds edge [%s vs %s] %s: prob=%.0f%% implied=%.0f%%",
-                                home_team, away_team, market, ai_prob*100, implied*100)
-                    continue
+                _market_implied = 100 / (100 + best_odds)
 
-            # Simple EV: our_prob × decimal_payout - 1 > 0
+            # Use the higher of AI confidence or market implied — never block a market favorite
+            _effective_prob = max(ai_prob, _market_implied)
+            _top_seen_conf = max(_top_seen_conf, _effective_prob)
+
+            if _effective_prob < CONF_FLOOR:
+                logger.info("SKIP conf floor [%s vs %s] %s: prob=%.1f%% < %.1f%%",
+                            home_team, away_team, market, _effective_prob*100, CONF_FLOOR*100)
+                continue
+
+            # Simple EV using effective probability
             dec = american_to_decimal(best_odds)
             ev  = _effective_prob * (dec - 1) - (1 - _effective_prob)
             if ev < EV_FLOOR:
