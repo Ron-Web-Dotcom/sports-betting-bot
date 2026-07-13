@@ -100,7 +100,7 @@ def _import_tasks():
 # cron tasks:     run at specific (hour, minute) ET — optionally day_of_week / day_of_month
 
 INTERVAL_TASKS = [
-    (180,  "track_slips"),            # 3 min — slip lifecycle alerts
+    (30,   "track_slips"),            # 30 s — fast poll so results post the moment a game ends
     (1800, "scan_and_save_odds"),     # 30 min — credit-efficient (in-season sports only)
     (1200, "scan_player_props"),      # 20 min — player + team props for HardRock entries
     (1800, "fetch_and_save_news"),    # 30 min

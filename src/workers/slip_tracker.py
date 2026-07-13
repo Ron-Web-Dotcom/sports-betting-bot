@@ -1232,7 +1232,7 @@ def _alert_slip_live(slip: dict, picks: list[dict]) -> None:
 
 def track_slips() -> dict:
     """
-    Runs every 3 minutes. For each active slip:
+    Runs every 30 seconds. For each active slip:
     - Fire ONE grouped "starting soon" alert for all games starting within 30 min
     - Fire ONE grouped "live now" alert for all games going live
     - Check results after games complete
@@ -1245,7 +1245,21 @@ def track_slips() -> dict:
         if not slips:
             return {"slips": 0}
 
+        # Fast-exit: if no game is within 4h of starting, nothing to do this cycle.
+        # This keeps the 30s poll cheap when games are hours away.
         now = _now_et()
+        _any_active = False
+        for _sl in slips:
+            for _pk in _sl.get("picks", []):
+                _ct = _parse_time(_pk.get("commence_time", ""))
+                if _ct and (now - _ct).total_seconds() > -4 * 3600:
+                    _any_active = True
+                    break
+            if _any_active:
+                break
+        if not _any_active:
+            return {"slips": len(slips), "skipped": "no games within 4h"}
+
         alerts_fired = 0
 
         # ── Pass 1: starting soon / live alerts via Sofascore status ─────────
