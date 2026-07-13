@@ -125,7 +125,7 @@ _TENNIS = {
 
 # All sports that support player props on Odds API
 PLAYER_PROP_SPORTS = {
-    "basketball_nba", "basketball_wnba", "basketball_ncaab", "basketball_wncaab",
+    "basketball_nba", "basketball_nba_summer_league", "basketball_wnba", "basketball_ncaab", "basketball_wncaab",
     "americanfootball_nfl", "americanfootball_ncaaf",
     "baseball_mlb",
     "icehockey_nhl",

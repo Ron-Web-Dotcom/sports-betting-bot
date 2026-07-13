@@ -104,6 +104,7 @@ _SEASON_CALENDAR: dict[str, tuple[int, int, int, int]] = {
     # ── US Major Sports ───────────────────────────────────────────────────────
     "baseball_mlb":                              (3, 20, 10, 31),  # late Mar – Oct
     "basketball_nba":                            (10, 1,  6, 30),  # Oct – Jun
+    "basketball_nba_summer_league":              (7,  1,  7, 31),  # NBA Summer League — Jul
     "basketball_wnba":                           (5,  1, 10, 15),  # May – Oct
     "americanfootball_nfl":                      (9,  1,  2, 15),  # Sep – Feb
     "americanfootball_ncaaf":                    (8, 25,  1, 15),  # Aug – Jan
@@ -241,6 +242,8 @@ _SEASON_CALENDAR: dict[str, tuple[int, int, int, int]] = {
 _ALL_SPORTS: dict[str, str] = {
     # ── US Major ──────────────────────────────────────────────────────────────
     "nba":                  "basketball_nba",
+    "nbasummer":            "basketball_nba_summer_league",
+    "summerleague":         "basketball_nba_summer_league",
     "nfl":                  "americanfootball_nfl",
     "mlb":                  "baseball_mlb",
     "nhl":                  "icehockey_nhl",
@@ -330,9 +333,9 @@ _ALL_SPORTS: dict[str, str] = {
     "usopen":               "tennis_atp_us_open",
     "wusopen":              "tennis_wta_us_open",
     # ── Tennis — Tour Events ──────────────────────────────────────────────────
-    "tennis":               "tennis_atp_us_open",   # current tournament — update seasonally
-    "atp":                  "tennis_atp_us_open",   # current tournament — update seasonally
-    "wta":                  "tennis_wta_german_open",
+    "tennis":               "tennis_atp_wimbledon",   # current tournament — update seasonally
+    "atp":                  "tennis_atp_wimbledon",   # current tournament — update seasonally
+    "wta":                  "tennis_wta_wimbledon",
     "queens":               "tennis_atp_queens_club_champ",
     "halle":                "tennis_atp_halle_open",
     "madrid":               "tennis_atp_madrid",
