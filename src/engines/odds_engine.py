@@ -491,8 +491,10 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
     _ET      = ZoneInfo("America/New_York")
     cutoff   = datetime.now(_ET) + timedelta(hours=24)   # ET throughout
     tasks    = []
+    skipped_no_props = 0
     for sport_key, events in all_events.items():
         if sport_key not in PLAYER_PROP_SPORTS:
+            skipped_no_props += 1
             continue
         # If scan_all_sports returned events for this sport, it's active — no need
         # to double-gate against Sofascore cache (which can be stale or miss sports)
@@ -514,7 +516,16 @@ def fetch_all_player_props(all_events: dict[str, list[dict]]) -> list[dict]:
             if ev.get("id"):
                 tasks.append((sport_key, ev["id"]))
 
+    logger.info(
+        "fetch_all_player_props: %d tasks queued from %d sports (%d sports skipped — no prop markets)",
+        len(tasks), len(all_events) - skipped_no_props, skipped_no_props,
+    )
     if not tasks:
+        logger.warning(
+            "fetch_all_player_props: 0 tasks — all_events had %d sports, "
+            "none matched PLAYER_PROP_SPORTS or all events were future-filtered",
+            len(all_events),
+        )
         return []
 
     all_props = []
@@ -692,10 +703,14 @@ def scan_all_sports() -> dict[str, list[dict]]:
                 len(sport_keys), len(sf_teams), len(sf_sport_keys))
 
     result: dict[str, list[dict]] = {}
+    raw_events: dict[str, list[dict]] = {}  # unfiltered, kept as fallback
+
     for sport_key in sport_keys:
         events = fetch_events(sport_key)
         if not events:
             continue
+        raw_events[sport_key] = events
+
         # Filter to only games where at least one team is in Sofascore's today list
         if sf_teams:
             def _team_match(team: str) -> bool:
@@ -705,15 +720,29 @@ def scan_all_sports() -> dict[str, list[dict]]:
                     any(tok in sf or sf in tok for tok in tl.split() if len(tok) > 3)
                     for sf in sf_teams
                 )
-            events = [
+            filtered = [
                 e for e in events
                 if _team_match(e.get("home_team", "")) or _team_match(e.get("away_team", ""))
             ]
-        if events:
-            result[sport_key] = [normalise_event(e, sport_key) for e in events]
-            logger.info("Odds: %d events for %s (Sofascore-filtered)", len(events), sport_key)
+        else:
+            filtered = events
 
-    if not result:
+        if filtered:
+            result[sport_key] = [normalise_event(e, sport_key) for e in filtered]
+            logger.info("Odds: %d events for %s (Sofascore-filtered)", len(filtered), sport_key)
+
+    if not result and raw_events:
+        # Sofascore filter wiped everything — fall back to all active-sport events
+        # so props still get fetched. Sofascore team cross-check in entry builders
+        # acts as the second quality gate.
+        logger.warning(
+            "OddsAPI: 0 events after Sofascore filter (sf_teams=%d) — "
+            "falling back to unfiltered events (%d sports)",
+            len(sf_teams), len(raw_events),
+        )
+        for sport_key, events in raw_events.items():
+            result[sport_key] = [normalise_event(e, sport_key) for e in events]
+    elif not result:
         logger.warning("OddsAPI: 0 events after Sofascore filter — check Sofascore cache")
     return result
 
