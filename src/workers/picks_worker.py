@@ -509,7 +509,7 @@ def scan_todays_games():
                         t = t.astimezone(ET)
                     else:
                         t = t.replace(tzinfo=ET)
-                    if t.hour >= 18:
+                    if t.hour >= 17:
                         is_night = True
             except Exception:
                 pass
@@ -731,7 +731,7 @@ def _build_hardrock_candidates(
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
             if _mins_since_start > 30:
                 continue  # game already started (>30 min ago) — lines closed, skip
-            _is_night = _ct_et.hour >= 18
+            _is_night = _ct_et.hour >= 17
             # Night entry: only 4 PM+ games.
             # Day entry: ALL of today's upcoming games — no time restriction.
             # In July, nearly all games start at 7 PM ET so a "before-4PM" gate
