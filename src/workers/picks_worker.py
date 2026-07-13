@@ -861,16 +861,20 @@ def _build_hardrock_candidates(
             best_odds = max(books.values())
 
             # ── Simple gate ───────────────────────────────────────────────────
-            # CONF_FLOOR (76.5%) is a hard universal floor — applies to ALL picks.
-            # +odds picks additionally need 42%+ implied AND 5% edge over market.
-            # -300 cap: skip heavy favorites (too much to risk, very little upside).
-            _min_prob = CONF_FLOOR
+            # Heavy negative odds (-500, -1000 etc.) are heavy favorites — the
+            # market is already pricing them at 83–91%+ implied probability which
+            # meets or exceeds CONF_FLOOR. Use implied prob for confidence on
+            # large favorites so they're never blocked just because the AI score
+            # is slightly below the manual threshold.
             _top_seen_conf = max(_top_seen_conf, ai_prob)
-            if best_odds < -300:
-                logger.info("SKIP extreme ML [%s vs %s] %s: odds=%d (cap -300)",
-                            home_team, away_team, market, best_odds)
-                continue
-            if ai_prob < _min_prob:
+            if best_odds < 0:
+                _market_implied = abs(best_odds) / (abs(best_odds) + 100)
+                # For heavy favorites use the higher of AI or market implied
+                _effective_prob = max(ai_prob, _market_implied)
+            else:
+                _effective_prob = ai_prob
+            _min_prob = CONF_FLOOR
+            if _effective_prob < _min_prob:
                 logger.info("SKIP conf floor [%s vs %s] %s: prob=%.1f%% < %.1f%%",
                             home_team, away_team, market, ai_prob*100, _min_prob*100)
                 continue
@@ -883,7 +887,7 @@ def _build_hardrock_candidates(
 
             # Simple EV: our_prob × decimal_payout - 1 > 0
             dec = american_to_decimal(best_odds)
-            ev  = ai_prob * (dec - 1) - (1 - ai_prob)
+            ev  = _effective_prob * (dec - 1) - (1 - _effective_prob)
             if ev < EV_FLOOR:
                 logger.info("SKIP [%s vs %s] %s: ev=%.2f%% < floor", home_team, away_team, market, ev*100)
                 continue

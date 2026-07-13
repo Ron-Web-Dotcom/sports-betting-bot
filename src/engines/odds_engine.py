@@ -131,6 +131,10 @@ _SOCCER_LEAGUES = {
     "soccer_england_wsl", "soccer_germany_frauen_bundesliga",
     "soccer_spain_liga_f", "soccer_france_d1_feminine",
     "soccer_italy_serie_a_feminine",
+    "soccer_australia_w_league", "soccer_usa_nwsl_challenge_cup",
+    "soccer_brazil_womens", "soccer_japan_women_wsl",
+    "soccer_south_korea_wk_league", "soccer_sweden_damallsvenskan",
+    "soccer_norway_toppserien", "soccer_netherlands_vrouwen_eredivisie",
 }
 
 # Golf tournaments
@@ -231,6 +235,48 @@ _MOTORSPORT_EXTENDED = {
     "motorsport_formula2", "motorsport_formula3",
 }
 
+# Volleyball (men + women)
+_VOLLEYBALL = {
+    "volleyball_wvl", "volleyball_women_wc", "volleyball_men_wc",
+    "volleyball_cev_champions_league", "volleyball_ncaav",
+    "beachvolleyball_fivb_pro_tour",
+}
+
+# Handball (men + women)
+_HANDBALL = {
+    "handball_world_championship", "handball_ehf_champions_league",
+    "handball_bundesliga", "handball_women_world_championship",
+    "handball_ehf_women_champions_league",
+}
+
+# Racquet sports
+_RACQUET = {
+    "badminton_bwf_world_tour", "tabletennis_ittf_world_tour",
+}
+
+# Netball
+_NETBALL = {
+    "netball_supernetball", "netball_world_cup", "netball_nations_cup",
+}
+
+# Women's basketball international
+_INTL_BASKETBALL_WOMEN = {
+    "basketball_fiba_women", "basketball_wnba_summer_league",
+    "basketball_euroleague_women", "basketball_ncaab_womens",
+}
+
+# Women's cricket
+_CRICKET_WOMEN = {
+    "cricket_women_odi", "cricket_women_test",
+    "cricket_women_international_t20",
+}
+
+# Women's cycling
+_CYCLING_WOMEN = {
+    "cycling_tour_de_france_femmes", "cycling_giro_donne",
+    "cycling_la_vuelta_femenina",
+}
+
 # All sports that support player props on Odds API
 PLAYER_PROP_SPORTS = {
     # ── Basketball (US + International) ───────────────────────────────────────
@@ -258,9 +304,11 @@ PLAYER_PROP_SPORTS = {
     # ── Motorsport ────────────────────────────────────────────────────────────
     "motorsport_formula_1", "motorsport_indycar", "motorsport_nascar_cup_series",
 } | _SOCCER_LEAGUES | _GOLF_TOURNAMENTS | _TENNIS \
-  | _INTL_BASKETBALL | _INTL_HOCKEY | _INTL_BASEBALL \
-  | _RUGBY_EXTENDED | _CRICKET_EXTENDED \
-  | _DARTS | _SNOOKER | _CYCLING | _MOTORSPORT_EXTENDED
+  | _INTL_BASKETBALL | _INTL_BASKETBALL_WOMEN \
+  | _INTL_HOCKEY | _INTL_BASEBALL \
+  | _RUGBY_EXTENDED | _CRICKET_EXTENDED | _CRICKET_WOMEN \
+  | _DARTS | _SNOOKER | _CYCLING | _CYCLING_WOMEN | _MOTORSPORT_EXTENDED \
+  | _VOLLEYBALL | _HANDBALL | _RACQUET | _NETBALL
 
 
 # ── Redis helpers for credits-exhausted flag ───────────────────────────────────
@@ -519,8 +567,27 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
         **{sk: _DARTS_MARKETS for sk in _DARTS},
         # ── Snooker ───────────────────────────────────────────────────────────
         **{sk: _SNOOKER_MARKETS for sk in _SNOOKER},
-        # ── Cycling ───────────────────────────────────────────────────────────
+        # ── Cycling (Men + Women) ─────────────────────────────────────────────
         **{sk: _CYCLING_MARKETS for sk in _CYCLING},
+        **{sk: _CYCLING_MARKETS for sk in _CYCLING_WOMEN},
+        # ── Volleyball (Men + Women) ──────────────────────────────────────────
+        **{sk: ["player_kills", "player_aces", "player_blocks",
+                "player_digs", "player_points"] for sk in _VOLLEYBALL},
+        # ── Handball (Men + Women) ────────────────────────────────────────────
+        **{sk: ["player_goals", "player_assists", "player_saves",
+                "player_shots_on_target"] for sk in _HANDBALL},
+        # ── Badminton / Table Tennis ──────────────────────────────────────────
+        **{sk: ["player_match_winner", "player_game_handicap",
+                "player_total_games"] for sk in _RACQUET},
+        # ── Netball ───────────────────────────────────────────────────────────
+        **{sk: ["player_goals", "player_goal_assists",
+                "player_intercepts"] for sk in _NETBALL},
+        # ── Women's Basketball International ──────────────────────────────────
+        **{sk: ["player_points", "player_rebounds", "player_assists",
+                "player_threes", "player_double_double"] + _TEAM_BASKETBALL + _GAME_BASKETBALL
+           for sk in _INTL_BASKETBALL_WOMEN},
+        # ── Women's Cricket ───────────────────────────────────────────────────
+        **{sk: _CRICKET_MARKETS for sk in _CRICKET_WOMEN},
     }
     markets = _sport_markets.get(sport_key, [])
     if not markets:
