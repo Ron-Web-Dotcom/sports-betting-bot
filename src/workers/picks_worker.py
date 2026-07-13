@@ -156,24 +156,26 @@ def generate_picks():
                             selection, best_odds_val)
                 continue
 
-            # Odds range: -odds favorites preferred; +odds capped at +300 (no longshots)
-            if best_odds_val > 300:
-                logger.info("picks: skipping %s — odds +%s too high (cap +300)", selection, best_odds_val)
-                continue
-
-            # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ all markets
+            # Confidence gate:
+            # -odds: market implied prob is the floor — heavy favorites (-500, -1000 etc)
+            #   are already priced at 83%+ by the market, that counts as high confidence.
+            #   Use max(ai_calibrated, market_implied) so a strong favorite is never blocked
+            #   by an AI score that's slightly below the manual threshold.
+            # +odds: need 42%+ AI conf AND 5%+ edge over implied — EV gate does the rest.
             _cal = confidence.calibrated_score
-            _min_prob = CONF_FLOOR
-            if best_odds_val > 0:
+            if best_odds_val < 0:
+                _market_implied = abs(best_odds_val) / (abs(best_odds_val) + 100)
+                _effective_conf = max(_cal, _market_implied)
+                if _effective_conf < CONF_FLOOR:
+                    continue
+            else:
                 _implied = 100 / (100 + best_odds_val)
                 if _cal < 0.42 or (_cal - _implied) < 0.05:
                     continue
-            else:
-                if _cal < _min_prob:
-                    continue
-            # Use calibrated score for EV so edge reflects realistic win probability
+            # Use effective confidence for EV — for heavy favorites this is market implied
+            _proj = _effective_conf if best_odds_val < 0 else _cal
             ev_result  = evaluate(american_odds=best_odds_val,
-                                   projected_prob=_cal,
+                                   projected_prob=_proj,
                                    opponent_odds=opponent_odds)
             # Require positive EV — skip no-vig check when opponent_odds unknown (avoids blocking favorites)
             if ev_result.ev_pct < EV_FLOOR:
@@ -1143,20 +1145,17 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         reasoning = ai.get("reasoning", "")
         best_odds = prop["best_odds"]
 
-        # Odds range: cap +odds at +300 for props too — no longshots
-        if best_odds > 300:
-            logger.info("picks: skipping prop %s — odds +%s too high (cap +300)", player, best_odds)
-            continue
-
-        # Gate on numbers, not recommendation label — label is calibrated for -odds.
-        # For + odds props: need 42%+ win prob AND 5%+ edge AND positive EV.
-        # For - odds props: need 60%+ win prob (lower than team floor since props are noisier).
-        if best_odds > 0:
-            implied = 100 / (100 + best_odds)
-            if conf < 0.42 or (conf - implied) < 0.05 or ev <= 0:
+        # Gate on numbers, not recommendation label.
+        # -odds props: heavy favorites auto-qualify via market implied prob.
+        # +odds props: need 42%+ conf AND 5%+ edge over implied AND positive EV.
+        if best_odds < 0:
+            _prop_market_implied = abs(best_odds) / (abs(best_odds) + 100)
+            _prop_eff_conf = max(conf, _prop_market_implied)
+            if _prop_eff_conf < 0.60 or ev <= 0:
                 continue
         else:
-            if conf < 0.60 or ev <= 0:
+            implied = 100 / (100 + best_odds)
+            if conf < 0.42 or (conf - implied) < 0.05 or ev <= 0:
                 continue
 
         candidates.append({
