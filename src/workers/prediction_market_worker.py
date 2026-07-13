@@ -150,6 +150,8 @@ def _fetch_todays_games(period: str = "day") -> list[dict]:
                     _is_night_g = _hour_et >= 17
                     if period == "night" and not _is_night_g:
                         continue
+                    if period == "day" and _is_night_g:
+                        continue
                 except Exception:
                     pass
             games[game_id] = {

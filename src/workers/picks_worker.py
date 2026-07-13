@@ -751,9 +751,11 @@ def _build_hardrock_candidates(
             if _mins_since_start > 120:
                 continue  # game started 2h+ ago — lines closed, skip
             _is_night = _ct_et.hour >= 17
-            # Night entry: only 5 PM ET+ games.
-            # Day entry: ALL of today's games — no time restriction.
+            # Day entry: only games starting before 5 PM ET.
+            # Night entry: only games starting at 5 PM ET or later.
+            # This keeps day/night picks from stealing each other's games.
             if period == "night" and not _is_night: continue
+            if period == "day"   and _is_night:     continue
         except Exception:
             if sofascore_events and not (
                 _team_matches(home_team, sofascore_events) or
