@@ -188,17 +188,15 @@ def purge_ghost_slips() -> int:
                     except Exception:
                         pass
                     if _final_results and len(_final_results) == len(slip.get("picks", [])):
-                        # Got all results — post to Discord regardless of when we found it
+                        # Settle silently — Discord only posts same-day when result drops instantly
                         _final_outcome = "cashed" if all(x == "won" for x in _final_results) else "dead"
                         slip["status"] = _final_outcome
                         r.hset(_SLIP_KEY, sid, json.dumps(slip))
                         _db_save_slip(slip)
-                        _ratio_f = _update_ratio(r, _final_outcome)
-                        _weekly_f = _get_weekly_ratio(r)
+                        _update_ratio(r, _final_outcome)
                         _db_save_result(slip, _final_outcome)
-                        _alert_result(slip, _final_outcome, _ratio_f, _final_results, weekly=_weekly_f)
                         removed += 1
-                        logger.info("Force-settled previous-day slip %s → %s", sid, _final_outcome)
+                        logger.info("Force-settled previous-day slip %s → %s (record corrected, no Discord)", sid, _final_outcome)
                     else:
                         # Still no result — mark void, not dead (data gap, not a real loss)
                         slip["status"] = "void"
