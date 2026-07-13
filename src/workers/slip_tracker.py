@@ -179,6 +179,17 @@ def purge_ghost_slips() -> int:
                     logger.warning("Force-settled previous-day slip %s → dead", sid)
         except Exception:
             pass
+    # Remove all void slips from Redis (log-only, no Discord, no W/L impact)
+    for sid, raw in list(r.hgetall(_SLIP_KEY).items()):
+        try:
+            slip = json.loads(raw)
+            if slip.get("status") == "void":
+                r.hdel(_SLIP_KEY, sid)
+                removed += 1
+                logger.info("Purged void slip: %s", sid)
+        except Exception:
+            pass
+
     return removed
 
 
@@ -1403,16 +1414,7 @@ def track_slips() -> dict:
                         weekly = _get_weekly_ratio(r)
                     _db_save_result(slip, slip_result)
                     if slip_result == "void":
-                        _post_embed({
-                            "title":       "⚪  SLIP VOID — Score Not Found",
-                            "description": (
-                                f"{_ticket_header(slip)}\n"
-                                f"Result could not be confirmed after timeout.\n"
-                                f"_Not counted as a win or loss._"
-                            ),
-                            "color": 0x607D8B,
-                            "footer": {"text": f"Tracker timeout · {_platform_label(slip['platform'])}"},
-                        })
+                        logger.info("Slip %s voided (score not found after timeout) — not counted in W/L", slip.get("id"))
                     else:
                         _alert_result(slip, slip_result, ratio, results, weekly=weekly)
                     _mark_alerted(r, result_key)
