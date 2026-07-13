@@ -156,6 +156,11 @@ def generate_picks():
                             selection, best_odds_val)
                 continue
 
+            # Odds range: -odds favorites preferred; +odds capped at +300 (no longshots)
+            if best_odds_val > 300:
+                logger.info("picks: skipping %s — odds +%s too high (cap +300)", selection, best_odds_val)
+                continue
+
             # Dual-path gate: +odds needs 42%+ AND 5% edge over implied; -odds needs 77%+ all markets
             _cal = confidence.calibrated_score
             _min_prob = CONF_FLOOR
@@ -1137,6 +1142,11 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         ev        = ai.get("ev_pct", prop["ev_pct"])
         reasoning = ai.get("reasoning", "")
         best_odds = prop["best_odds"]
+
+        # Odds range: cap +odds at +300 for props too — no longshots
+        if best_odds > 300:
+            logger.info("picks: skipping prop %s — odds +%s too high (cap +300)", player, best_odds)
+            continue
 
         # Gate on numbers, not recommendation label — label is calibrated for -odds.
         # For + odds props: need 42%+ win prob AND 5%+ edge AND positive EV.
