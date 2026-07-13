@@ -1114,40 +1114,62 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
             or (pick.get("sport_key") or "").split("_")[-1].upper() or "KALSHI"
     sport_emoji   = _sport_emoji_map.get(sport, "🎯")
     matchup_label = _subtitle if _subtitle and _subtitle != question else sport
-    answer    = (pick.get("answer") or pick.get("side") or "YES").upper()
     _yes_p    = pick.get("yes_price") or 0.5
     _no_p     = pick.get("no_price")  or round(1 - _yes_p, 2)
     yes_pct   = round(_yes_p * 100)
     no_pct    = round(_no_p  * 100)
-    our_pct   = yes_pct if answer == "YES" else no_pct
-    other_pct = no_pct  if answer == "YES" else yes_pct
+
+    # Always pick the BIGGER price side (higher probability = more confident side).
+    # If the AI chose the lower-probability side, override to the bigger price.
+    ai_answer = (pick.get("answer") or pick.get("side") or "YES").upper()
+    if _yes_p >= _no_p:
+        answer      = "YES"
+        our_pct     = yes_pct
+        other_pct   = no_pct
+        other_label = "NO"
+    else:
+        answer      = "NO"
+        our_pct     = no_pct
+        other_pct   = yes_pct
+        other_label = "YES"
+    # If AI agreed, great. If it disagreed, log it.
+    if ai_answer != answer:
+        logger.info(
+            "Kalshi slip: overriding AI answer %s → %s (YES=%.0f%% NO=%.0f%%) — always show bigger price",
+            ai_answer, answer, yes_pct, no_pct,
+        )
+
     conf      = round((pick.get("confidence") or 0) * 100)
     _ev_val   = round((pick.get('ev_pct') or 0) * 100, 1)
     ev        = f"+{_ev_val}%" if _ev_val >= 0 else f"{_ev_val}%"
-    cost      = round((_yes_p if answer == "YES" else _no_p) * 10, 2)
+    # Contract cost on Kalshi: buying YES at 70¢ means you pay $7.00 to win $10
+    _our_price = _yes_p if answer == "YES" else _no_p
+    cost_per_dollar = round(_our_price, 2)          # e.g. 0.70
+    cost_per_ten    = round(_our_price * 10, 2)     # e.g. 7.00  (pay to win $10)
+    profit_per_ten  = round((1 - _our_price) * 10, 2)  # e.g. 3.00  (profit if correct)
+
     reasoning = pick.get("reasoning", "")
     # American odds for display
-    _our_odds_val   = pick.get("yes_american", 0) if answer == "YES" else pick.get("no_american", 0)
-    _other_odds_val = pick.get("no_american",  0) if answer == "YES" else pick.get("yes_american", 0)
     def _fmt_am(v) -> str:
         try:
             vi = int(v or 0)
             if vi == 0:
-                return ""          # missing/unknown — don't show "0"
+                return ""
             return f"+{vi}" if vi > 0 else str(vi)
         except Exception:
             return ""
-    _our_odds   = _fmt_am(_our_odds_val)
-    _other_odds = _fmt_am(_other_odds_val)
+    _our_am   = _fmt_am(pick.get("yes_american", 0) if answer == "YES" else pick.get("no_american", 0))
+    _other_am = _fmt_am(pick.get("no_american",  0) if answer == "YES" else pick.get("yes_american", 0))
 
+    # Game time — stored as naive ET string or UTC ISO string
     try:
         from dateutil.parser import parse as _p
         from zoneinfo import ZoneInfo as _ZI4
         _ET4 = _ZI4("America/New_York")
         if pick.get("commence_time"):
-            _ct4 = _p(pick["commence_time"])
+            _ct4 = _p(str(pick["commence_time"]))
             if _ct4.tzinfo is None:
-                _ct4 = _ct4.replace(tzinfo=_ET4)  # naive = ET, never assume UTC
+                _ct4 = _ct4.replace(tzinfo=_ET4)   # naive = ET, never assume UTC
             game_time = _ct4.astimezone(_ET4).strftime("%-I:%M %p ET")
         else:
             game_time = ""
@@ -1159,7 +1181,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
         "description": (
             f"```\n"
             f"  Ticket #{ticket_id}          {date_str}\n"
-            f"  {time_str}\n"
+            f"  Posted: {time_str}" + (f"  ·  Game: {game_time}" if game_time else "") + "\n"
             f"```"
         ),
         "fields": [
@@ -1169,18 +1191,22 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
                 "inline": False,
             },
             {
-                "name":   "✅  ANSWER",
-                "value":  f"**{answer}**  ·  {our_pct}% chance" + (f"  `{_our_odds}`" if _our_odds else ""),
+                "name":   "✅  BET THIS SIDE",
+                "value":  f"**{answer}**  ·  **{our_pct}¢ price**" + (f"  `{_our_am}`" if _our_am else ""),
                 "inline": True,
             },
             {
                 "name":   "❌  OTHER SIDE",
-                "value":  f"{'NO' if answer == 'YES' else 'YES'}  ·  {other_pct}% chance" + (f"  `{_other_odds}`" if _other_odds else ""),
+                "value":  f"{other_label}  ·  {other_pct}¢" + (f"  `{_other_am}`" if _other_am else ""),
                 "inline": True,
             },
             {
                 "name":   "💰  COST / PAYOUT",
-                "value":  f"**${cost}** → $10  ·  Edge **{ev}**  ·  Conf **{conf}%**",
+                "value":  (
+                    f"Pay **${cost_per_ten}** → win **${round(cost_per_ten + profit_per_ten, 2)}**"
+                    f"  (profit **+${profit_per_ten}**)\n"
+                    f"Edge **{ev}**  ·  Conf **{conf}%**"
+                ),
                 "inline": False,
             },
             {
@@ -1190,7 +1216,7 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
             },
             {
                 "name":   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}" + (f"  ·  {matchup_label}" if matchup_label and matchup_label != sport else "") + (f"  ·  🕐 **{game_time}**" if game_time else ""),
+                "value":  f"🔵 Kalshi  ·  {sport_emoji} {sport}" + (f"  ·  {matchup_label}" if matchup_label and matchup_label != sport else ""),
                 "inline": False,
             },
         ],

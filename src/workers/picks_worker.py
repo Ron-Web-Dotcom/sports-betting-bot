@@ -344,7 +344,10 @@ def generate_picks():
         def _gt(commence):
             try:
                 from dateutil.parser import parse as _p
-                return _p(commence).astimezone(ET).strftime("%-I:%M %p ET")
+                dt = _p(str(commence))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=ET)   # stored as naive ET — never assume UTC
+                return dt.astimezone(ET).strftime("%-I:%M %p ET")
             except Exception:
                 return ""
 
@@ -1348,20 +1351,32 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
     def _game_time(commence: str) -> str:
         try:
             from dateutil.parser import parse as _p
-            return _p(commence).astimezone(ET).strftime("%-I:%M %p ET")
+            dt = _p(str(commence))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ET)   # stored as naive ET — never assume UTC
+            return dt.astimezone(ET).strftime("%-I:%M %p ET")
         except Exception:
             return ""
+
+    def _hardrock_odds(p: dict) -> int | float:
+        """Return HardRock-specific odds from books_odds, falling back to best_odds."""
+        bk = p.get("books_odds") or {}
+        for key, val in bk.items():
+            if "hardrock" in str(key).lower():
+                return val
+        return p.get("best_odds", -110)
 
     pick_fields = []
     for i, p in enumerate(entry, 1):
         conf     = round(p["confidence"] * 100)
         # Edge = how much our projected prob beats the vig-free market price
-        # e.g. we say 78%, market vig-free says 42% → edge = +36pp
         _proj   = p["confidence"]
         _no_vig = p.get("no_vig_prob")
         ev      = round((_proj - _no_vig) * 100, 1) if _no_vig else round(min(p.get("ev_pct", 0), 0.25) * 100, 1)
         emoji    = get_emoji(p["sport_key"])
-        odds_fmt = _fmt(p["best_odds"])
+        # Always display HardRock-specific odds; fall back to best available
+        hr_odds  = _hardrock_odds(p)
+        odds_fmt = _fmt(hr_odds)
         reasoning = p.get("reasoning", "")
         reason_short = (next((reasoning[:i+1] for i in range(min(120, len(reasoning))-1, -1, -1) if reasoning[i] in ".!?"), reasoning[:120]) + ("…" if len(reasoning) > 120 else "")) if reasoning else ""
 
