@@ -1376,27 +1376,45 @@ def track_slips() -> dict:
                         )
 
             # Settle only when ALL legs have a result (real or timeout-unknown).
-            #   all won (no unknowns) → cashed
-            #   any unknown           → dead (with note)
-            #   any lost              → dead
+            #   all won                → cashed
+            #   any confirmed lost     → dead
+            #   any unknown (timeout)  → void  (data source failed — don't penalise W/L)
             if results and len(results) == len(picks):
                 if all(r == "won" for r in results):
                     slip_result = "cashed"
                 elif any(r == "unknown" for r in results):
-                    slip_result = "dead"  # couldn't verify — conservative
+                    slip_result = "void"   # couldn't verify score — not a real loss
                 else:
                     slip_result = "dead"
 
                 result_key = f"game:result:{slip['id']}"
                 is_recheck = slip.pop("_rechecking", False)
-                if is_recheck and slip_result in ("cashed",):
-                    # Kalshi settled correctly after our timeout — clear old alert so correct result fires
+                if is_recheck and slip_result == "cashed":
+                    # Kalshi settled correctly after our timeout — clear old dead alert
+                    # and remove the erroneous loss that was already counted
                     r.srem(_ALERTED_KEY, result_key)
+                    adjust_record(losses_delta=-1)  # cancel the earlier timeout dead count
                 if not _alerted(r, result_key):
-                    ratio  = _update_ratio(r, slip_result)
-                    weekly = _get_weekly_ratio(r)
+                    if slip_result != "void":
+                        ratio  = _update_ratio(r, slip_result)
+                        weekly = _get_weekly_ratio(r)
+                    else:
+                        ratio  = _get_ratio(r)
+                        weekly = _get_weekly_ratio(r)
                     _db_save_result(slip, slip_result)
-                    _alert_result(slip, slip_result, ratio, results, weekly=weekly)
+                    if slip_result == "void":
+                        _post_embed({
+                            "title":       "⚪  SLIP VOID — Score Not Found",
+                            "description": (
+                                f"{_ticket_header(slip)}\n"
+                                f"Result could not be confirmed after timeout.\n"
+                                f"_Not counted as a win or loss._"
+                            ),
+                            "color": 0x607D8B,
+                            "footer": {"text": f"Tracker timeout · {_platform_label(slip['platform'])}"},
+                        })
+                    else:
+                        _alert_result(slip, slip_result, ratio, results, weekly=weekly)
                     _mark_alerted(r, result_key)
                     alerts_fired += 1
 
