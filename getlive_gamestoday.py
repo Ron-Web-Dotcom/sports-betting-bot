@@ -337,10 +337,13 @@ if k_rows:
         spread, winner_c, vol, best, side, yc, nc = _scored[0]
         ct_et = parse_et(best.get("close_time") or best.get("expiration_time") or "")
         opens = ct_et.strftime("%-I:%M %p ET") if ct_et else "—"
-        conf  = winner_c   # e.g. 85¢ = 85% implied
+        other_c = nc if side == "YES" else yc
+        if winner_c >= 85:   conf_label_k = "HIGH ✅"
+        elif winner_c >= 70: conf_label_k = "MEDIUM ⚠️"
+        else:                conf_label_k = "LOW ❌"
         print(f"\n  MARKET : {best.get('title','')}")
-        print(f"  PICK   : {side}  ({winner_c}¢ vs {nc if side=='YES' else yc}¢  |  {spread}¢ edge)")
-        print(f"  CONF   : {conf}%  {'✅' if conf >= 70 else '⚠️'}")
+        print(f"  PICK   : {side}  ({winner_c}¢ vs {other_c}¢  |  {spread}¢ edge)")
+        print(f"  CONF   : {conf_label_k}  ({winner_c}¢ is a {'high' if winner_c >= 85 else 'medium' if winner_c >= 70 else 'low'} price — market strongly favors {side})")
         print(f"  OPENS  : {opens}")
         print(f"  VOLUME : ${vol:,}")
     else:
