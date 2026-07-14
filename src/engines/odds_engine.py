@@ -1078,8 +1078,9 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     now_et       = now_et_aware.replace(tzinfo=None)          # naive ET (matches captured_at column)
     now_utc      = now_et_aware.astimezone(UTC).replace(tzinfo=None)   # naive UTC (matches commence_time column)
 
-    # Snapshot freshness: captured within last 6 ET hours
-    cutoff_lo = now_et - timedelta(hours=6)
+    # Snapshot freshness: captured within the current calendar day ET (from midnight)
+    # so morning scans (8–9 AM) are still visible at 11 PM the same day.
+    cutoff_lo = now_et_aware.replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
 
     # Game window: include games that started up to 3 hours ago (props still live)
     # through end of tomorrow so the full day+night slate is always covered.
