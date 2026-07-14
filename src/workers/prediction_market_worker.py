@@ -619,6 +619,31 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "commence_time": _kickoff_et,
                 "expiration_time": m.get("expiration_time", ""),
             })
+        # Enrich candidates with Odds API no-vig confidence from games:enriched
+        try:
+            import json as _cej, redis as _cer
+            from src.core.config import REDIS_URL as _ceurl
+            _cer2 = _cer.from_url(_ceurl, decode_responses=True, socket_connect_timeout=2)
+            _ce_raw = _cer2.get("games:enriched")
+            if _ce_raw and candidates:
+                _ce_list = _cej.loads(_ce_raw)
+                for _cand in candidates:
+                    _ch = (_cand.get("home_team","") or "").lower()
+                    _ca = (_cand.get("away_team","") or "").lower()
+                    for _ceg in _ce_list:
+                        _ceh = (_ceg.get("home_team","") or "").lower()
+                        _cea = (_ceg.get("away_team","") or "").lower()
+                        if _ceh and _cea and (_ceh in _ch or _ch in _ceh) and (_cea in _ca or _ca in _cea):
+                            _cand["odds_api_novig_conf"] = _ceg.get("novig_conf")
+                            _cand["odds_api_pick_team"]  = _ceg.get("pick_team","")
+                            _cand["odds_api_pick_odds"]  = _ceg.get("pick_odds")
+                            _cand["kalshi_agrees"]        = _ceg.get("kalshi_agrees", False)
+                            _cand["kalshi_price"]         = _ceg.get("kalshi_price")
+                            _cand["game_props"]           = _ceg.get("props", [])[:5]
+                            break
+        except Exception:
+            pass
+
         candidates.sort(key=lambda x: x["volume"], reverse=True)
     logger.info("Kalshi [%s]: %d candidates from %d markets (%d sf_games)",
                 period, len(candidates), len(kalshi_full), len(_sf_games))
@@ -857,6 +882,16 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "sf_form":          c.get("sf_form") if c.get("sf_form") else None,
             # H2H — last 5 head-to-head meetings
             "sf_h2h":           c.get("sf_h2h") if c.get("sf_h2h") else None,
+            # Odds API cross-signal — if present, treat as strong prior
+            # "odds_api_novig_conf": no-vig confidence from Odds API (same game) — if present, treat as strong prior
+            # "odds_api_pick_team": team Odds API favors — if matches Kalshi YES side, both markets agree (high conviction)
+            # "kalshi_agrees": true if Kalshi and Odds API point to the same outcome
+            # "game_props": player props for this game — use to assess player-level context
+            "odds_api_novig_conf": c.get("odds_api_novig_conf") or None,
+            "odds_api_pick_team":  c.get("odds_api_pick_team") or None,
+            "odds_api_pick_odds":  c.get("odds_api_pick_odds") or None,
+            "kalshi_agrees":       c.get("kalshi_agrees") or None,
+            "game_props":          c.get("game_props") if c.get("game_props") else None,
         }.items() if v is not None}
         for i, c in enumerate(candidates[:80])
     ]

@@ -230,9 +230,177 @@ def scan_player_props():
 
         logger.info("Props scan complete: odds_api=%d kalshi=%d | changes=%d",
                     len(odds_props), len(kalshi_markets), len(all_changes))
+
+        # Build enriched game cache for picks_worker + prediction_market_worker
+        try:
+            build_enriched_games_cache()
+        except Exception as e:
+            logger.warning("build_enriched_games_cache failed: %s", e)
+
         return {"odds_api": len(odds_props), "kalshi": len(kalshi_markets),
                 "total": len(odds_props), "changes": len(all_changes)}
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)
         raise
+
+
+def build_enriched_games_cache():
+    """
+    Merge Sofascore status + Odds API odds + Kalshi prices + Props per game.
+    Written to Redis as 'games:enriched' after each scan.
+    Both picks_worker and prediction_market_worker read from this.
+    """
+    import json
+    from src.core.config import REDIS_URL
+    import redis as _redis
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+    # Load all data sources from Redis cache
+    sf_events   = json.loads(r.get("sofascore:today_events") or "[]")
+    props_raw   = json.loads(r.get("props:odds_api") or "[]")
+    kalshi_raw  = json.loads(r.get("kalshi:live_markets") or "[]")
+
+    # Load Odds API snapshots
+    from src.engines.odds_engine import get_latest_snapshots_by_game
+    snaps = get_latest_snapshots_by_game()
+
+    import re as _re
+    _SUFFIXES = _re.compile(r'\b(fc|city|united|sc|cf|afc|bfc|sporting|athletics)\b', _re.IGNORECASE)
+    def _norm(name):
+        if not name: return ""
+        return _re.sub(r'\s+', ' ', _SUFFIXES.sub("", name).strip()).lower()
+
+    # Build game index from Odds API snapshots
+    enriched: dict[str, dict] = {}
+    for game_id, snap_list in snaps.items():
+        if not snap_list: continue
+        s0 = snap_list[0]
+        ct = s0.get("commence_time", "")
+        home = s0.get("home_team", "")
+        away = s0.get("away_team", "")
+        sport = s0.get("sport_key", "")
+        h2h = {}
+        for s in snap_list:
+            if s.get("market") != "h2h": continue
+            sel, odds = s.get("selection",""), s.get("best_odds")
+            if sel and odds is not None:
+                cur = h2h.get(sel)
+                if cur is None or odds > cur:
+                    h2h[sel] = odds
+        # Compute no-vig confidence for favorite
+        pick_sel = pick_odds = other_odds = None
+        if h2h:
+            neg = {s: o for s, o in h2h.items() if o < 0}
+            if neg:
+                pick_sel  = min(neg, key=lambda s: neg[s])
+                pick_odds = h2h[pick_sel]
+                other_odds = next((o for s, o in h2h.items() if s != pick_sel), None)
+        def _novig(p1_odds, p2_odds):
+            def _impl(o):
+                if o is None: return 50.0
+                return abs(o)/(abs(o)+100)*100 if o < 0 else 100/(100+o)*100
+            p1 = _impl(p1_odds); p2 = _impl(p2_odds)
+            tot = p1 + p2
+            nv = round(p1/tot*100, 1) if tot > 0 else round(p1, 1)
+            if p1_odds and p1_odds < 0:
+                o = abs(p1_odds)
+                if   o >= 1000: nv = max(nv, 97.0)
+                elif o >=  700: nv = max(nv, 95.0)
+                elif o >=  500: nv = max(nv, 93.0)
+                elif o >=  350: nv = max(nv, 90.0)
+                elif o >=  250: nv = max(nv, 86.0)
+                elif o >=  200: nv = max(nv, 83.0)
+                elif o >=  150: nv = max(nv, 65.0)
+                elif o >=  110: nv = max(nv, 58.0)
+            return nv
+        novig_conf = _novig(pick_odds, other_odds) if pick_odds else None
+        enriched[game_id] = {
+            "game_id":     game_id,
+            "home_team":   home,
+            "away_team":   away,
+            "sport_key":   sport,
+            "commence_time": ct,
+            "h2h":         h2h,
+            "pick_team":   pick_sel,
+            "pick_odds":   pick_odds,
+            "other_odds":  other_odds,
+            "novig_conf":  novig_conf,
+            "sofascore_status": "",
+            "sofascore_id":     "",
+            "kalshi_price":     None,   # ¢ value of the matching Kalshi market
+            "kalshi_side":      None,   # "YES" or "NO"
+            "kalshi_agrees":    False,
+            "kalshi_volume":    0,
+            "props":            [],
+        }
+
+    # Merge Sofascore status
+    for ev in sf_events:
+        eh = _norm(ev.get("home_team",""))
+        ea = _norm(ev.get("away_team",""))
+        for gid, g in enriched.items():
+            if _norm(g["home_team"]) == eh and _norm(g["away_team"]) == ea:
+                g["sofascore_status"] = ev.get("status_type","") or ev.get("status","")
+                g["sofascore_id"]     = ev.get("id","")
+                break
+
+    # Merge Kalshi prices — match by team name in title/subtitle
+    for m in kalshi_raw:
+        title = (m.get("title") or m.get("subtitle") or "").lower()
+        yes_raw = m.get("yes_price") or 0
+        no_raw  = m.get("no_price")  or 0
+        yes_p = round(yes_raw*100) if yes_raw <= 1 else round(yes_raw)
+        no_p  = round(no_raw *100) if no_raw  <= 1 else round(no_raw)
+        if yes_p == 0 and no_p == 0: continue
+        vol = m.get("volume") or 0
+        for gid, g in enriched.items():
+            ht = _norm(g["home_team"])
+            at = _norm(g["away_team"])
+            if not ht and not at: continue
+            ht_tok = ht.split()[0] if ht else ""
+            at_tok = at.split()[0] if at else ""
+            if not any(t and t in title for t in [ht_tok, at_tok] if t):
+                continue
+            # Only update if this Kalshi market has higher volume
+            if vol <= (g["kalshi_volume"] or 0):
+                continue
+            winner_side = "YES" if yes_p >= no_p else "NO"
+            winner_price = max(yes_p, no_p)
+            # Check if Kalshi agrees with Odds API pick
+            # "Will X win?" — YES = home team usually
+            kalshi_agrees = False
+            if g["pick_team"]:
+                pt = _norm(g["pick_team"])
+                pt_tok = pt.split()[0] if pt else ""
+                if winner_side == "YES" and pt_tok and pt_tok in title:
+                    kalshi_agrees = True
+                elif winner_side == "NO" and pt_tok and pt_tok not in title:
+                    kalshi_agrees = True
+            g["kalshi_price"]  = winner_price
+            g["kalshi_side"]   = winner_side
+            g["kalshi_agrees"] = kalshi_agrees
+            g["kalshi_volume"] = vol
+
+    # Merge props
+    for prop in props_raw:
+        ph = _norm(prop.get("home_team",""))
+        pa = _norm(prop.get("away_team",""))
+        for gid, g in enriched.items():
+            if ph and pa and ph == _norm(g["home_team"]) and pa == _norm(g["away_team"]):
+                g["props"].append({
+                    "player":    prop.get("player",""),
+                    "stat":      prop.get("stat",""),
+                    "line":      prop.get("line"),
+                    "over_odds": prop.get("over_odds"),
+                    "under_odds":prop.get("under_odds"),
+                })
+                break
+
+    out = list(enriched.values())
+    r.setex("games:enriched", 2400, json.dumps(out))
+    logger.info("games:enriched built: %d games (kalshi_match=%d, with_props=%d)",
+                len(out),
+                sum(1 for g in out if g["kalshi_price"]),
+                sum(1 for g in out if g["props"]))
+    return out

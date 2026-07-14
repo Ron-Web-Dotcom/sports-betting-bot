@@ -181,6 +181,28 @@ def generate_picks():
             # Use higher of AI confidence or market implied
             _effective_conf = max(confidence.calibrated_score, _market_implied)
 
+            # Boost if Kalshi agrees on the same side (cross-market signal)
+            try:
+                import json as _ej, redis as _er
+                from src.core.config import REDIS_URL as _eurl
+                _er2 = _er.from_url(_eurl, decode_responses=True, socket_connect_timeout=2)
+                _enriched_raw = _er2.get("games:enriched")
+                if _enriched_raw:
+                    _enriched = _ej.loads(_enriched_raw)
+                    for _eg in _enriched:
+                        _eh = (_eg.get("home_team","") or "").lower()
+                        _ea = (_eg.get("away_team","") or "").lower()
+                        _gh = (home_team or "").lower()
+                        _ga = (away_team or "").lower()
+                        if _eh and _ea and (_eh in _gh or _gh in _eh) and (_ea in _ga or _ga in _ea):
+                            if _eg.get("kalshi_agrees") and (_eg.get("kalshi_price") or 0) >= 75:
+                                # Kalshi 75¢+ agrees → boost confidence by 5 points
+                                _effective_conf = min(0.99, _effective_conf + 0.05)
+                                logger.info("Kalshi boost applied for %s @ %s (kalshi=%d¢)", _ga, _gh, _eg["kalshi_price"])
+                            break
+            except Exception:
+                pass
+
             # -odds = market confirmed favorite — skip conf + EV gates entirely.
             # +odds = underdog — require CONF_FLOOR and EV_FLOOR.
             if best_odds_val > 0:

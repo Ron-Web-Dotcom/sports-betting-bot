@@ -374,8 +374,11 @@ else:
         yes_p = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
         no_p  = round(no_raw  * 100) if no_raw  <= 1 else round(no_raw)
         pick  = "YES" if yes_p >= no_p else "NO"
+        _ktitle = (m.get("title") or "")
+        _ksub   = (m.get("subtitle") or "").strip()
+        _kdisp  = f"{_ktitle} {_ksub}".strip() if _ksub and _ksub.lower() not in _ktitle.lower() else _ktitle
         print(row_fmt([
-            (m.get("title") or "")[:40], f"{yes_p}¢", f"{no_p}¢", pick,
+            _kdisp[:40], f"{yes_p}¢", f"{no_p}¢", pick,
             f"${m.get('volume') or 0:,}", m["_close_str"], m["_period"],
         ], K_COL))
 print(sep_k)
