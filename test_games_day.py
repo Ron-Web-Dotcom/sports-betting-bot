@@ -16,7 +16,7 @@ now   = et_naive()
 
 snaps = get_latest_snapshots_by_game()
 
-# Auto-scan if DB has no recent data
+# Auto-scan if DB has no recent data at all
 if not snaps:
     print("  [No data in DB — running odds scan now, please wait...]\n")
     from src.workers.odds_worker import scan_and_save_odds
@@ -109,13 +109,16 @@ def row_fmt(cols):
 sep = "-" * (sum(COL) + 2 * len(COL))
 
 print(f"\n{'='*80}")
-print(f"  DAY GAMES — {now.strftime('%b %d, %Y  %I:%M %p ET')}  ({len(games)} games before 5 PM ET)")
+print(f"  DAY GAMES — {now.strftime('%b %d, %Y  %I:%M %p ET')}  ({len(games)} day / {len(snaps)} total in DB)")
 print(f"{'='*80}")
 print(row_fmt(HDR))
 print(sep)
 
-if not games:
-    print("  No day games found in DB. Run a scan first.")
+if not games and snaps:
+    print("  No day games before 5 PM ET today — all games are tonight.")
+    print("  Run: python3 test_games_night.py")
+elif not games:
+    print("  No games found in DB. Run a scan first.")
 else:
     for g in sorted(games.values(), key=lambda x: x["time_et"]):
         matchup  = f"{g['away']} @ {g['home']}"[:28]

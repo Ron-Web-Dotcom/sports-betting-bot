@@ -109,13 +109,15 @@ def row_fmt(cols):
 sep = "-" * (sum(COL) + 2 * len(COL))
 
 print(f"\n{'='*80}")
-print(f"  NIGHT GAMES — {now.strftime('%b %d, %Y  %I:%M %p ET')}  ({len(games)} games 5 PM ET+)")
+print(f"  NIGHT GAMES — {now.strftime('%b %d, %Y  %I:%M %p ET')}  ({len(games)} night / {len(snaps)} total in DB)")
 print(f"{'='*80}")
 print(row_fmt(HDR))
 print(sep)
 
-if not games:
-    print("  No night games found in DB. Run a scan first.")
+if not games and snaps:
+    print("  No night games (5 PM ET+) today — check day games with test_games_day.py")
+elif not games:
+    print("  No games found in DB. Run a scan first.")
 else:
     for g in sorted(games.values(), key=lambda x: x["time_et"]):
         matchup  = f"{g['away']} @ {g['home']}"[:28]
