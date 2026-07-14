@@ -894,6 +894,16 @@ def _build_hardrock_candidates(
             else:
                 _market_implied = 100 / (100 + best_odds)
 
+            # For heavy favorites, apply a magnitude floor — the market is near-certain
+            if best_odds < 0:
+                _o = abs(best_odds)
+                if   _o >= 1000: _market_implied = max(_market_implied, 0.97)
+                elif _o >=  700: _market_implied = max(_market_implied, 0.95)
+                elif _o >=  500: _market_implied = max(_market_implied, 0.93)
+                elif _o >=  350: _market_implied = max(_market_implied, 0.90)
+                elif _o >=  250: _market_implied = max(_market_implied, 0.86)
+                elif _o >=  200: _market_implied = max(_market_implied, 0.83)
+
             # Use the higher of AI confidence or market implied
             _effective_prob = max(ai_prob, _market_implied)
             _top_seen_conf = max(_top_seen_conf, _effective_prob)

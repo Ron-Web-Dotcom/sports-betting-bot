@@ -25,13 +25,24 @@ def implied_prob(odds):
     return round(abs(odds)/(abs(odds)+100)*100,1) if odds < 0 else round(100/(100+odds)*100,1)
 
 def novig_prob(pick_odds, other_odds):
-    """True win probability — removes bookmaker margin using both sides."""
+    """True win probability — no-vig + magnitude floor for huge favorites."""
     if pick_odds is None: return implied_prob(pick_odds)
     p1 = implied_prob(pick_odds) or 0
     p2 = implied_prob(other_odds) or 0
     total = p1 + p2
-    if total <= 0: return round(p1, 1)
-    return round(p1 / total * 100, 1)
+    nv = round(p1 / total * 100, 1) if total > 0 else round(p1, 1)
+
+    # When the favorite's odds are massive, the market is near-certain — enforce a floor
+    if pick_odds is not None and pick_odds < 0:
+        o = abs(pick_odds)
+        if   o >= 1000: nv = max(nv, 97.0)   # -1000 or worse → 97%+
+        elif o >=  700: nv = max(nv, 95.0)   # -700  → 95%+
+        elif o >=  500: nv = max(nv, 93.0)   # -500  → 93%+
+        elif o >=  350: nv = max(nv, 90.0)   # -350  → 90%+
+        elif o >=  250: nv = max(nv, 86.0)   # -250  → 86%+
+        elif o >=  200: nv = max(nv, 83.0)   # -200  → 83%+
+
+    return nv
 
 def odds_fmt(odds):
     if odds is None: return "  N/A"
