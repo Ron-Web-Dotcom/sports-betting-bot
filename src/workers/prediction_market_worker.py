@@ -388,11 +388,17 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             "will there be a", "will a run be scored", "will a point be scored",
         ]
 
-        for m in kalshi_full[:200]:
+        for m in kalshi_full[:400]:
             yes_prob = m.get("yes_price") or 0
-            if not yes_prob or yes_prob < 0.15 or yes_prob > 0.97:
+            no_prob  = m.get("no_price") or round(1 - yes_prob, 4) if yes_prob else 0
+            if not yes_prob and not no_prob:
                 continue
-            no_prob  = m.get("no_price") or round(1 - yes_prob, 4)
+            # Keep any market where one side clearly has the higher price (>= 0.50).
+            # Do NOT filter on yes_price alone — player props often have NO at 85¢+
+            # (e.g. "Mbappe 2+ goals" YES=0.12, NO=0.88) and are the best picks.
+            higher_price = max(yes_prob, no_prob)
+            if higher_price < 0.50:
+                continue
 
             # Block trivially obvious markets regardless of Kalshi price
             _title_low = (m.get("title") or "").lower()
