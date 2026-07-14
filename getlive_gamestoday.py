@@ -127,7 +127,8 @@ def _sf_status_label(ev):
         return "🔴 LIVE"
     ct_et = parse_et(ev.get("commence_time") or ev.get("start_time") or "")
     if ct_et:
-        diff_min = (ct_et - now).total_seconds() / 60
+        _now_cmp = ct_et.replace(tzinfo=None) if ct_et.tzinfo else ct_et
+        diff_min = (_now_cmp - now).total_seconds() / 60
         if -5 <= diff_min <= 90:
             return "⏰ SOON"
         if diff_min > 0:
@@ -145,7 +146,7 @@ show_sf = live_sf if live_sf else all_sf_today
 if not show_sf:
     print("  No events found — bot loads Sofascore at 8 AM ET.")
 else:
-    for ev in sorted(show_sf, key=lambda e: parse_et(e.get("commence_time") or e.get("start_time") or "") or datetime.max.replace(tzinfo=ET)):
+    for ev in sorted(show_sf, key=lambda e: (parse_et(e.get("commence_time") or e.get("start_time") or "") or datetime.max.replace(tzinfo=ET)).replace(tzinfo=None)):
         home    = ev.get("home_team") or "?"
         away    = ev.get("away_team") or "?"
         sport   = short_sport(ev.get("sport") or ev.get("sport_key") or "")
