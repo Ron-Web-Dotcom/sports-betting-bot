@@ -305,16 +305,36 @@ if not all_kalshi:
     except Exception:
         all_kalshi = []
 
-# Show ALL active markets — no strict date filter (Kalshi markets span multiple days)
-k_rows = []
+# Junk patterns to filter from display
+_K_JUNK = [
+    "will over 0.5", "will over 1.5", "will a goal be scored", "will any",
+    "will a run be scored", "will a point be scored", "will at least one",
+]
+
+# Deduplicate: keep only highest-volume market per (base_title, close_time)
+# Base title = strip the line number so "AL vs NL Total Runs?" dedupes across lines
+import re as _re
+def _base_title(t):
+    return _re.sub(r'\d+\.?\d*', '', t or "").strip().lower()
+
+_k_seen: dict[str, dict] = {}
 for m in all_kalshi:
+    title_low = (m.get("title") or "").lower()
+    if any(j in title_low for j in _K_JUNK):
+        continue
     ct_et = parse_et(m.get("close_time") or m.get("expiration_time") or "")
     m["_close_str"] = ct_et.strftime("%-I:%M %p") if ct_et else "—"
     m["_period"]    = ("NIGHT" if ct_et and ct_et.hour >= 16 else "DAY") if ct_et else "—"
     m["_sort"]      = ct_et.replace(tzinfo=None) if ct_et else datetime.max
-    k_rows.append(m)
+    # Dedup key: base title + close time — keeps best (highest volume) per line type
+    _dk = f"{_base_title(m.get('title',''))}|{m.get('_close_str','')}"
+    existing = _k_seen.get(_dk)
+    if existing is None or (m.get("volume") or 0) > (existing.get("volume") or 0):
+        _k_seen[_dk] = m
 
-K_COL = [40, 6, 6, 6, 10, 12, 8]
+k_rows = list(_k_seen.values())
+
+K_COL = [40, 6, 6, 6, 14, 12, 8]
 K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "EVENT/CLOSE ET", "PERIOD"]
 sep_k = "-" * (sum(K_COL) + 2*len(K_COL))
 
@@ -327,7 +347,6 @@ else:
     for m in sorted(k_rows, key=lambda x: x["_sort"]):
         yes_raw = m.get("yes_price") or 0
         no_raw  = m.get("no_price")  or 0
-        # Kalshi stores prices as 0–1 floats; display as cents (0–100)
         yes_p = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
         no_p  = round(no_raw  * 100) if no_raw  <= 1 else round(no_raw)
         pick  = "YES" if yes_p >= no_p else "NO"
