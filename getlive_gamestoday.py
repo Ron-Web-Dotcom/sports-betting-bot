@@ -24,6 +24,15 @@ def implied_prob(odds):
     if odds is None: return None
     return round(abs(odds)/(abs(odds)+100)*100,1) if odds < 0 else round(100/(100+odds)*100,1)
 
+def novig_prob(pick_odds, other_odds):
+    """True win probability — removes bookmaker margin using both sides."""
+    if pick_odds is None: return implied_prob(pick_odds)
+    p1 = implied_prob(pick_odds) or 0
+    p2 = implied_prob(other_odds) or 0
+    total = p1 + p2
+    if total <= 0: return round(p1, 1)
+    return round(p1 / total * 100, 1)
+
 def odds_fmt(odds):
     if odds is None: return "  N/A"
     return f"+{odds}" if odds > 0 else str(odds)
@@ -147,11 +156,12 @@ def _print_games(glist, label):
             # best pick = most negative odds (favourite), else least positive
             if h2h:
                 neg = {s:o for s,o in h2h.items() if o < 0}
-                pick_sel = min(neg, key=lambda s:neg[s]) if neg else min(h2h, key=lambda s:h2h[s])
+                pick_sel  = min(neg, key=lambda s:neg[s]) if neg else min(h2h, key=lambda s:h2h[s])
                 pick_odds = h2h[pick_sel]
+                other_odds = next((o for s,o in h2h.items() if s != pick_sel), None)
             else:
-                pick_sel, pick_odds = "?", None
-            prob = implied_prob(pick_odds)
+                pick_sel, pick_odds, other_odds = "?", None, None
+            prob = novig_prob(pick_odds, other_odds)
             print(row_fmt([
                 f"{g['away']} @ {g['home']}"[:30],
                 g["time_et"], g["sport"], g["period"],
