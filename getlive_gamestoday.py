@@ -221,8 +221,8 @@ G_COL = [34, 8, 12, 10, 10, 18, 12]
 G_HDR = ["MATCHUP", "TIME ET", "SPORT", "AWAY ODDS", "HOME ODDS", "BOT PICK", "CONFIDENCE"]
 sep_g = "-" * (sum(G_COL) + 2*len(G_COL))
 
-day_g   = [g for g in games.values() if g["period"]=="DAY"]
-night_g = [g for g in games.values() if g["period"]=="NIGHT"]
+day_g   = [g for g in games.values() if g["period"]=="DAY"   and g["h2h"]]
+night_g = [g for g in games.values() if g["period"]=="NIGHT" and g["h2h"]]
 
 def _print_games(glist, label):
     print(f"\n  ── {label} ({len(glist)} games) ──")
