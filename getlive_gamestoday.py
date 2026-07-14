@@ -356,7 +356,7 @@ for m in all_kalshi:
 k_rows = list(_k_by_event.values()) + list(_k_no_ticker.values())
 
 K_COL = [40, 6, 6, 6, 14, 12, 8]
-K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "EVENT/CLOSE ET", "PERIOD"]
+K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "GAME START ET", "PERIOD"]
 sep_k = "-" * (sum(K_COL) + 2*len(K_COL))
 
 print(f"\n\n  ── KALSHI MARKETS ({len(k_rows)} active) ──")
@@ -377,7 +377,8 @@ else:
         ], K_COL))
 print(sep_k)
 print("  PICK = higher-probability side  (YES if yes¢ >= no¢, else NO)")
-print("  EVENT/CLOSE ET = when the game starts / market settles (same time for most props)")
+print("  GAME START ET = Sofascore open time (Kalshi market closes when game starts)")
+print("  Results fire instantly when Sofascore marks the game finished → Discord alert")
 
 # ── BOT'S KALSHI SLIP (single best pick) ─────────────────────────────────────
 print(f"\n{'='*90}")
@@ -411,7 +412,7 @@ if k_rows:
         print(f"\n  MARKET : {best.get('title','')}")
         print(f"  PICK   : {side}  ({winner_c}¢ vs {other_c}¢  |  {spread}¢ edge)")
         print(f"  CONF   : {conf_label_k}  ({winner_c}¢ is a {'high' if winner_c >= 85 else 'medium' if winner_c >= 70 else 'low'} price — market strongly favors {side})")
-        print(f"  OPENS  : {opens}")
+        print(f"  GAME START : {opens}  (Sofascore open time — result fires when Sofascore marks finished)")
         print(f"  VOLUME : ${vol:,}")
     else:
         print("\n  No liquid Kalshi markets found (volume < $100).")
