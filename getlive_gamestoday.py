@@ -119,8 +119,22 @@ try:
 except Exception:
     live_sf = []; all_sf_today = []
 
-S_COL = [34, 20, 14, 9]
-S_HDR = ["MATCHUP", "SPORT", "STATUS", "TIME ET"]
+def _sf_status_label(ev):
+    """Return a clear status label: LIVE, SOON (within 60 min), start time, or raw status."""
+    raw = str(ev.get("status") or "").lower()
+    _live_kw = {"live","inprogress","1h","2h","ht","et","pen","progress","halftime","inning","quarter","period","set"}
+    if any(x in raw for x in _live_kw):
+        return "🔴 LIVE"
+    ct_et = parse_et(ev.get("commence_time") or ev.get("start_time") or "")
+    if ct_et:
+        diff_min = (ct_et - now).total_seconds() / 60
+        if -5 <= diff_min <= 60:
+            return f"⏰ SOON {ct_et.strftime('%-I:%M %p')}"
+        return ct_et.strftime("%-I:%M %p")
+    return raw[:14] or "—"
+
+S_COL = [34, 20, 18, 8]
+S_HDR = ["MATCHUP", "SPORT", "STATUS / KICKOFF", "PERIOD"]
 sep_s = "-" * (sum(S_COL) + 2*len(S_COL))
 
 print(f"\n  ── SOFASCORE LIVE RIGHT NOW ({len(live_sf)} live  /  {len(all_sf_today)} total today) ──")
@@ -130,15 +144,16 @@ show_sf = live_sf if live_sf else all_sf_today
 if not show_sf:
     print("  No events found — bot loads Sofascore at 8 AM ET.")
 else:
-    for ev in show_sf:
+    for ev in sorted(show_sf, key=lambda e: parse_et(e.get("commence_time") or e.get("start_time") or "") or datetime.max.replace(tzinfo=ET)):
         home    = ev.get("home_team") or "?"
         away    = ev.get("away_team") or "?"
         sport   = short_sport(ev.get("sport") or ev.get("sport_key") or "")
-        status  = str(ev.get("status") or "live")[:14]
+        slabel  = _sf_status_label(ev)
         ct_et   = parse_et(ev.get("commence_time") or ev.get("start_time") or "")
-        t_str   = ct_et.strftime("%-I:%M %p") if ct_et else "—"
-        print(row_fmt([f"{away} @ {home}"[:34], sport, status, t_str], S_COL))
+        period  = "NIGHT" if ct_et and ct_et.hour >= 16 else ("DAY" if ct_et else "—")
+        print(row_fmt([f"{away} @ {home}"[:34], sport, slabel[:18], period], S_COL))
 print(sep_s)
+print("  🔴 LIVE = in progress  |  ⏰ SOON = starting within 60 min  |  time = scheduled kickoff ET")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TABLE 2 — TODAY'S GAMES + ODDS (both sides) from DB
