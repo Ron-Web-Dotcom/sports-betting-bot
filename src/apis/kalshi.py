@@ -692,7 +692,7 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         logger.info("Kalshi series fetch: %d markets from %d series", len(all_markets), len(_SERIES))
 
     # 2. Fallback: paginated scan catches anything not in known series
-    if len(all_markets) < 20:
+    if len(all_markets) < 50:
         cursor = None
         for _ in range(5):
             params: dict = {"limit": 100, "status": "open"}
@@ -739,15 +739,15 @@ def get_sports_events(limit: int = 500) -> list[dict]:
                 _exp_utc = _dt.fromisoformat(exp_raw.replace("Z", "+00:00"))
                 _now_utc = _dt.now(UTC)
                 _now_et  = _now_utc.astimezone(_ET)
-                # Next 3 AM ET cutoff
-                _cutoff_et = _now_et.replace(hour=3, minute=0, second=0, microsecond=0)
+                # Next 6 AM ET cutoff (3 AM was too tight — drops late-night games)
+                _cutoff_et = _now_et.replace(hour=6, minute=0, second=0, microsecond=0)
                 if _cutoff_et <= _now_et:
-                    _cutoff_et = _cutoff_et + _td(days=1)  # tomorrow 3 AM
+                    _cutoff_et = _cutoff_et + _td(days=1)  # tomorrow 6 AM
                 _cutoff_utc = _cutoff_et.astimezone(UTC)
                 if _exp_utc < _now_utc - _td(hours=3):
                     continue  # game ended more than 3h ago
                 if _exp_utc > _cutoff_utc:
-                    continue  # past tonight's 3 AM cutoff
+                    continue  # past tonight's cutoff
             except Exception:
                 pass  # include if unparseable
 
