@@ -1,16 +1,18 @@
 """
-Run: python3 getlive_gamestoday.py
-Read-only — shows cached/DB data, zero API requests.
+Run: python3 getlive_gamestoday.py          # read-only, instant
+Run: python3 getlive_gamestoday.py --scan   # fresh scan first, then show table
 
 Tables:
   1. SOFASCORE LIVE RIGHT NOW
-  2. TODAY'S GAMES with both sides' odds + confidence  (DAY = before 4 PM ET, NIGHT = 4 PM+)
-  3. PROPS available today
+  2. TODAY'S GAMES (men + women, all sports) — DAY before 4 PM ET, NIGHT 4 PM+
+  3. PROPS (player, team, game — men + women)
   4. KALSHI MARKETS
 """
 import os, sys, logging, json
 sys.path.insert(0, os.path.dirname(__file__))
 logging.disable(logging.CRITICAL)
+
+_SCAN = "--scan" in sys.argv
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,6 +20,31 @@ from src.core.timezone import et_naive
 
 ET  = ZoneInfo("America/New_York")
 now = et_naive()
+
+# ── OPTIONAL FRESH SCAN ───────────────────────────────────────────────────────
+if _SCAN:
+    print(f"\n  [--scan] Running fresh scan for all sports (men + women)...")
+    try:
+        import src.apis.sofascore as _sf
+        _sf._cb_failures = 0; _sf._cb_tripped_at = 0.0
+        from src.workers.picks_worker import scan_todays_games
+        r = scan_todays_games() or {}
+        print(f"  Sofascore: {r.get('day',0)} day  {r.get('night',0)} night  ({r.get('total',0)} total)")
+    except Exception as e:
+        print(f"  Sofascore warning: {e}")
+    try:
+        from src.workers.odds_worker import scan_and_save_odds
+        r2 = scan_and_save_odds() or {}
+        print(f"  Odds API: {r2}")
+    except Exception as e:
+        print(f"  Odds warning: {e}")
+    try:
+        from src.workers.odds_worker import scan_player_props
+        r3 = scan_player_props() or {}
+        print(f"  Props + Kalshi: odds_api={r3.get('odds_api',0)}  kalshi={r3.get('kalshi',0)}")
+    except Exception as e:
+        print(f"  Props warning: {e}")
+    print()
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def implied_prob(odds):
