@@ -180,7 +180,8 @@ def generate_picks():
             ev_result = evaluate(american_odds=best_odds_val,
                                  projected_prob=_effective_conf,
                                  opponent_odds=opponent_odds)
-            if ev_result.ev_pct < EV_FLOOR:
+            # Skip EV gate for -odds picks (market already says favorite) — apply only to +odds
+            if best_odds_val > 0 and ev_result.ev_pct < EV_FLOOR:
                 continue
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
@@ -897,15 +898,16 @@ def _build_hardrock_candidates(
                             home_team, away_team, market, _effective_prob*100, CONF_FLOOR*100)
                 continue
 
-            # Simple EV using effective probability
+            # EV check: -odds picks are already market favorites — skip EV gate for them.
+            # +odds picks need real edge (EV_FLOOR) since they're underdogs.
             dec = american_to_decimal(best_odds)
             ev  = _effective_prob * (dec - 1) - (1 - _effective_prob)
-            if ev < EV_FLOOR:
-                logger.info("SKIP [%s vs %s] %s: ev=%.2f%% < floor", home_team, away_team, market, ev*100)
+            if best_odds > 0 and ev < EV_FLOOR:
+                logger.info("SKIP +odds EV [%s vs %s] %s: ev=%.2f%% < floor", home_team, away_team, market, ev*100)
                 continue
 
             opp_odds = decimal_to_american(1.0 / opp_prob) if 0 < opp_prob < 1 else None
-            ev_full  = evaluate(american_odds=best_odds, projected_prob=ai_prob,
+            ev_full  = evaluate(american_odds=best_odds, projected_prob=_effective_prob,
                                 opponent_odds=opp_odds)
 
             candidates.append({
@@ -1592,17 +1594,19 @@ def _generate_hardrock_entry(period: str) -> dict:
         # For a parlay: combined win probability × combined payout must be > 1 (positive EV).
         # If adding a second leg makes the parlay EV negative, post the single instead.
 
-        # Final gate: enforce EV ≥ EV_FLOOR (0.5%), reasoning ≥ 80 chars, ≥ 2 key factors.
-        _MIN_EV_GATE = EV_FLOOR   # 0.5% — consistent with the global floor
+        # Final gate: enforce reasoning ≥ 80 chars, ≥ 2 key factors.
+        # EV gate only applies to +odds picks — -odds favorites skip EV (market confirms them).
+        _MIN_EV_GATE = EV_FLOOR
         _MIN_REASON  = 80
         _MIN_FACTORS = 2
         _gated_pool  = []
         for _p in pool:
-            _ev  = _p.get("ev_pct", 0)
-            _rsn = (_p.get("reasoning") or "").strip()
-            _fct = [f for f in (_p.get("key_factors") or []) if f and str(f).strip()]
-            if _ev < _MIN_EV_GATE:
-                logger.info("GATE BLOCK EV [%s %s]: ev=%.2f%% < %.1f%%",
+            _ev   = _p.get("ev_pct", 0)
+            _bods = _p.get("best_odds", -110)
+            _rsn  = (_p.get("reasoning") or "").strip()
+            _fct  = [f for f in (_p.get("key_factors") or []) if f and str(f).strip()]
+            if _bods > 0 and _ev < _MIN_EV_GATE:
+                logger.info("GATE BLOCK EV [%s %s]: +odds ev=%.2f%% < %.1f%%",
                             _p.get("home_team"), _p.get("away_team"), _ev * 100, _MIN_EV_GATE * 100)
                 continue
             if len(_rsn) < _MIN_REASON:
@@ -1798,23 +1802,35 @@ def _generate_hardrock_entry(period: str) -> dict:
                         _r_dedup.delete(_dedup_key)
                 except Exception:
                     pass
-                # Notify Discord so the user knows why there's no entry
+                # Notify Discord — but only ONCE per period per day (separate key)
                 try:
-                    from src.discord_bot.bot import _post
-                    from src.workers.alert_worker import _run_async
-                    _period_label = period.upper()
-                    _run_async(_post({"embeds": [{
-                        "title": f"⚠️  No {_period_label} Entry Today",
-                        "description": (
-                            f"No picks cleared the 76.5% confidence + 0.5% EV floor for the **{_period_label}** entry.\n"
-                            f"Best confidence seen: **{best_conf}%**\n\n"
-                            "_Bot is still tracking odds — will retry next scan._"
-                        ),
-                        "color": 0xF57F17,
-                        "footer": {"text": "HardRock · Strict quality gates active"},
-                    }]}))
-                except Exception as _nd_err:
-                    logger.warning("No-entry notification failed: %s", _nd_err)
+                    import redis as _redis_nd
+                    from src.core.config import REDIS_URL as _REDIS_URL_ND
+                    from src.core.timezone import et_naive as _et_nd
+                    _r_nd = _redis_nd.from_url(_REDIS_URL_ND, decode_responses=True, socket_connect_timeout=2)
+                    _nd_key = f"hardrock:no_entry_notified:{period}:{_et_nd().strftime('%Y-%m-%d')}"
+                    _should_notify = _r_nd.set(_nd_key, "1", ex=86400, nx=True)
+                except Exception:
+                    _should_notify = True  # Redis unavailable — allow through
+                if _should_notify:
+                    try:
+                        from src.discord_bot.bot import _post
+                        from src.workers.alert_worker import _run_async
+                        _period_label = period.upper()
+                        _conf_pct = round(CONF_FLOOR * 100, 1)
+                        _ev_pct   = round(EV_FLOOR * 100, 1)
+                        _run_async(_post({"embeds": [{
+                            "title": f"⚠️  No {_period_label} Entry Today",
+                            "description": (
+                                f"No picks cleared the {_conf_pct}% confidence + {_ev_pct}% EV floor for the **{_period_label}** entry.\n"
+                                f"Best confidence seen: **{best_conf}%**\n\n"
+                                "_Bot is still scanning — will post when a qualifying pick is found._"
+                            ),
+                            "color": 0xF57F17,
+                            "footer": {"text": f"HardRock · {_period_label} entry · retrying until 10:30 PM ET"},
+                        }]}))
+                    except Exception as _nd_err:
+                        logger.warning("No-entry notification failed: %s", _nd_err)
                 return {"picks": 0, "period": period, "posted": False}
 
         entry = entry[:2]  # hard cap at 2 picks — never post more than the allowed maximum

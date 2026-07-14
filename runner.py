@@ -134,6 +134,8 @@ CRON_TASKS = [
     (15, 0,  "scan_and_save_odds",                        None, None),  # refresh night game odds at 3 PM
     (16, 30, "generate_hardrock_night_entry",             None, None),  # HardRock night entry  4:30 PM ET
     (16, 35, "generate_prediction_market_night_entry",    None, None),  # Kalshi night entry    4:35 PM ET
+    (18, 0,  "scan_and_save_odds",                        None, None),  # 6 PM refresh — late tipoffs
+    (20, 0,  "scan_and_save_odds",                        None, None),  # 8 PM refresh — 9 PM+ games
 ]
 
 
@@ -200,6 +202,8 @@ CATCHUP_TASKS = [
     (15, 0,  90,  "scan_todays_games"),
     (16, 30, 360, "generate_hardrock_night_entry"),
     (16, 35, 360, "generate_prediction_market_night_entry"),
+    (18, 0,  60,  "scan_and_save_odds"),
+    (20, 0,  60,  "scan_and_save_odds"),
 ]
 
 
