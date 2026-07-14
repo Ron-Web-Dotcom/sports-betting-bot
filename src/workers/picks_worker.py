@@ -173,6 +173,8 @@ def generate_picks():
                 elif _o >=  350: _market_implied = max(_market_implied, 0.90)
                 elif _o >=  250: _market_implied = max(_market_implied, 0.86)
                 elif _o >=  200: _market_implied = max(_market_implied, 0.83)
+                elif _o >=  150: _market_implied = max(_market_implied, 0.65)
+                elif _o >=  110: _market_implied = max(_market_implied, 0.58)
             else:
                 _market_implied = 100 / (100 + best_odds_val)
 
@@ -910,6 +912,8 @@ def _build_hardrock_candidates(
                 elif _o >=  350: _market_implied = max(_market_implied, 0.90)
                 elif _o >=  250: _market_implied = max(_market_implied, 0.86)
                 elif _o >=  200: _market_implied = max(_market_implied, 0.83)
+                elif _o >=  150: _market_implied = max(_market_implied, 0.65)
+                elif _o >=  110: _market_implied = max(_market_implied, 0.58)
 
             # Use the higher of AI confidence or market implied
             _effective_prob = max(ai_prob, _market_implied)
@@ -1213,6 +1217,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             elif _po >=  350: _prop_market_implied = max(_prop_market_implied, 0.90)
             elif _po >=  250: _prop_market_implied = max(_prop_market_implied, 0.86)
             elif _po >=  200: _prop_market_implied = max(_prop_market_implied, 0.83)
+            elif _po >=  150: _prop_market_implied = max(_prop_market_implied, 0.65)
+            elif _po >=  110: _prop_market_implied = max(_prop_market_implied, 0.58)
             _prop_eff_conf = max(conf, _prop_market_implied)
             if _prop_eff_conf < 0.60 or ev <= 0:
                 continue

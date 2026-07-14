@@ -68,6 +68,8 @@ def novig_prob(pick_odds, other_odds):
         elif o >=  350: nv = max(nv, 90.0)   # -350  → 90%+
         elif o >=  250: nv = max(nv, 86.0)   # -250  → 86%+
         elif o >=  200: nv = max(nv, 83.0)   # -200  → 83%+
+        elif o >=  150: nv = max(nv, 65.0)   # -150  → 65%+
+        elif o >=  110: nv = max(nv, 58.0)   # -110  → 58%+
 
     return nv
 
