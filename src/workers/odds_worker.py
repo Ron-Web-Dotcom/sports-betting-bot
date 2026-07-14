@@ -131,19 +131,31 @@ def _detect_prop_changes(prev: list[dict], curr: list[dict], source: str) -> lis
 
 def refresh_active_sports():
     """
-    Bust the Sofascore active-sports cache so the next props scan
-    re-checks what leagues have games today. Runs at 5:30 AM ET daily.
+    Wipe ALL stale sport/game caches so every morning starts with fresh data.
+    Runs at 5:30 AM ET daily — before the 8 AM scan.
     """
     try:
         from src.core.config import REDIS_URL
         import redis as _redis
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        r.delete("sofascore:active_sports")
-        # Eagerly re-populate so first scan of the day is instant
-        from src.engines.odds_engine import _get_active_sports_cached
-        active = _get_active_sports_cached()
-        logger.info("Active sports refreshed: %s", sorted(active))
-        return {"active_sports": sorted(active)}
+        # Clear everything that could carry yesterday's data into today's scans
+        stale_keys = [
+            "sofascore:active_sports",
+            "oddsapi:active_sport_keys",   # 6h cache — could be from yesterday evening
+            "sofascore:day_games",
+            "sofascore:night_games",
+            "sofascore:today_events",
+            "sofascore:today_index",
+            "props:odds_api",
+            "props:all",
+        ]
+        deleted = r.delete(*stale_keys)
+        logger.info("Morning cache wipe: deleted %d stale keys", deleted)
+        # Eagerly re-populate the Odds API active sports list so the 8 AM scan is instant
+        from src.engines.odds_engine import get_live_active_sport_keys
+        active = get_live_active_sport_keys()
+        logger.info("Active sports refreshed: %d sports", len(active))
+        return {"deleted_keys": deleted, "active_sports": len(active)}
     except Exception as e:
         logger.error("refresh_active_sports failed: %s", e)
         return {"error": str(e)}
