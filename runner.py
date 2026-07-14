@@ -128,6 +128,9 @@ CRON_TASKS = [
     (5,  30, "refresh_active_sports",   None, None),  # refresh after wake, before first scan
     (6,  0,  "yesterday_recap",         None, None),  # every day
     (8,  0,  "scan_todays_games",                        None, None),  # full Sofascore scan — day + night split
+    (8,  0,  "scan_and_save_odds",                       None, None),  # pull odds immediately after 8 AM game scan
+    (9,  30, "scan_todays_games",                        None, None),  # 9:30 AM rescan — late additions / lineup updates
+    (9,  30, "scan_and_save_odds",                       None, None),  # 9:30 AM odds refresh
     (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
     (10, 35, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry
     (15, 0,  "scan_todays_games",                         None, None),  # 3 PM update: check postponements/time changes
@@ -197,6 +200,9 @@ def _cron_matches(hour: int, minute: int, day_of_week, day_of_month, now: dateti
 CATCHUP_TASKS = [
     # (hour, minute, catch_up_window_minutes, task_name)
     (8,  0,  120, "scan_todays_games"),
+    (8,  0,  120, "scan_and_save_odds"),
+    (9,  30,  90, "scan_todays_games"),
+    (9,  30,  90, "scan_and_save_odds"),
     (10, 30, 180, "generate_hardrock_day_entry"),
     (10, 35, 180, "generate_prediction_market_day_entry"),
     (15, 0,  90,  "scan_todays_games"),
