@@ -909,29 +909,13 @@ def scan_all_sports() -> dict[str, list[dict]]:
     except Exception as _e:
         logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
 
-    # Derive Odds API sport keys ONLY from what Sofascore confirmed today.
-    # This keeps requests minimal — one call per sport with games today, not 100+.
-    known_keys  = set(SPORTS.values())
+    # Use every sport key the Odds API says is active today — this is the source of truth
+    # for what has live events right now. Sofascore teams are used only for game-level
+    # filtering below, not to restrict which sport categories we query.
     active_keys = get_live_active_sport_keys()
+    sport_keys  = active_keys  # all categories live today per Odds API /sports endpoint
 
-    sport_keys: set[str] = set()
-    if sf_sport_keys:
-        from src.apis.sofascore import SPORT_MAP as _SM
-        for sf_slug in sf_sport_keys:
-            for odds_key, sf_mapped in (_SM.items() if hasattr(_SM, "items") else []):
-                if sf_mapped == sf_slug and odds_key in active_keys:
-                    sport_keys.add(odds_key)
-        # Direct prefix match (e.g. sofascore "basketball" → basketball_nba etc.)
-        for k in active_keys:
-            if any(k.startswith(slug.replace("-", "")) or slug.split("-")[0] in k
-                   for slug in sf_sport_keys):
-                sport_keys.add(k)
-
-    # Fallback only if Sofascore gave us nothing at all
-    if not sport_keys:
-        sport_keys = known_keys & active_keys
-
-    logger.info("OddsAPI scanning %d sport keys (Sofascore confirmed %d teams across %d sports)",
+    logger.info("OddsAPI scanning %d active sport keys today (Sofascore confirmed %d teams across %d sports)",
                 len(sport_keys), len(sf_teams), len(sf_sport_keys))
 
     result: dict[str, list[dict]] = {}

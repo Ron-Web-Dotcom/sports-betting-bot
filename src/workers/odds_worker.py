@@ -141,13 +141,14 @@ def refresh_active_sports():
         # Clear everything that could carry yesterday's data into today's scans
         stale_keys = [
             "sofascore:active_sports",
-            "oddsapi:active_sport_keys",   # 6h cache — could be from yesterday evening
+            "oddsapi:active_sport_keys",   # must bust so new API key takes effect immediately
             "sofascore:day_games",
             "sofascore:night_games",
             "sofascore:today_events",
             "sofascore:today_index",
             "props:odds_api",
             "props:all",
+            "kalshi:live_markets",         # bust Kalshi cache too
         ]
         deleted = r.delete(*stale_keys)
         logger.info("Morning cache wipe: deleted %d stale keys", deleted)
