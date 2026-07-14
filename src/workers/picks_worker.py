@@ -169,20 +169,25 @@ def generate_picks():
             else:
                 _market_implied = 100 / (100 + best_odds_val)
 
-            # Use higher of AI confidence or market implied — never block a market favorite
+            # Use higher of AI confidence or market implied
             _effective_conf = max(confidence.calibrated_score, _market_implied)
 
-            if _effective_conf < CONF_FLOOR:
-                logger.info("SKIP conf [%s @ %s] %s: eff=%.1f%% < %.1f%%",
-                            away_team, home_team, market, _effective_conf*100, CONF_FLOOR*100)
-                continue
-
-            ev_result = evaluate(american_odds=best_odds_val,
-                                 projected_prob=_effective_conf,
-                                 opponent_odds=opponent_odds)
-            # Skip EV gate for -odds picks (market already says favorite) — apply only to +odds
-            if best_odds_val > 0 and ev_result.ev_pct < EV_FLOOR:
-                continue
+            # -odds = market confirmed favorite — skip conf + EV gates entirely.
+            # +odds = underdog — require CONF_FLOOR and EV_FLOOR.
+            if best_odds_val > 0:
+                if _effective_conf < CONF_FLOOR:
+                    logger.info("SKIP conf [%s @ %s] %s: eff=%.1f%% < %.1f%%",
+                                away_team, home_team, market, _effective_conf*100, CONF_FLOOR*100)
+                    continue
+                ev_result = evaluate(american_odds=best_odds_val,
+                                     projected_prob=_effective_conf,
+                                     opponent_odds=opponent_odds)
+                if ev_result.ev_pct < EV_FLOOR:
+                    continue
+            else:
+                ev_result = evaluate(american_odds=best_odds_val,
+                                     projected_prob=_effective_conf,
+                                     opponent_odds=opponent_odds)
             factors   = ai.get("key_factors") or []
             reasoning = (ai.get("reasoning") or "").strip()
             insight   = factors[0] if factors else (reasoning.split(".")[0][:90] if reasoning else "")
@@ -889,11 +894,13 @@ def _build_hardrock_candidates(
             else:
                 _market_implied = 100 / (100 + best_odds)
 
-            # Use the higher of AI confidence or market implied — never block a market favorite
+            # Use the higher of AI confidence or market implied
             _effective_prob = max(ai_prob, _market_implied)
             _top_seen_conf = max(_top_seen_conf, _effective_prob)
 
-            if _effective_prob < CONF_FLOOR:
+            # -odds = market already confirmed this side as favorite — skip conf + EV gates.
+            # +odds = underdog, require CONF_FLOOR and EV_FLOOR to ensure real edge.
+            if best_odds > 0 and _effective_prob < CONF_FLOOR:
                 logger.info("SKIP conf floor [%s vs %s] %s: prob=%.1f%% < %.1f%%",
                             home_team, away_team, market, _effective_prob*100, CONF_FLOOR*100)
                 continue
@@ -1678,7 +1685,8 @@ def _generate_hardrock_entry(period: str) -> dict:
             # AND we haven't already used Perplexity twice today.
             close_candidates = [
                 p for p in pool
-                if 0.70 <= p["confidence"] < CONF_FLOOR and p.get("ev_pct", 0) >= EV_FLOOR
+                if 0.70 <= p["confidence"] < CONF_FLOOR
+                and (p.get("best_odds", 0) < 0 or p.get("ev_pct", 0) >= EV_FLOOR)
             ][:1]  # one candidate only — absolute last resort
 
             # Daily rate gate — max 2 Perplexity calls per day across all entries
@@ -1768,7 +1776,8 @@ def _generate_hardrock_entry(period: str) -> dict:
                             new_conf = conf_result.calibrated_score
                             new_ev   = candidate["ev_pct"]
 
-                        if new_conf >= CONF_FLOOR and new_ev >= EV_FLOOR:
+                        _is_fav = candidate.get("best_odds", 0) < 0
+                        if new_conf >= CONF_FLOOR or (_is_fav and new_conf >= 0.60):
                             updated = {
                                 **candidate,
                                 "confidence": new_conf,
