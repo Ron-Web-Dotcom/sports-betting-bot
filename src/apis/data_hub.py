@@ -65,7 +65,9 @@ def build_game_context(
         "sportradar":          (_fetch_sportradar_game,   (sport_key, home_team, away_team)),
         # TheSportsDB — confirmed working on VPS, free, 800+ leagues
         "thesportsdb":         (_fetch_thesportsdb,       (sport_key, home_team, away_team)),
-        # REMOVED: Sofascore — api.sofascore.com returns NO DATA via VPS proxy (confirmed in diagnose.py)
+        # Sofascore — H2H, form, lineups, standings, match trends, featured players
+        # Proxy fallback (Decodo residential) handles VPS blocks — same path used by picks_worker
+        "sofascore":           (_fetch_sofascore_game,    (sport_key, home_team, away_team, game_time)),
         # REMOVED: RotoWire — HTML scraping blocked on VPS datacenter IPs
         # REMOVED: BallDontLie — requires API key, none configured
         # REMOVED: PrizePicks — partner-api endpoint unreliable from VPS

@@ -269,17 +269,21 @@ def analyse_pick(
             sf.get("h2h") or
             tsdb.get("h2h") or []          # TheSportsDB H2H — always available, free
         )
+        _sf_form = sf.get("form") or {}
         payload["home_form"] = (
             sr.get("home_form") or
             game_context.get("home_form_statmuse") or
-            sf.get("form") or
+            (_sf_form.get("home") if isinstance(_sf_form, dict) else _sf_form) or
             tsdb.get("home_form") or {}
         )
         payload["away_form"] = (
             sr.get("away_form") or
             game_context.get("away_form_statmuse") or
+            (_sf_form.get("away") if isinstance(_sf_form, dict) else None) or
             tsdb.get("away_form") or {}
         )
+        if sf.get("standings"):
+            payload["standings"] = sf["standings"]
         payload["sharp_action"]  = game_context.get("sharp_action", {})
         payload["weather"]       = game_context.get("weather", {})
         payload["data_quality"]  = game_context.get("data_completeness", 1.0)
@@ -306,7 +310,7 @@ def analyse_pick(
             if nba.get("nba_away_ratings"):
                 payload["away_team_ratings"] = nba["nba_away_ratings"]
         # mlb_stats removed — statsapi.mlb.com blocked on VPS (confirmed 403)
-        # sofascore removed — api.sofascore.com returns NO DATA via VPS proxy (confirmed)
+        # Sofascore: h2h, form, lineups, standings, match trends fed via context["sofascore"]
         # Perplexity web search results — breaking news injected when borderline
         if game_context.get("web_search_news"):
             payload["breaking_news_web_search"] = game_context["web_search_news"]
