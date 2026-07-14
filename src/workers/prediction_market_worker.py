@@ -762,9 +762,18 @@ FAVORITES RULE (HARD): Always check the American odds equivalent of the Kalshi Y
   If sf_home_odds is +130 and Kalshi YES (home wins) is at 45%, the sportsbook says this is an underdog
   — be very cautious unless Sofascore data gives a strong reason to override.
 
-HEAVY FAVORITE RULE: When Kalshi YES price is 85%+ AND Sofascore implied confirms the favorite,
-do NOT overthink it — take the obvious lock. 85-90% YES → confidence 0.85-0.90. 90-97% → 0.90-0.97.
-But VERIFY the teams are actually the implied favorite — do not apply this rule blindly.
+PRICE IS THE SIGNAL — CORE RULE:
+Whichever side (YES or NO) has the HIGHEST cent price is what the market says is more likely to happen.
+A high YES price (e.g. 85¢) = pick YES. A high NO price (e.g. 85¢) = pick NO. It is that simple.
+The direction with the higher price is your starting point — only override it if Sofascore data gives
+a SPECIFIC, concrete reason (e.g. key player injured, H2H strongly contradicts the price).
+Never default to NO just because something seems unlikely — if YES is priced higher, the market already
+priced that in. Follow the highest price.
+
+HEAVY FAVORITE RULE: When one side's price is 85%+ AND Sofascore implied confirms it,
+do NOT overthink it — take the obvious lock. 85-90% → confidence 0.85-0.90. 90-97% → 0.90-0.97.
+The "answer" field MUST match whichever side (YES or NO) has the higher price unless you have
+a hard data-backed reason to flip it.
 
 JUNK MARKET BLACKLIST — NEVER pick these regardless of price or edge:
 - "over 0.5 goals", "will a goal be scored", "will any team score" — trivially obvious, no real edge
@@ -805,7 +814,9 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
             "ticker":           c.get("event_ticker", ""),
             "game_time_et":     _fmt_gt(c.get("commence_time", "")),
             "kalshi_yes_%":     f"{round(c['yes_prob']*100)}%",
+            "kalshi_no_%":      f"{round(c.get('no_prob', 1 - c['yes_prob'])*100)}%",
             "kalshi_yes_odds":  f"{int(c['yes_american']):+d}" if c.get("yes_american") is not None else "—",
+            "market_signal":    "YES" if c['yes_prob'] >= (c.get('no_prob') or 1 - c['yes_prob']) else "NO",
             "volume":           c.get("volume", 0),
             # Line movement — sharp/steam signal from our sportsbook DB
             "line_movement":    c.get("line_movement") or None,
@@ -847,8 +858,9 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
     prompt = (
         f"Today is {today_str}. These are today's available Kalshi contracts (sorted by volume):\n\n"
         f"```json\n{_json.dumps(candidate_list, indent=2)}\n```\n\n"
-        f"Research each market deeply — player props, game props, game winners, totals, BTTS. "
-        f"Find the single contract with the most confident edge where the market price is wrong."
+        f"Each contract has a 'market_signal' field — this is whichever side (YES or NO) has the HIGHER price. "
+        f"That is your default pick direction. Only override it if Sofascore data gives a hard reason to flip. "
+        f"Find the single contract where the higher-priced side is most clearly correct."
     )
 
     try:
