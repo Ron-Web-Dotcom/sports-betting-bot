@@ -36,9 +36,14 @@ except Exception as e:
 print("  [2/4] Sofascore — scanning all sports worldwide (men + women)...")
 sf_result = {}
 try:
+    # Reset circuit breaker so a fresh scan always runs cleanly
+    import src.apis.sofascore as _sf
+    _sf._cb_failures = 0
+    _sf._cb_tripped_at = 0.0
     from src.workers.picks_worker import scan_todays_games
     sf_result = scan_todays_games() or {}
-    print(f"        Done: {sf_result.get('day',0)} day  {sf_result.get('night',0)} night  ({sf_result.get('total',0)} total)\n")
+    total = sf_result.get('total', sf_result.get('day', 0) + sf_result.get('night', 0))
+    print(f"        Done: {sf_result.get('day',0)} day  {sf_result.get('night',0)} night  ({total} total)\n")
 except Exception as e:
     print(f"        Warning: {e}\n")
 

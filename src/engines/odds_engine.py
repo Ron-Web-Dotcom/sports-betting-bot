@@ -909,23 +909,26 @@ def scan_all_sports() -> dict[str, list[dict]]:
     except Exception as _e:
         logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
 
-    # Derive Odds API sport keys from Sofascore's active sports
+    # Derive Odds API sport keys ONLY from what Sofascore confirmed today.
+    # This keeps requests minimal — one call per sport with games today, not 100+.
     known_keys  = set(SPORTS.values())
     active_keys = get_live_active_sport_keys()
+
+    sport_keys: set[str] = set()
     if sf_sport_keys:
-        # Map Sofascore sport slugs → Odds API keys via SPORTS alias map
         from src.apis.sofascore import SPORT_MAP as _SM
-        _sf_odds_keys: set[str] = set()
         for sf_slug in sf_sport_keys:
-            for odds_key, sf_mapped in _SM.items() if hasattr(_SM, "items") else []:
-                if sf_mapped == sf_slug and odds_key in known_keys:
-                    _sf_odds_keys.add(odds_key)
-        # Also keep any active key that directly matches a Sofascore sport slug
-        for k in known_keys:
-            if k in sf_sport_keys or any(k.startswith(s.split("_")[0]) for s in sf_sport_keys):
-                _sf_odds_keys.add(k)
-        sport_keys = (_sf_odds_keys & active_keys) or (known_keys & active_keys)
-    else:
+            for odds_key, sf_mapped in (_SM.items() if hasattr(_SM, "items") else []):
+                if sf_mapped == sf_slug and odds_key in active_keys:
+                    sport_keys.add(odds_key)
+        # Direct prefix match (e.g. sofascore "basketball" → basketball_nba etc.)
+        for k in active_keys:
+            if any(k.startswith(slug.replace("-", "")) or slug.split("-")[0] in k
+                   for slug in sf_sport_keys):
+                sport_keys.add(k)
+
+    # Fallback only if Sofascore gave us nothing at all
+    if not sport_keys:
         sport_keys = known_keys & active_keys
 
     logger.info("OddsAPI scanning %d sport keys (Sofascore confirmed %d teams across %d sports)",
