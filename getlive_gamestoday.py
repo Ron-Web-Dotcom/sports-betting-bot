@@ -298,11 +298,14 @@ if not k_rows:
     print("  No Kalshi markets in cache.")
 else:
     for m in sorted(k_rows, key=lambda x: x["_sort"]):
-        yes_p = m.get("yes_price") or 0
-        no_p  = m.get("no_price")  or 0
+        yes_raw = m.get("yes_price") or 0
+        no_raw  = m.get("no_price")  or 0
+        # Kalshi stores prices as 0–1 floats; display as cents (0–100)
+        yes_p = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
+        no_p  = round(no_raw  * 100) if no_raw  <= 1 else round(no_raw)
         pick  = "YES" if yes_p >= no_p else "NO"
         print(row_fmt([
-            (m.get("title") or "")[:40], yes_p, no_p, pick,
+            (m.get("title") or "")[:40], f"{yes_p}¢", f"{no_p}¢", pick,
             f"${m.get('volume') or 0:,}", m["_close_str"], m["_period"],
         ], K_COL))
 print(sep_k)
