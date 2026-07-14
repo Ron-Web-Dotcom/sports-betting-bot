@@ -169,7 +169,7 @@ for game_id, snap_list in snaps.items():
     if not snap_list: continue
     s0    = snap_list[0]
     ct_et = parse_et(s0.get("commence_time",""))
-    if not ct_et or ct_et.date() != now.date(): continue
+    if not ct_et or ct_et.replace(tzinfo=None).date() != now.date(): continue
 
     if game_id not in games:
         period = "NIGHT" if ct_et.hour >= 16 else "DAY"   # 4 PM cutoff
@@ -179,7 +179,7 @@ for game_id, snap_list in snaps.items():
             "sport":   short_sport(s0.get("sport_key","")),
             "time_et": ct_et.strftime("%-I:%M %p"),
             "period":  period,
-            "sort_dt": ct_et,
+            "sort_dt": ct_et.replace(tzinfo=None) if ct_et else datetime.max,
             "h2h":     {},   # sel → best_odds
         }
     for s in snap_list:
@@ -285,7 +285,7 @@ for m in all_kalshi:
     ct_et = parse_et(m.get("close_time") or m.get("expiration_time") or "")
     m["_close_str"] = ct_et.strftime("%-I:%M %p") if ct_et else "—"
     m["_period"]    = ("NIGHT" if ct_et and ct_et.hour >= 16 else "DAY") if ct_et else "—"
-    m["_sort"]      = ct_et or datetime.max.replace(tzinfo=ET)
+    m["_sort"]      = ct_et.replace(tzinfo=None) if ct_et else datetime.max
     k_rows.append(m)
 
 K_COL = [40, 6, 6, 6, 10, 12, 8]
