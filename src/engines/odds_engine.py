@@ -947,20 +947,16 @@ def scan_all_sports() -> dict[str, list[dict]]:
         if filtered:
             result[sport_key] = [normalise_event(e, sport_key) for e in filtered]
             logger.info("Odds: %d events for %s (Sofascore-filtered)", len(filtered), sport_key)
+        else:
+            # Per-sport fallback: if Sofascore filter drops all events for this sport,
+            # use raw events anyway. Sofascore coverage gaps (e.g. NBA Summer League
+            # not returned) must not silently kill prop fetching for the whole sport.
+            result[sport_key] = [normalise_event(e, sport_key) for e in raw_events[sport_key]]
+            logger.info("Odds: %d events for %s (Sofascore filter dropped all — using raw)",
+                        len(raw_events[sport_key]), sport_key)
 
-    if not result and raw_events:
-        # Sofascore filter wiped everything — fall back to all active-sport events
-        # so props still get fetched. Sofascore team cross-check in entry builders
-        # acts as the second quality gate.
-        logger.warning(
-            "OddsAPI: 0 events after Sofascore filter (sf_teams=%d) — "
-            "falling back to unfiltered events (%d sports)",
-            len(sf_teams), len(raw_events),
-        )
-        for sport_key, events in raw_events.items():
-            result[sport_key] = [normalise_event(e, sport_key) for e in events]
-    elif not result:
-        logger.warning("OddsAPI: 0 events after Sofascore filter — check Sofascore cache")
+    if not result:
+        logger.warning("OddsAPI: 0 events after scan — check Sofascore cache")
     return result
 
 
