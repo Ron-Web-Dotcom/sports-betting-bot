@@ -6,8 +6,11 @@ One-time full scan + display:
   2. Kalshi markets — sorted by ET close time
   3. Sofascore live games right now
 """
-import os, sys
+import os, sys, logging
 sys.path.insert(0, os.path.dirname(__file__))
+
+# Silence all library log output — only our print() lines show
+logging.disable(logging.CRITICAL)
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -41,9 +44,17 @@ except Exception as e:
 
 print("  [3/4] HardRock — pulling all odds...")
 try:
-    from src.workers.odds_worker import scan_and_save_odds
-    odds_result = scan_and_save_odds() or {}
-    print(f"        Done: {odds_result}\n")
+    import requests as _rq
+    from src.core.config import ODDS_API_KEY, ODDS_API_BASE
+    _chk = _rq.get(f"{ODDS_API_BASE}/sports", params={"apiKey": ODDS_API_KEY}, timeout=8)
+    if _chk.status_code == 401:
+        print("        !! Odds API key REJECTED (401) — check ODDS_API_KEY in .env\n")
+    elif _chk.status_code == 422:
+        print("        !! Odds API credits exhausted (422)\n")
+    else:
+        from src.workers.odds_worker import scan_and_save_odds
+        odds_result = scan_and_save_odds() or {}
+        print(f"        Done: {odds_result}\n")
 except Exception as e:
     print(f"        Warning: {e}\n")
 
