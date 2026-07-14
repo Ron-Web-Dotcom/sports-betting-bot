@@ -270,8 +270,8 @@ for m in all_kalshi:
     m["_sort"]      = ct_et or datetime.max.replace(tzinfo=ET)
     k_rows.append(m)
 
-K_COL = [40, 6, 6, 6, 10, 10, 8]
-K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "CLOSE ET", "PERIOD"]
+K_COL = [40, 6, 6, 6, 10, 12, 8]
+K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "EVENT/CLOSE ET", "PERIOD"]
 sep_k = "-" * (sum(K_COL) + 2*len(K_COL))
 
 print(f"\n\n  ── KALSHI MARKETS ({len(k_rows)} active) ──")
@@ -290,4 +290,5 @@ else:
         ], K_COL))
 print(sep_k)
 print("  PICK = higher-probability side  (YES if yes¢ >= no¢, else NO)")
+print("  EVENT/CLOSE ET = when the game starts / market settles (same time for most props)")
 print(f"\n  {now.strftime('%I:%M %p ET')}  |  Read from DB/cache only — zero API requests\n")
