@@ -1062,7 +1062,6 @@ def get_latest_snapshots_by_game() -> dict[int, list[dict]]:
     # All time math anchored to ET.
     # commence_time is stored as naive UTC in the DB, so we convert ET→UTC for filters.
     now_et_aware = datetime.now(_ET)
-    now_et       = now_et_aware.replace(tzinfo=None)          # naive ET (matches captured_at column)
     now_utc      = now_et_aware.astimezone(UTC).replace(tzinfo=None)   # naive UTC (matches commence_time column)
 
     # Snapshot freshness: captured within the current calendar day ET (from midnight)
