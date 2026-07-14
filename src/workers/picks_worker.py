@@ -166,6 +166,13 @@ def generate_picks():
             # Market implied probability from the chosen side's odds
             if best_odds_val < 0:
                 _market_implied = abs(best_odds_val) / (abs(best_odds_val) + 100)
+                _o = abs(best_odds_val)
+                if   _o >= 1000: _market_implied = max(_market_implied, 0.97)
+                elif _o >=  700: _market_implied = max(_market_implied, 0.95)
+                elif _o >=  500: _market_implied = max(_market_implied, 0.93)
+                elif _o >=  350: _market_implied = max(_market_implied, 0.90)
+                elif _o >=  250: _market_implied = max(_market_implied, 0.86)
+                elif _o >=  200: _market_implied = max(_market_implied, 0.83)
             else:
                 _market_implied = 100 / (100 + best_odds_val)
 
@@ -1199,6 +1206,13 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
         # +odds props: need 42%+ conf AND 5%+ edge over implied AND positive EV.
         if best_odds < 0:
             _prop_market_implied = abs(best_odds) / (abs(best_odds) + 100)
+            _po = abs(best_odds)
+            if   _po >= 1000: _prop_market_implied = max(_prop_market_implied, 0.97)
+            elif _po >=  700: _prop_market_implied = max(_prop_market_implied, 0.95)
+            elif _po >=  500: _prop_market_implied = max(_prop_market_implied, 0.93)
+            elif _po >=  350: _prop_market_implied = max(_prop_market_implied, 0.90)
+            elif _po >=  250: _prop_market_implied = max(_prop_market_implied, 0.86)
+            elif _po >=  200: _prop_market_implied = max(_prop_market_implied, 0.83)
             _prop_eff_conf = max(conf, _prop_market_implied)
             if _prop_eff_conf < 0.60 or ev <= 0:
                 continue
