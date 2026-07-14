@@ -14,15 +14,37 @@ ET    = ZoneInfo("America/New_York")
 UTC   = ZoneInfo("UTC")
 now   = et_naive()
 
-# Always run a fresh scan so the table reflects live odds
-print("  [Scanning today's games + live odds — please wait...]\n")
+# Wipe stale caches then do full fresh scan
+print("  [Wiping stale cache...]\n")
+try:
+    from src.workers.odds_worker import refresh_active_sports
+    refresh_active_sports()
+except Exception as _e:
+    print(f"  [Cache wipe warning: {_e}]")
+
+print("  [Step 1/3] Sofascore — scanning all sports worldwide...")
 try:
     from src.workers.picks_worker import scan_todays_games
-    scan_todays_games()
+    r1 = scan_todays_games()
+    print(f"  [Step 1/3] Done: {r1}\n")
 except Exception as _e:
-    print(f"  [Sofascore scan warning: {_e}]")
-from src.workers.odds_worker import scan_and_save_odds
-scan_and_save_odds()
+    print(f"  [Sofascore warning: {_e}]\n")
+
+print("  [Step 2/3] HardRock — pulling all odds...")
+try:
+    from src.workers.odds_worker import scan_and_save_odds
+    r2 = scan_and_save_odds()
+    print(f"  [Step 2/3] Done: {r2}\n")
+except Exception as _e:
+    print(f"  [Odds warning: {_e}]\n")
+
+print("  [Step 3/3] Kalshi — pulling all markets...")
+try:
+    from src.workers.odds_worker import scan_player_props
+    r3 = scan_player_props()
+    print(f"  [Step 3/3] Done: {r3}\n")
+except Exception as _e:
+    print(f"  [Kalshi warning: {_e}]\n")
 
 snaps = get_latest_snapshots_by_game()
 
