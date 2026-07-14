@@ -320,40 +320,41 @@ _K_JUNK = [
     "will a run be scored", "will a point be scored", "will at least one",
 ]
 
-# Group by event_ticker — one row per game, keep the contract where YES is highest
-# e.g. "England advances YES 54¢" beats "Argentina advances YES 47¢" → show England
-_k_by_event: dict[str, dict] = {}  # event_ticker → best contract
-_k_no_ticker: dict[str, dict] = {}  # fallback: exact title+time dedup
+# Dedup by market ticker — each ticker is already a unique market
+# Only filter junk and exact-title dupes (no event_ticker collapsing — show all markets)
+_k_seen_tickers: set[str] = set()
+_k_seen_titles:  dict[str, dict] = {}  # title+time → market (fallback dedup when no ticker)
+k_rows = []
 
 for m in all_kalshi:
     title_low = (m.get("title") or "").lower()
     if any(j in title_low for j in _K_JUNK):
         continue
+    yes_raw = m.get("yes_price") or 0
+    no_raw  = m.get("no_price")  or 0
+    yes_p   = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
+    no_p    = round(no_raw  * 100) if no_raw  <= 1 else round(no_raw)
+    # Skip markets where neither side has a real price
+    if yes_p == 0 and no_p == 0:
+        continue
+
     ct_et = parse_et(m.get("close_time") or m.get("expiration_time") or "")
     m["_close_str"] = ct_et.strftime("%-I:%M %p") if ct_et else "—"
     m["_period"]    = ("NIGHT" if ct_et and ct_et.hour >= 16 else "DAY") if ct_et else "—"
     m["_sort"]      = ct_et.replace(tzinfo=None) if ct_et else datetime.max
-    yes_raw = m.get("yes_price") or 0
-    yes_p   = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
 
-    ticker = (m.get("event_ticker") or "").strip()
+    ticker = (m.get("ticker") or m.get("market_id") or "").strip()
     if ticker:
-        existing = _k_by_event.get(ticker)
-        # Keep whichever contract has the higher YES price (= stronger signal)
-        if existing is None:
-            _k_by_event[ticker] = m
-        else:
-            ex_yes = existing.get("yes_price") or 0
-            ex_yp  = round(ex_yes * 100) if ex_yes <= 1 else round(ex_yes)
-            if yes_p > ex_yp:
-                _k_by_event[ticker] = m
+        if ticker in _k_seen_tickers:
+            continue
+        _k_seen_tickers.add(ticker)
+        k_rows.append(m)
     else:
+        # No ticker — dedup by exact title + close time
         _dk = f"{(m.get('title') or '').strip().lower()}|{m['_close_str']}"
-        existing = _k_no_ticker.get(_dk)
-        if existing is None or (m.get("volume") or 0) > (existing.get("volume") or 0):
-            _k_no_ticker[_dk] = m
-
-k_rows = list(_k_by_event.values()) + list(_k_no_ticker.values())
+        if _dk not in _k_seen_titles:
+            _k_seen_titles[_dk] = m
+            k_rows.append(m)
 
 K_COL = [40, 6, 6, 6, 14, 12, 8]
 K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "GAME START ET", "PERIOD"]
