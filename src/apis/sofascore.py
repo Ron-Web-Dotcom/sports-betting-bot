@@ -34,8 +34,8 @@ _BASE = "https://api.sofascore.com/api/v1"
 _cb_lock         = threading.Lock()
 _cb_failures     = 0
 _cb_tripped_at   = 0.0
-_CB_THRESHOLD    = 5      # trip after this many consecutive 403s (wider pool = more tolerance)
-_CB_RESET_SECS   = 900    # try again after 15 minutes (was 30)
+_CB_THRESHOLD    = 10     # trip after 10 consecutive 403s — transient blocks shouldn't trip this
+_CB_RESET_SECS   = 120    # try again after 2 minutes — Decodo recovers fast
 
 def _cb_is_open() -> bool:
     """Return True if circuit is tripped (Sofascore is blocked)."""
