@@ -209,7 +209,7 @@ def scan_player_props():
         kalshi_markets = []
         try:
             from src.apis.kalshi import get_sports_events
-            kalshi_markets = get_sports_events(limit=200)
+            kalshi_markets = get_sports_events(limit=500)
             r.setex("kalshi:live_markets", 2400, json.dumps(kalshi_markets))
             logger.info("Kalshi live markets cached: %d sub-markets", len(kalshi_markets))
         except Exception as e:

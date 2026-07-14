@@ -300,10 +300,14 @@ except Exception:
 
 if not all_kalshi:
     try:
-        from src.apis.kalshi import get_sports_markets
-        all_kalshi = get_sports_markets()
+        from src.apis.kalshi import get_sports_events
+        all_kalshi = get_sports_events(limit=500)
     except Exception:
-        all_kalshi = []
+        try:
+            from src.apis.kalshi import get_sports_markets
+            all_kalshi = get_sports_markets()
+        except Exception:
+            all_kalshi = []
 
 # Junk patterns to filter from display
 _K_JUNK = [
