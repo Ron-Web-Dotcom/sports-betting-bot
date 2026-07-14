@@ -311,4 +311,41 @@ else:
 print(sep_k)
 print("  PICK = higher-probability side  (YES if yes¢ >= no¢, else NO)")
 print("  EVENT/CLOSE ET = when the game starts / market settles (same time for most props)")
+
+# ── BOT'S KALSHI SLIP (single best pick) ─────────────────────────────────────
+print(f"\n{'='*90}")
+print(f"  BOT'S KALSHI SLIP")
+print(f"{'='*90}")
+if k_rows:
+    _scored = []
+    for m in k_rows:
+        yes_raw = m.get("yes_price") or 0
+        no_raw  = m.get("no_price")  or 0
+        yc = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
+        nc = round(no_raw  * 100) if no_raw  <= 1 else round(no_raw)
+        vol = m.get("volume") or 0
+        if vol < 100:        # skip tiny/illiquid markets
+            continue
+        winner_c = max(yc, nc)
+        loser_c  = min(yc, nc)
+        spread   = winner_c - loser_c   # bigger = more lopsided = more confident
+        side     = "YES" if yc >= nc else "NO"
+        _scored.append((spread, winner_c, vol, m, side, yc, nc))
+
+    if _scored:
+        _scored.sort(key=lambda x: (x[0], x[2]), reverse=True)   # sort by spread, then volume
+        spread, winner_c, vol, best, side, yc, nc = _scored[0]
+        ct_et = parse_et(best.get("close_time") or best.get("expiration_time") or "")
+        opens = ct_et.strftime("%-I:%M %p ET") if ct_et else "—"
+        conf  = winner_c   # e.g. 85¢ = 85% implied
+        print(f"\n  MARKET : {best.get('title','')}")
+        print(f"  PICK   : {side}  ({winner_c}¢ vs {nc if side=='YES' else yc}¢  |  {spread}¢ edge)")
+        print(f"  CONF   : {conf}%  {'✅' if conf >= 70 else '⚠️'}")
+        print(f"  OPENS  : {opens}")
+        print(f"  VOLUME : ${vol:,}")
+    else:
+        print("\n  No liquid Kalshi markets found (volume < $100).")
+else:
+    print("\n  No Kalshi markets in cache.")
+
 print(f"\n  {now.strftime('%I:%M %p ET')}  |  Read from DB/cache only — zero API requests\n")
