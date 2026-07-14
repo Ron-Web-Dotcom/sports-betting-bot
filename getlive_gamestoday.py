@@ -79,10 +79,11 @@ sep_s = "-" * (sum(S_COL) + 2*len(S_COL))
 print(f"\n  ── SOFASCORE LIVE RIGHT NOW ({len(live_sf)} live  /  {len(all_sf_today)} total today) ──")
 print(row_fmt(S_HDR, S_COL))
 print(sep_s)
-if not live_sf:
-    print("  Nothing live right now  (all today's events below in Table 2)")
+show_sf = live_sf if live_sf else all_sf_today
+if not show_sf:
+    print("  No events found — bot loads Sofascore at 8 AM ET.")
 else:
-    for ev in live_sf[:40]:
+    for ev in show_sf:
         home    = ev.get("home_team") or "?"
         away    = ev.get("away_team") or "?"
         sport   = short_sport(ev.get("sport") or ev.get("sport_key") or "")
@@ -183,7 +184,7 @@ if not all_props:
     print("  No props in cache — bot scans props every 20 min from 8 AM.")
 else:
     seen_p = set()
-    for p in all_props[:80]:
+    for p in all_props:
         subject = (p.get("player") or p.get("subject") or "")[:22]
         stat    = (p.get("stat") or p.get("market") or "")[:20]
         sport   = short_sport(p.get("sport_key",""))[:12]
