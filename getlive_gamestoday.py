@@ -120,7 +120,7 @@ except Exception:
     live_sf = []; all_sf_today = []
 
 def _sf_status_label(ev):
-    """Return a clear status label: LIVE, SOON (within 60 min), start time, or raw status."""
+    """Return a clear status string: LIVE, SOON, or Scheduled."""
     raw = str(ev.get("status") or "").lower()
     _live_kw = {"live","inprogress","1h","2h","ht","et","pen","progress","halftime","inning","quarter","period","set"}
     if any(x in raw for x in _live_kw):
@@ -128,13 +128,14 @@ def _sf_status_label(ev):
     ct_et = parse_et(ev.get("commence_time") or ev.get("start_time") or "")
     if ct_et:
         diff_min = (ct_et - now).total_seconds() / 60
-        if -5 <= diff_min <= 60:
-            return f"⏰ SOON {ct_et.strftime('%-I:%M %p')}"
-        return ct_et.strftime("%-I:%M %p")
-    return raw[:14] or "—"
+        if -5 <= diff_min <= 90:
+            return "⏰ SOON"
+        if diff_min > 0:
+            return "Scheduled"
+    return raw[:12] or "—"
 
-S_COL = [34, 20, 18, 8]
-S_HDR = ["MATCHUP", "SPORT", "STATUS / KICKOFF", "PERIOD"]
+S_COL = [34, 18, 12, 10, 7]
+S_HDR = ["MATCHUP", "SPORT", "STATUS", "OPENS ET", "PERIOD"]
 sep_s = "-" * (sum(S_COL) + 2*len(S_COL))
 
 print(f"\n  ── SOFASCORE LIVE RIGHT NOW ({len(live_sf)} live  /  {len(all_sf_today)} total today) ──")
@@ -150,10 +151,11 @@ else:
         sport   = short_sport(ev.get("sport") or ev.get("sport_key") or "")
         slabel  = _sf_status_label(ev)
         ct_et   = parse_et(ev.get("commence_time") or ev.get("start_time") or "")
+        opens   = ct_et.strftime("%-I:%M %p") if ct_et else "—"
         period  = "NIGHT" if ct_et and ct_et.hour >= 16 else ("DAY" if ct_et else "—")
-        print(row_fmt([f"{away} @ {home}"[:34], sport, slabel[:18], period], S_COL))
+        print(row_fmt([f"{away} @ {home}"[:34], sport[:18], slabel[:12], opens, period], S_COL))
 print(sep_s)
-print("  🔴 LIVE = in progress  |  ⏰ SOON = starting within 60 min  |  time = scheduled kickoff ET")
+print("  🔴 LIVE = in progress  |  ⏰ SOON = starting within 90 min  |  OPENS ET = Sofascore game start time")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TABLE 2 — TODAY'S GAMES + ODDS (both sides) from DB
