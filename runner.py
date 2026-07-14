@@ -129,11 +129,13 @@ CRON_TASKS = [
     (6,  0,  "yesterday_recap",         None, None),  # every day
     (8,  0,  "scan_todays_games",                        None, None),  # 8 AM full Sofascore scan — worldwide day + night
     (9,  30, "scan_todays_games",                        None, None),  # 9:30 AM rescan — late additions / lineup updates
-    (10, 0,  "scan_and_save_odds",                       None, None),  # 10 AM odds pull — fresh pricing for day entry
+    (10, 0,  "scan_and_save_odds",                       None, None),  # 10 AM HardRock odds pull
+    (10, 0,  "scan_player_props",                        None, None),  # 10 AM Kalshi pricing pull
     (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
     (10, 35, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry
     (14, 30, "scan_todays_games",                         None, None),  # 2:30 PM rescan — afternoon updates worldwide
-    (15, 0,  "scan_and_save_odds",                        None, None),  # 3 PM odds pull after afternoon game scan
+    (15, 0,  "scan_and_save_odds",                        None, None),  # 3 PM HardRock odds pull
+    (15, 0,  "scan_player_props",                         None, None),  # 3 PM Kalshi pricing pull
     (16, 30, "generate_hardrock_night_entry",             None, None),  # HardRock night entry  4:30 PM ET
     (16, 35, "generate_prediction_market_night_entry",    None, None),  # Kalshi night entry    4:35 PM ET
 ]
@@ -199,10 +201,12 @@ CATCHUP_TASKS = [
     (8,  0,  120, "scan_todays_games"),
     (9,  30,  90, "scan_todays_games"),
     (10, 0,   90, "scan_and_save_odds"),
+    (10, 0,   90, "scan_player_props"),
     (10, 30, 180, "generate_hardrock_day_entry"),
     (10, 35, 180, "generate_prediction_market_day_entry"),
     (14, 30,  90, "scan_todays_games"),
     (15, 0,   90, "scan_and_save_odds"),
+    (15, 0,   90, "scan_player_props"),
     (16, 30, 360, "generate_hardrock_night_entry"),
     (16, 35, 360, "generate_prediction_market_night_entry"),
 ]
