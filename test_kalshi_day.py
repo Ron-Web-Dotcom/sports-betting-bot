@@ -15,6 +15,11 @@ now = et_naive()
 
 all_markets = get_sports_markets()
 
+# Auto-retry once if empty (cold start)
+if not all_markets:
+    print("  [No Kalshi data — retrying fetch...]\n")
+    all_markets = get_sports_markets()
+
 # Filter: close_time before 5 PM ET today
 markets = []
 for m in all_markets:

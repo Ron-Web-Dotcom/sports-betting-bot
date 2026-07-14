@@ -16,6 +16,13 @@ now   = et_naive()
 
 snaps = get_latest_snapshots_by_game()
 
+# Auto-scan if DB has no recent data
+if not snaps:
+    print("  [No data in DB — running odds scan now, please wait...]\n")
+    from src.workers.odds_worker import scan_and_save_odds
+    scan_and_save_odds()
+    snaps = get_latest_snapshots_by_game()
+
 # Build game list
 games = {}
 for game_id, snap_list in snaps.items():
