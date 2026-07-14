@@ -315,9 +315,11 @@ _K_JUNK = [
     "will a run be scored", "will a point be scored", "will at least one",
 ]
 
-# Deduplicate on exact title + close_time — removes true API duplicates
-# (same market listed twice) without collapsing "Mbappe 1+ goals" vs "Mbappe 2+ goals"
-_k_seen: dict[str, dict] = {}
+# Group by event_ticker — one row per game, keep the contract where YES is highest
+# e.g. "England advances YES 54¢" beats "Argentina advances YES 47¢" → show England
+_k_by_event: dict[str, dict] = {}  # event_ticker → best contract
+_k_no_ticker: dict[str, dict] = {}  # fallback: exact title+time dedup
+
 for m in all_kalshi:
     title_low = (m.get("title") or "").lower()
     if any(j in title_low for j in _K_JUNK):
@@ -326,13 +328,27 @@ for m in all_kalshi:
     m["_close_str"] = ct_et.strftime("%-I:%M %p") if ct_et else "—"
     m["_period"]    = ("NIGHT" if ct_et and ct_et.hour >= 16 else "DAY") if ct_et else "—"
     m["_sort"]      = ct_et.replace(tzinfo=None) if ct_et else datetime.max
-    # Dedup key: exact title + close time — keeps highest volume when truly duplicated
-    _dk = f"{(m.get('title') or '').strip().lower()}|{m['_close_str']}"
-    existing = _k_seen.get(_dk)
-    if existing is None or (m.get("volume") or 0) > (existing.get("volume") or 0):
-        _k_seen[_dk] = m
+    yes_raw = m.get("yes_price") or 0
+    yes_p   = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
 
-k_rows = list(_k_seen.values())
+    ticker = (m.get("event_ticker") or "").strip()
+    if ticker:
+        existing = _k_by_event.get(ticker)
+        # Keep whichever contract has the higher YES price (= stronger signal)
+        if existing is None:
+            _k_by_event[ticker] = m
+        else:
+            ex_yes = existing.get("yes_price") or 0
+            ex_yp  = round(ex_yes * 100) if ex_yes <= 1 else round(ex_yes)
+            if yes_p > ex_yp:
+                _k_by_event[ticker] = m
+    else:
+        _dk = f"{(m.get('title') or '').strip().lower()}|{m['_close_str']}"
+        existing = _k_no_ticker.get(_dk)
+        if existing is None or (m.get("volume") or 0) > (existing.get("volume") or 0):
+            _k_no_ticker[_dk] = m
+
+k_rows = list(_k_by_event.values()) + list(_k_no_ticker.values())
 
 K_COL = [40, 6, 6, 6, 14, 12, 8]
 K_HDR = ["MARKET TITLE", "YES¢", "NO¢", "PICK", "VOLUME", "EVENT/CLOSE ET", "PERIOD"]
