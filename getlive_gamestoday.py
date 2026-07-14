@@ -311,12 +311,8 @@ _K_JUNK = [
     "will a run be scored", "will a point be scored", "will at least one",
 ]
 
-# Deduplicate: keep only highest-volume market per (base_title, close_time)
-# Base title = strip the line number so "AL vs NL Total Runs?" dedupes across lines
-import re as _re
-def _base_title(t):
-    return _re.sub(r'\d+\.?\d*', '', t or "").strip().lower()
-
+# Deduplicate on exact title + close_time — removes true API duplicates
+# (same market listed twice) without collapsing "Mbappe 1+ goals" vs "Mbappe 2+ goals"
 _k_seen: dict[str, dict] = {}
 for m in all_kalshi:
     title_low = (m.get("title") or "").lower()
@@ -326,8 +322,8 @@ for m in all_kalshi:
     m["_close_str"] = ct_et.strftime("%-I:%M %p") if ct_et else "—"
     m["_period"]    = ("NIGHT" if ct_et and ct_et.hour >= 16 else "DAY") if ct_et else "—"
     m["_sort"]      = ct_et.replace(tzinfo=None) if ct_et else datetime.max
-    # Dedup key: base title + close time — keeps best (highest volume) per line type
-    _dk = f"{_base_title(m.get('title',''))}|{m.get('_close_str','')}"
+    # Dedup key: exact title + close time — keeps highest volume when truly duplicated
+    _dk = f"{(m.get('title') or '').strip().lower()}|{m['_close_str']}"
     existing = _k_seen.get(_dk)
     if existing is None or (m.get("volume") or 0) > (existing.get("volume") or 0):
         _k_seen[_dk] = m
