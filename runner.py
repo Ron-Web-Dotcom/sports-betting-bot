@@ -124,8 +124,8 @@ CRON_TASKS = [
     (12, 5,  "cleanup_old_snapshots",   None, None),  # midday prune — prevents rows piling up if 3 AM missed
     (18, 5,  "cleanup_old_snapshots",   None, None),  # evening prune — keeps DB lean on heavy game days
     (3,  0,  "enter_sleep_mode",        None, None),
+    (3,  0,  "refresh_active_sports",  None, None),  # 3 AM wipe all stale caches — clean slate for new day
     (5,  0,  "wake_up_brief",            None, None),
-    (5,  30, "refresh_active_sports",   None, None),  # wipe stale caches, re-fetch active sports
     (6,  0,  "yesterday_recap",         None, None),  # every day
     (8,  0,  "scan_todays_games",                        None, None),  # 8 AM full Sofascore scan — worldwide day + night
     (8,  0,  "scan_and_save_odds",                       None, None),  # 8 AM HardRock odds pull
