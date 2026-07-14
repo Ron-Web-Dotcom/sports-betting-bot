@@ -146,7 +146,10 @@ show_sf = live_sf if live_sf else all_sf_today
 if not show_sf:
     print("  No events found — bot loads Sofascore at 8 AM ET.")
 else:
-    for ev in sorted(show_sf, key=lambda e: (parse_et(e.get("commence_time") or e.get("start_time") or "") or datetime.max.replace(tzinfo=ET)).replace(tzinfo=None)):
+    for ev in sorted(show_sf, key=lambda e: (
+        short_sport(e.get("sport") or e.get("sport_key") or ""),
+        (parse_et(e.get("commence_time") or e.get("start_time") or "") or datetime.max.replace(tzinfo=ET)).replace(tzinfo=None)
+    )):
         home    = ev.get("home_team") or "?"
         away    = ev.get("away_team") or "?"
         sport   = short_sport(ev.get("sport") or ev.get("sport_key") or "")
