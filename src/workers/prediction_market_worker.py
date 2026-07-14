@@ -147,7 +147,7 @@ def _fetch_todays_games(period: str = "day") -> list[dict]:
                     if _ct_g.tzinfo is None:
                         _ct_g = _ct_g.replace(tzinfo=_zig.ZoneInfo("America/New_York"))
                     _hour_et = _ct_g.astimezone(_zig.ZoneInfo("America/New_York")).hour
-                    _is_night_g = _hour_et >= 17
+                    _is_night_g = _hour_et >= 16
                     if period == "night" and not _is_night_g:
                         continue
                     if period == "day" and _is_night_g:
@@ -484,7 +484,7 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             #     The night entry already blocks the day pick via _blocked_subtitles.
             try:
                 _kdt_et = _dp(_kickoff_et)
-                _is_night_game = _kdt_et.hour >= 17
+                _is_night_game = _kdt_et.hour >= 16
                 if period == "night" and not _is_night_game:
                     continue  # day game in night entry — skip
                 if period == "day" and _is_night_game:

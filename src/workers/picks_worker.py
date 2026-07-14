@@ -544,7 +544,7 @@ def scan_todays_games():
                         t = t.astimezone(ET)
                     else:
                         t = t.replace(tzinfo=ET)
-                    if t.hour >= 17:
+                    if t.hour >= 16:
                         is_night = True
             except Exception:
                 pass
@@ -766,9 +766,9 @@ def _build_hardrock_candidates(
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
             if _mins_since_start > 120:
                 continue  # game started 2h+ ago — lines closed, skip
-            _is_night = _ct_et.hour >= 17
-            # Day entry: only games starting before 5 PM ET.
-            # Night entry: only games starting at 5 PM ET or later.
+            _is_night = _ct_et.hour >= 16
+            # Day entry: only games starting before 4 PM ET.
+            # Night entry: only games starting at 4 PM ET or later.
             # This keeps day/night picks from stealing each other's games.
             if period == "night" and not _is_night: continue
             if period == "day"   and _is_night:     continue
