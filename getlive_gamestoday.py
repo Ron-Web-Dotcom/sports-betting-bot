@@ -162,7 +162,7 @@ print(sep_s)
 print("  🔴 LIVE = in progress  |  ⏰ SOON = starting within 90 min  |  OPENS ET = Sofascore game start time")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TABLE 2 — TODAY'S GAMES + ODDS (both sides) from DB
+# TABLE 2 — TODAY'S GAMES + ODDS (both sides) from DB + Sofascore
 # ═══════════════════════════════════════════════════════════════════════════════
 from src.engines.odds_engine import get_latest_snapshots_by_game
 snaps = get_latest_snapshots_by_game()
@@ -175,7 +175,7 @@ for game_id, snap_list in snaps.items():
     if not ct_et or ct_et.replace(tzinfo=None).date() != now.date(): continue
 
     if game_id not in games:
-        period = "NIGHT" if ct_et.hour >= 16 else "DAY"   # 4 PM cutoff
+        period = "NIGHT" if ct_et.hour >= 16 else "DAY"
         games[game_id] = {
             "away":    s0.get("away_team","?"),
             "home":    s0.get("home_team","?"),
@@ -183,7 +183,7 @@ for game_id, snap_list in snaps.items():
             "time_et": ct_et.strftime("%-I:%M %p"),
             "period":  period,
             "sort_dt": ct_et.replace(tzinfo=None) if ct_et else datetime.max,
-            "h2h":     {},   # sel → best_odds
+            "h2h":     {},
         }
     for s in snap_list:
         if s.get("market") != "h2h": continue
@@ -192,6 +192,29 @@ for game_id, snap_list in snaps.items():
             cur = games[game_id]["h2h"].get(sel)
             if cur is None or odds > cur:
                 games[game_id]["h2h"][sel] = odds
+
+# Merge Sofascore games not already in Odds API results
+_sf_seen = {f"{g['away']}|{g['home']}".lower() for g in games.values()}
+for ev in all_sf_today:
+    home = (ev.get("home_team") or "?").strip()
+    away = (ev.get("away_team") or "?").strip()
+    key  = f"{away}|{home}".lower()
+    if key in _sf_seen:
+        continue
+    ct_et = parse_et(ev.get("commence_time") or ev.get("start_time") or "")
+    if not ct_et or ct_et.replace(tzinfo=None).date() != now.date():
+        continue
+    period  = "NIGHT" if ct_et.hour >= 16 else "DAY"
+    sf_id   = f"sf_{away}_{home}"
+    games[sf_id] = {
+        "away":    away,
+        "home":    home,
+        "sport":   short_sport(ev.get("sport") or ev.get("sport_key") or ""),
+        "time_et": ct_et.strftime("%-I:%M %p"),
+        "period":  period,
+        "sort_dt": ct_et.replace(tzinfo=None),
+        "h2h":     {},   # no Odds API data
+    }
 
 # Columns: MATCHUP | TIME | SPORT | PERIOD | AWAY ODDS | HOME ODDS | BOT PICK | CONF
 G_COL = [30, 9, 10, 7, 10, 10, 16, 12]
