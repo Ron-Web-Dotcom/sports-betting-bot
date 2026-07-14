@@ -14,14 +14,17 @@ ET    = ZoneInfo("America/New_York")
 UTC   = ZoneInfo("UTC")
 now   = et_naive()
 
-snaps = get_latest_snapshots_by_game()
+# Always run a fresh scan so the table reflects live odds
+print("  [Scanning today's games + live odds — please wait...]\n")
+try:
+    from src.workers.picks_worker import scan_todays_games
+    scan_todays_games()
+except Exception as _e:
+    print(f"  [Sofascore scan warning: {_e}]")
+from src.workers.odds_worker import scan_and_save_odds
+scan_and_save_odds()
 
-# Auto-scan if DB has no recent data at all
-if not snaps:
-    print("  [No data in DB — running odds scan now, please wait...]\n")
-    from src.workers.odds_worker import scan_and_save_odds
-    scan_and_save_odds()
-    snaps = get_latest_snapshots_by_game()
+snaps = get_latest_snapshots_by_game()
 
 # Build game list
 games = {}

@@ -940,8 +940,9 @@ def scan_all_sports() -> dict[str, list[dict]]:
             continue
         raw_events[sport_key] = events
 
-        # Filter to only games where at least one team is in Sofascore's today list
-        if sf_teams:
+        # Filter to only games where at least one team is in Sofascore's today list.
+        # Skip filter if sf_teams is sparse (<20 teams) — cache is stale or cold start.
+        if len(sf_teams) >= 20:
             def _team_match(team: str) -> bool:
                 tl = team.lower()
                 return tl in sf_teams or any(
