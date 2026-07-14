@@ -216,9 +216,9 @@ for ev in all_sf_today:
         "h2h":     {},   # no Odds API data
     }
 
-# Columns: MATCHUP | TIME | SPORT | PERIOD | AWAY ODDS | HOME ODDS | BOT PICK | CONF
-G_COL = [30, 9, 10, 7, 10, 10, 16, 12]
-G_HDR = ["MATCHUP", "TIME ET", "SPORT", "PERIOD", "AWAY ODDS", "HOME ODDS", "BOT PICK", "CONFIDENCE"]
+# Columns: MATCHUP | TIME | SPORT | AWAY ODDS | HOME ODDS | BOT PICK | CONF
+G_COL = [34, 8, 12, 10, 10, 18, 12]
+G_HDR = ["MATCHUP", "TIME ET", "SPORT", "AWAY ODDS", "HOME ODDS", "BOT PICK", "CONFIDENCE"]
 sep_g = "-" * (sum(G_COL) + 2*len(G_COL))
 
 day_g   = [g for g in games.values() if g["period"]=="DAY"]
@@ -229,32 +229,37 @@ def _print_games(glist, label):
     print(row_fmt(G_HDR, G_COL))
     print(sep_g)
     if not glist:
-        print(f"  No {label.lower()} in DB.")
+        print(f"  No {label.lower()} games found.")
     else:
-        for g in sorted(glist, key=lambda x: x["sort_dt"]):
-            h2h      = g["h2h"]
-            away_o   = h2h.get(g["away"]) or h2h.get(next((k for k in h2h if g["away"].split()[0].lower() in k.lower()), ""), None)
-            home_o   = h2h.get(g["home"]) or h2h.get(next((k for k in h2h if g["home"].split()[0].lower() in k.lower()), ""), None)
-            # best pick = most negative odds (favourite), else least positive
+        for g in sorted(glist, key=lambda x: (x["sport"], x["sort_dt"])):
+            h2h = g["h2h"]
+            away_o = h2h.get(g["away"]) or h2h.get(
+                next((k for k in h2h if g["away"].split()[0].lower() in k.lower()), ""), None)
+            home_o = h2h.get(g["home"]) or h2h.get(
+                next((k for k in h2h if g["home"].split()[0].lower() in k.lower()), ""), None)
             if h2h:
-                neg = {s:o for s,o in h2h.items() if o < 0}
-                pick_sel  = min(neg, key=lambda s:neg[s]) if neg else min(h2h, key=lambda s:h2h[s])
-                pick_odds = h2h[pick_sel]
-                other_odds = next((o for s,o in h2h.items() if s != pick_sel), None)
+                neg = {s: o for s, o in h2h.items() if o < 0}
+                pick_sel   = min(neg, key=lambda s: neg[s]) if neg else min(h2h, key=lambda s: h2h[s])
+                pick_odds  = h2h[pick_sel]
+                other_odds = next((o for s, o in h2h.items() if s != pick_sel), None)
+                prob       = novig_prob(pick_odds, other_odds)
+                pick_disp  = pick_sel[:18]
+                conf_disp  = conf_label(prob)
             else:
-                pick_sel, pick_odds, other_odds = "?", None, None
-            prob = novig_prob(pick_odds, other_odds)
+                away_o = home_o = None
+                pick_disp = "— no odds"
+                conf_disp = "—"
             print(row_fmt([
-                f"{g['away']} @ {g['home']}"[:30],
-                g["time_et"], g["sport"], g["period"],
+                f"{g['away']} @ {g['home']}"[:34],
+                g["time_et"], g["sport"],
                 odds_fmt(away_o), odds_fmt(home_o),
-                pick_sel[:16], conf_label(prob),
+                pick_disp, conf_disp,
             ], G_COL))
     print(sep_g)
 
 _print_games(day_g,   "DAY GAMES (before 4 PM ET)")
 _print_games(night_g, "NIGHT GAMES (4 PM ET+)")
-print("  ✅ 80%+  ⚠️ 70-79%  ❌ <70%  |  ODDS = best available across all books")
+print("  ✅ 80%+  ⚠️ 70-79%  ❌ <70%  |  ODDS = best available across all books  |  — no odds = not on Odds API")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TABLE 3 — PROPS available today
