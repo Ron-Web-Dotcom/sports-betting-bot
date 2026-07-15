@@ -1544,9 +1544,10 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
 
     avg_conf = round(sum(p["confidence"] for p in entry) / len(entry) * 100)
 
+    posted_time = now_et.strftime("%-I:%M %p ET")
     embed = {
         "title":       f"🎟️  HARDROCK BET  ·  {period_emoji} {period_label}",
-        "description": f"**{date_str}**  ·  {len(entry)} Pick{'s' if len(entry) > 1 else ''}  ·  Slip `#{slip_id}`",
+        "description": f"**{date_str}**  ·  {len(entry)} Pick{'s' if len(entry) > 1 else ''}  ·  Slip `#{slip_id}`\nPosted: **{posted_time}**",
         "fields":      pick_fields + [{
             "name":  "─────────────────────────────",
             "value": f"Avg Confidence  **{avg_conf}%**  ·  Place each bet individually on HardRock",

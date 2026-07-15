@@ -1231,10 +1231,8 @@ def _post_prediction_entry(period: str, picks: list[dict]) -> bool:
     embed = {
         "title": f"🔵  KALSHI SLIP  ·  {sport_emoji} {sport}  ·  {period_emoji} {period_label}",
         "description": (
-            f"```\n"
-            f"  Ticket #{ticket_id}          {date_str}\n"
-            f"  Posted: {time_str}" + (f"  ·  Game: {game_time}" if game_time else "") + "\n"
-            "```"
+            f"**{date_str}**  ·  Ticket `#{ticket_id}`\n"
+            f"Posted: **{time_str}**" + (f"  ·  Game: **{game_time}**" if game_time else "")
         ),
         "fields": [
             {
