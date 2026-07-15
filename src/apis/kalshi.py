@@ -740,7 +740,7 @@ def get_sports_events(limit: int = 500) -> list[dict]:
                 _now_utc = _dt.now(UTC)
                 _now_et  = _now_utc.astimezone(_ET)
                 # Next 6 AM ET cutoff (3 AM was too tight — drops late-night games)
-                _cutoff_et = _now_et.replace(hour=6, minute=0, second=0, microsecond=0)
+                _cutoff_et = _now_et.replace(hour=3, minute=0, second=0, microsecond=0)
                 if _cutoff_et <= _now_et:
                     _cutoff_et = _cutoff_et + _td(days=1)  # tomorrow 6 AM
                 _cutoff_utc = _cutoff_et.astimezone(UTC)
