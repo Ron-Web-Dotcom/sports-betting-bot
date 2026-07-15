@@ -183,7 +183,8 @@ def generate_picks():
 
             # Boost if Kalshi agrees on the same side (cross-market signal)
             try:
-                import json as _ej, redis as _er
+                import json as _ej
+                import redis as _er
                 from src.core.config import REDIS_URL as _eurl
                 _er2 = _er.from_url(_eurl, decode_responses=True, socket_connect_timeout=2)
                 _enriched_raw = _er2.get("games:enriched")

@@ -259,7 +259,8 @@ def build_enriched_games_cache():
       TABLE 4  kalshi [ {title, yes_c, no_c, pick, volume, game_start_et} ]
                kalshi_agrees  — True when best Kalshi pick matches bot_pick
     """
-    import json, re as _re
+    import json
+    import re as _re
     from datetime import datetime
     from zoneinfo import ZoneInfo
     from src.core.config import REDIS_URL
@@ -299,7 +300,8 @@ def build_enriched_games_cache():
         def _impl(o):
             if o is None: return 50.0
             return abs(o)/(abs(o)+100)*100 if o < 0 else 100/(100+o)*100
-        p1 = _impl(p1_odds); p2 = _impl(p2_odds)
+        p1 = _impl(p1_odds)
+        p2 = _impl(p2_odds)
         tot = p1 + p2
         nv = round(p1/tot*100, 1) if tot > 0 else round(p1, 1)
         if p1_odds < 0:

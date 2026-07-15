@@ -621,7 +621,8 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
             })
         # Enrich candidates with Odds API no-vig confidence from games:enriched
         try:
-            import json as _cej, redis as _cer
+            import json as _cej
+            import redis as _cer
             from src.core.config import REDIS_URL as _ceurl
             _cer2 = _cer.from_url(_ceurl, decode_responses=True, socket_connect_timeout=2)
             _ce_raw = _cer2.get("games:enriched")
