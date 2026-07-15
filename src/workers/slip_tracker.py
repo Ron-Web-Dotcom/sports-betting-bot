@@ -16,7 +16,7 @@ A slip is DEAD if any pick lost (like a parlay — one loss kills the ticket).
 """
 import json
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from src.core.timezone import et_naive
 
 logger = logging.getLogger(__name__)
@@ -55,11 +55,12 @@ def _parse_time(ct: str) -> datetime | None:
     try:
         from dateutil.parser import parse as _p
         from zoneinfo import ZoneInfo as _ZI
+        _ET = _ZI("America/New_York")
         dt = _p(str(ct))
         if dt.tzinfo is None:
-            # Odds API / DB stores commence_time in UTC as naive datetime
-            dt = dt.replace(tzinfo=UTC)
-        return dt.astimezone(_ZI("America/New_York"))
+            # Already an ET naive string (Sofascore legacy or old saved slips)
+            dt = dt.replace(tzinfo=_ET)
+        return dt.astimezone(_ET)
     except Exception:
         return None
 
@@ -124,7 +125,7 @@ def purge_ghost_slips() -> int:
                             _gd = _dp_pg(_ct)
                             from zoneinfo import ZoneInfo as _ZIpg
                             if _gd.tzinfo is None:
-                                _gd = _gd.replace(tzinfo=UTC)
+                                _gd = _gd.replace(tzinfo=_ZIpg("America/New_York"))
                             _game_date = _gd.astimezone(_ZIpg("America/New_York")).date()
                             if _game_date != slip_day:
                                 _wrong_date = True
@@ -157,7 +158,7 @@ def purge_ghost_slips() -> int:
                                 if _ct2:
                                     _gd2 = _dp_pg2(_ct2)
                                     if _gd2.tzinfo is None:
-                                        _gd2 = _gd2.replace(tzinfo=UTC)
+                                        _gd2 = _gd2.replace(tzinfo=_ZIpg2("America/New_York"))
                                     _mins_before_creation = (_slip_created - _gd2).total_seconds() / 60
                                     if _mins_before_creation >= 30:  # game started 30+ min before slip was saved
                                         _stale_start = True

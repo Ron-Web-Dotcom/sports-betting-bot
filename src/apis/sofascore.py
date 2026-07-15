@@ -918,8 +918,8 @@ def _epoch_to_iso(ts: int | None) -> str:
     if ts is None:
         return ""
     try:
-        # Naive ET string — scan_todays_games treats naive strings as ET
-        return datetime.fromtimestamp(ts, tz=ET).strftime("%Y-%m-%dT%H:%M:%S")
+        # Always store as ET-aware ISO string so all consumers parse it correctly
+        return datetime.fromtimestamp(ts, tz=ET).isoformat()
     except (OSError, ValueError):
         return ""
 

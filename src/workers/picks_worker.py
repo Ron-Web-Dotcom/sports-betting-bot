@@ -9,6 +9,7 @@ For each upcoming event:
   5. Route BET picks to alert queue
 """
 import logging
+from datetime import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,18 @@ def generate_picks():
             away_team = best_snap.get("away_team", "")
 
             # Use Sofascore's exact kick-off time if available, else fall back to Odds API
-            commence  = _sf_enrich(home_team, away_team, str(best_snap.get("commence_time", "")))
+            # Odds API DB stores commence_time as naive UTC — convert to ET-aware ISO string
+            _raw_ct = best_snap.get("commence_time", "")
+            if _raw_ct and not isinstance(_raw_ct, str):
+                # SQLAlchemy DateTime object (naive UTC) → ET-aware ISO
+                import zoneinfo as _zi2
+                _raw_ct = _raw_ct.replace(tzinfo=UTC).astimezone(_zi2.ZoneInfo("America/New_York")).isoformat()
+            elif _raw_ct and isinstance(_raw_ct, str) and "+" not in _raw_ct and _raw_ct.endswith("Z") is False and len(_raw_ct) == 19:
+                # Naive UTC string from DB (no tz suffix) → ET-aware ISO
+                from dateutil.parser import parse as _dpp_ct
+                import zoneinfo as _zi3
+                _raw_ct = _dpp_ct(_raw_ct).replace(tzinfo=UTC).astimezone(_zi3.ZoneInfo("America/New_York")).isoformat()
+            commence  = _sf_enrich(home_team, away_team, str(_raw_ct))
             from datetime import datetime as _dt
             import zoneinfo as _zi
             _today = _dt.now(_zi.ZoneInfo("America/New_York")).strftime("%A %B %-d, %Y")
