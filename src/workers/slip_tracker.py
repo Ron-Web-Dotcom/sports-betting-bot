@@ -952,7 +952,11 @@ def _check_sofascore_result(pick: dict) -> str | None:
             _date_str = _ct.strftime("%Y-%m-%d") if _ct else None
             ev_found = find_event_by_teams(home, away, date_str=_date_str)
             if ev_found:
-                sf_ev = get_event_result(ev_found.get("id", "")) if ev_found.get("id") else None
+                _resolved_id = str(ev_found.get("id", ""))
+                # Cache resolved sofascore_id back into pick so future polls skip the lookup
+                if _resolved_id and not sf_id:
+                    pick["sofascore_id"] = _resolved_id
+                sf_ev = get_event_result(_resolved_id) if _resolved_id else None
 
         if not sf_ev or not sf_ev.get("is_finished"):
             return None  # not finished yet — keep polling
@@ -1399,6 +1403,10 @@ def track_slips() -> dict:
 
                 # Try Sofascore first — instant result the moment game ends
                 res = _check_pick_result(pick)
+                # Persist any sofascore_id that was resolved during the check
+                if pick.get("sofascore_id") and not slip.get("_sf_saved"):
+                    _save_slip(r, slip)
+                    slip["_sf_saved"] = True
                 if res:
                     logger.info("Slip %s pick '%s': result=%s", slip.get("id"), _pick_name, res)
                     # Cache so purge_ghost_slips can read it next day (Sofascore drops results)
