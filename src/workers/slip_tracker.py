@@ -188,15 +188,22 @@ def purge_ghost_slips() -> int:
                     except Exception:
                         pass
                     if _final_results and len(_final_results) == len(slip.get("picks", [])):
-                        # Settle silently — Discord only posts same-day when result drops instantly
                         _final_outcome = "cashed" if all(x == "won" for x in _final_results) else "dead"
                         slip["status"] = _final_outcome
                         r.hset(_SLIP_KEY, sid, json.dumps(slip))
                         _db_save_slip(slip)
-                        _update_ratio(r, _final_outcome)
+                        _ratio = _update_ratio(r, _final_outcome)
                         _db_save_result(slip, _final_outcome)
                         removed += 1
-                        logger.info("Force-settled previous-day slip %s → %s (record corrected, no Discord)", sid, _final_outcome)
+                        logger.info("Force-settled previous-day slip %s → %s", sid, _final_outcome)
+                        # Post result to Discord — user needs to know CASHED/DEAD even if settled next morning
+                        _result_key = f"game:result:{sid}"
+                        if not _alerted(r, _result_key):
+                            try:
+                                _alert_result(slip, _final_outcome, _ratio, _final_results)
+                                _mark_alerted(r, _result_key)
+                            except Exception as _ae:
+                                logger.warning("Force-settle Discord alert failed: %s", _ae)
                     else:
                         # Still no result — mark void, not dead (data gap, not a real loss)
                         slip["status"] = "void"
@@ -1463,6 +1470,16 @@ def track_slips() -> dict:
                     _db_save_result(slip, slip_result)
                     if slip_result == "void":
                         logger.info("Slip %s voided (score not found after timeout) — not counted in W/L", slip.get("id"))
+                        _post_embed({
+                            "title": "⚠️  RESULT UNKNOWN",
+                            "description": (
+                                f"**{_platform_label(slip['platform'])}** · {slip.get('period','').upper()} slip\n"
+                                "Score data wasn't available in time — this slip is not counted in W/L.\n"
+                                + _slip_legs(picks)
+                            ),
+                            "color": 0x9E9E9E,
+                            "footer": {"text": "Check results manually"},
+                        })
                     else:
                         _alert_result(slip, slip_result, ratio, results, weekly=weekly)
                     _mark_alerted(r, result_key)
