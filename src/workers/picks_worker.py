@@ -605,6 +605,14 @@ def scan_todays_games():
 
     logger.info("Today's games scan: %d day, %d night, %d total (%d teams indexed)",
                 len(day_games), len(night_games), len(all_today), len(team_index))
+
+    # Rebuild enriched games cache so picks use fresh Sofascore + Odds + Kalshi data
+    try:
+        from src.workers.odds_worker import build_enriched_games_cache
+        build_enriched_games_cache()
+    except Exception as _e:
+        logger.debug("build_enriched_games_cache after scan_todays_games: %s", _e)
+
     return {"day": len(day_games), "night": len(night_games), "total": len(all_today)}
 
 
