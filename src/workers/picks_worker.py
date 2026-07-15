@@ -250,6 +250,7 @@ def generate_picks():
                 "market":       market,
                 "selection":    selection,
                 "best_odds":    best_odds_val,
+                "opponent_odds": opponent_odds,
                 "best_book":    next((bk for bk, v in books_odds.items() if v == best_odds_val), best_snap.get("book", "hardrock")),
                 "books_odds":   books_odds,
                 "ev_pct":       ev_result.ev_pct,
@@ -1531,12 +1532,14 @@ def _post_hardrock_embed(period: str, entry: list[dict]) -> None:
                 line_str = f" {'+' if line_val > 0 else ''}{line_val}"
             else:
                 line_str = ""
+            opp_o = p.get("opponent_odds")
+            opp_fmt = f" / {_fmt(opp_o)}" if opp_o is not None else ""
             pick_fields.append({
                 "name":  f"PICK {i}  ·  {emoji}  `{badge}`",
                 "value": (
                     f"**{p['away_team']} @ {p['home_team']}**{inj}{time_str}\n"
                     f"✅  **{p['selection']}{line_str}**\n"
-                    f"Odds  `{odds_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
+                    f"Odds  `{odds_fmt}{opp_fmt}`   Conf  **{conf}%**   Edge  **+{ev}%**"
                     + (f"\n> _{reason_short}_" if reason_short else "")
                 ),
                 "inline": False,
