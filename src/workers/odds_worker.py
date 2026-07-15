@@ -247,160 +247,242 @@ def scan_player_props():
 
 def build_enriched_games_cache():
     """
-    Merge Sofascore status + Odds API odds + Kalshi prices + Props per game.
-    Written to Redis as 'games:enriched' after each scan.
-    Both picks_worker and prediction_market_worker read from this.
+    Build games:enriched — one entry per game, structured exactly like the
+    getlive_gamestoday.py tables so picks_worker and prediction_market_worker
+    see the same clean data the operator sees on screen.
+
+    Each game entry mirrors the 4 tables:
+      TABLE 1  sofascore_status, sofascore_id, opens_et, period
+      TABLE 2  matchup, sport, time_et, away_odds, home_odds, bot_pick,
+               bot_pick_odds, other_odds, confidence
+      TABLE 3  props  [ {player, stat, line, over_odds, under_odds} ]
+      TABLE 4  kalshi [ {title, yes_c, no_c, pick, volume, game_start_et} ]
+               kalshi_agrees  — True when best Kalshi pick matches bot_pick
     """
-    import json
+    import json, re as _re
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
     from src.core.config import REDIS_URL
     import redis as _redis
-    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-    # Load all data sources from Redis cache
-    sf_events   = json.loads(r.get("sofascore:today_events") or "[]")
-    props_raw   = json.loads(r.get("props:odds_api") or "[]")
-    kalshi_raw  = json.loads(r.get("kalshi:live_markets") or "[]")
+    r   = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    ET  = ZoneInfo("America/New_York")
 
-    # Load Odds API snapshots
+    # ── helpers ──────────────────────────────────────────────────────────────
+    _SUF = _re.compile(r'\b(fc|city|united|sc|cf|afc|bfc|sporting|athletics)\b', _re.IGNORECASE)
+    def _norm(name: str) -> str:
+        if not name: return ""
+        return _re.sub(r'\s+', ' ', _SUF.sub("", name).strip()).lower()
+
+    def _fmt_odds(o) -> str:
+        if o is None: return "N/A"
+        return f"+{o}" if o > 0 else str(o)
+
+    def _to_et_str(ct: str) -> str:
+        if not ct: return ""
+        try:
+            dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+            return dt.astimezone(ET).strftime("%-I:%M %p ET")
+        except Exception:
+            return ""
+
+    def _period(ct: str) -> str:
+        if not ct: return "—"
+        try:
+            dt = datetime.fromisoformat(ct.replace("Z", "+00:00")).astimezone(ET)
+            return "NIGHT" if dt.hour >= 16 else "DAY"
+        except Exception:
+            return "—"
+
+    def _novig(p1_odds, p2_odds) -> float | None:
+        if p1_odds is None: return None
+        def _impl(o):
+            if o is None: return 50.0
+            return abs(o)/(abs(o)+100)*100 if o < 0 else 100/(100+o)*100
+        p1 = _impl(p1_odds); p2 = _impl(p2_odds)
+        tot = p1 + p2
+        nv = round(p1/tot*100, 1) if tot > 0 else round(p1, 1)
+        if p1_odds < 0:
+            o = abs(p1_odds)
+            if   o >= 1000: nv = max(nv, 97.0)
+            elif o >=  700: nv = max(nv, 95.0)
+            elif o >=  500: nv = max(nv, 93.0)
+            elif o >=  350: nv = max(nv, 90.0)
+            elif o >=  250: nv = max(nv, 86.0)
+            elif o >=  200: nv = max(nv, 83.0)
+            elif o >=  150: nv = max(nv, 65.0)
+            elif o >=  110: nv = max(nv, 58.0)
+        return nv
+
+    # ── load sources ─────────────────────────────────────────────────────────
+    sf_events  = json.loads(r.get("sofascore:today_events") or "[]")
+    props_raw  = json.loads(r.get("props:odds_api") or "[]")
+    kalshi_raw = json.loads(r.get("kalshi:live_markets") or "[]")
+
     from src.engines.odds_engine import get_latest_snapshots_by_game
     snaps = get_latest_snapshots_by_game()
 
-    import re as _re
-    _SUFFIXES = _re.compile(r'\b(fc|city|united|sc|cf|afc|bfc|sporting|athletics)\b', _re.IGNORECASE)
-    def _norm(name):
-        if not name: return ""
-        return _re.sub(r'\s+', ' ', _SUFFIXES.sub("", name).strip()).lower()
-
-    # Build game index from Odds API snapshots
+    # ── TABLE 2 base: Odds API snapshots ─────────────────────────────────────
     enriched: dict[str, dict] = {}
     for game_id, snap_list in snaps.items():
         if not snap_list: continue
-        s0 = snap_list[0]
-        ct = s0.get("commence_time", "")
+        s0   = snap_list[0]
+        ct   = s0.get("commence_time", "")
         home = s0.get("home_team", "")
         away = s0.get("away_team", "")
         sport = s0.get("sport_key", "")
-        h2h = {}
+
+        # Build h2h odds map  {team_name: best_odds}
+        h2h: dict[str, int] = {}
         for s in snap_list:
             if s.get("market") != "h2h": continue
-            sel, odds = s.get("selection",""), s.get("best_odds")
+            sel, odds = s.get("selection", ""), s.get("best_odds")
             if sel and odds is not None:
-                cur = h2h.get(sel)
-                if cur is None or odds > cur:
+                if sel not in h2h or odds > h2h[sel]:
                     h2h[sel] = odds
-        # Compute no-vig confidence for favorite
-        pick_sel = pick_odds = other_odds = None
+
+        # Bot pick = team with most negative odds (strongest favorite)
+        bot_pick = bot_pick_odds = other_odds = None
         if h2h:
-            neg = {s: o for s, o in h2h.items() if o < 0}
+            neg = {t: o for t, o in h2h.items() if o < 0}
             if neg:
-                pick_sel  = min(neg, key=lambda s: neg[s])
-                pick_odds = h2h[pick_sel]
-                other_odds = next((o for s, o in h2h.items() if s != pick_sel), None)
-        def _novig(p1_odds, p2_odds):
-            def _impl(o):
-                if o is None: return 50.0
-                return abs(o)/(abs(o)+100)*100 if o < 0 else 100/(100+o)*100
-            p1 = _impl(p1_odds); p2 = _impl(p2_odds)
-            tot = p1 + p2
-            nv = round(p1/tot*100, 1) if tot > 0 else round(p1, 1)
-            if p1_odds and p1_odds < 0:
-                o = abs(p1_odds)
-                if   o >= 1000: nv = max(nv, 97.0)
-                elif o >=  700: nv = max(nv, 95.0)
-                elif o >=  500: nv = max(nv, 93.0)
-                elif o >=  350: nv = max(nv, 90.0)
-                elif o >=  250: nv = max(nv, 86.0)
-                elif o >=  200: nv = max(nv, 83.0)
-                elif o >=  150: nv = max(nv, 65.0)
-                elif o >=  110: nv = max(nv, 58.0)
-            return nv
-        novig_conf = _novig(pick_odds, other_odds) if pick_odds else None
+                bot_pick      = min(neg, key=lambda t: neg[t])
+                bot_pick_odds = h2h[bot_pick]
+                other_odds    = next((o for t, o in h2h.items() if t != bot_pick), None)
+            else:
+                # Both positive — pick lower (less underdog)
+                bot_pick      = min(h2h, key=lambda t: h2h[t])
+                bot_pick_odds = h2h[bot_pick]
+                other_odds    = next((o for t, o in h2h.items() if t != bot_pick), None)
+
+        # Away / home odds for display
+        away_odds = h2h.get(away) or next((o for t, o in h2h.items() if _norm(t) in _norm(away) or _norm(away) in _norm(t)), None)
+        home_odds = h2h.get(home) or next((o for t, o in h2h.items() if _norm(t) in _norm(home) or _norm(home) in _norm(t)), None)
+
+        conf = _novig(bot_pick_odds, other_odds)
+
         enriched[game_id] = {
-            "game_id":     game_id,
-            "home_team":   home,
-            "away_team":   away,
-            "sport_key":   sport,
+            # ── identity ──────────────────────────────────────────────────
+            "game_id":       game_id,
+            "matchup":       f"{away} @ {home}",
+            "away_team":     away,
+            "home_team":     home,
+            "sport":         sport,
+            "time_et":       _to_et_str(ct),
+            "period":        _period(ct),
             "commence_time": ct,
-            "h2h":         h2h,
-            "pick_team":   pick_sel,
-            "pick_odds":   pick_odds,
-            "other_odds":  other_odds,
-            "novig_conf":  novig_conf,
-            "sofascore_status": "",
-            "sofascore_id":     "",
-            "kalshi_price":     None,   # ¢ value of the matching Kalshi market
-            "kalshi_side":      None,   # "YES" or "NO"
-            "kalshi_agrees":    False,
-            "kalshi_volume":    0,
-            "props":            [],
+
+            # ── TABLE 2: odds ─────────────────────────────────────────────
+            "away_odds":     _fmt_odds(away_odds),
+            "home_odds":     _fmt_odds(home_odds),
+            "bot_pick":      bot_pick or "—",
+            "bot_pick_odds": _fmt_odds(bot_pick_odds),
+            "other_odds":    _fmt_odds(other_odds),
+            "confidence":    conf,          # no-vig % with magnitude floors
+            "h2h_raw":       h2h,           # full {team: odds} for AI use
+
+            # ── TABLE 1: Sofascore (filled below) ─────────────────────────
+            "status":        "—",           # LIVE / SOON / Scheduled / 2nd half …
+            "sofascore_id":  "",
+
+            # ── TABLE 3: Props (filled below) ─────────────────────────────
+            "props": [],                    # [{player, stat, line, over_odds, under_odds}]
+
+            # ── TABLE 4: Kalshi (filled below) ────────────────────────────
+            "kalshi":        [],            # [{title, yes_c, no_c, pick, volume, game_start_et}]
+            "kalshi_agrees": False,         # True = Kalshi best pick matches bot_pick
+            "kalshi_top_price": None,       # ¢ of the highest-confidence Kalshi market
         }
 
-    # Merge Sofascore status
+    # ── TABLE 1: merge Sofascore status ──────────────────────────────────────
+    _LIVE_KW = {"live","inprogress","1h","2h","ht","et","pen","progress",
+                "halftime","inning","quarter","period","set"}
     for ev in sf_events:
-        eh = _norm(ev.get("home_team",""))
-        ea = _norm(ev.get("away_team",""))
-        for gid, g in enriched.items():
-            if _norm(g["home_team"]) == eh and _norm(g["away_team"]) == ea:
-                g["sofascore_status"] = ev.get("status_type","") or ev.get("status","")
-                g["sofascore_id"]     = ev.get("id","")
-                break
-
-    # Merge Kalshi prices — match by team name in title/subtitle
-    for m in kalshi_raw:
-        title = (m.get("title") or m.get("subtitle") or "").lower()
-        yes_raw = m.get("yes_price") or 0
-        no_raw  = m.get("no_price")  or 0
-        yes_p = round(yes_raw*100) if yes_raw <= 1 else round(yes_raw)
-        no_p  = round(no_raw *100) if no_raw  <= 1 else round(no_raw)
-        if yes_p == 0 and no_p == 0: continue
-        vol = m.get("volume") or 0
-        for gid, g in enriched.items():
-            ht = _norm(g["home_team"])
-            at = _norm(g["away_team"])
-            if not ht and not at: continue
-            ht_tok = ht.split()[0] if ht else ""
-            at_tok = at.split()[0] if at else ""
-            if not any(t and t in title for t in [ht_tok, at_tok] if t):
+        eh = _norm(ev.get("home_team", ""))
+        ea = _norm(ev.get("away_team", ""))
+        for g in enriched.values():
+            if _norm(g["home_team"]) != eh or _norm(g["away_team"]) != ea:
                 continue
-            # Only update if this Kalshi market has higher volume
-            if vol <= (g["kalshi_volume"] or 0):
-                continue
-            winner_side = "YES" if yes_p >= no_p else "NO"
-            winner_price = max(yes_p, no_p)
-            # Check if Kalshi agrees with Odds API pick
-            # "Will X win?" — YES = home team usually
-            kalshi_agrees = False
-            if g["pick_team"]:
-                pt = _norm(g["pick_team"])
-                pt_tok = pt.split()[0] if pt else ""
-                if winner_side == "YES" and pt_tok and pt_tok in title:
-                    kalshi_agrees = True
-                elif winner_side == "NO" and pt_tok and pt_tok not in title:
-                    kalshi_agrees = True
-            g["kalshi_price"]  = winner_price
-            g["kalshi_side"]   = winner_side
-            g["kalshi_agrees"] = kalshi_agrees
-            g["kalshi_volume"] = vol
+            raw = str(ev.get("status") or ev.get("status_type") or "").lower()
+            if any(x in raw for x in _LIVE_KW):
+                status = "🔴 LIVE"
+            else:
+                status = raw[:18] or "Scheduled"
+            g["status"]       = status
+            g["sofascore_id"] = str(ev.get("id", ""))
+            break
 
-    # Merge props
+    # ── TABLE 3: merge Props ──────────────────────────────────────────────────
     for prop in props_raw:
-        ph = _norm(prop.get("home_team",""))
-        pa = _norm(prop.get("away_team",""))
-        for gid, g in enriched.items():
+        ph = _norm(prop.get("home_team", ""))
+        pa = _norm(prop.get("away_team", ""))
+        for g in enriched.values():
             if ph and pa and ph == _norm(g["home_team"]) and pa == _norm(g["away_team"]):
                 g["props"].append({
-                    "player":    prop.get("player",""),
-                    "stat":      prop.get("stat",""),
-                    "line":      prop.get("line"),
-                    "over_odds": prop.get("over_odds"),
-                    "under_odds":prop.get("under_odds"),
+                    "player":     prop.get("player", "") or prop.get("subject", ""),
+                    "stat":       prop.get("stat", ""),
+                    "line":       prop.get("line"),
+                    "over_odds":  prop.get("over_odds"),
+                    "under_odds": prop.get("under_odds"),
                 })
                 break
 
+    # ── TABLE 4: merge Kalshi markets ────────────────────────────────────────
+    for m in kalshi_raw:
+        title  = (m.get("title") or "").strip()
+        sub    = (m.get("subtitle") or "").strip()
+        t_low  = title.lower()
+        yes_raw = m.get("yes_price") or 0
+        no_raw  = m.get("no_price")  or 0
+        yes_c = round(yes_raw * 100) if yes_raw <= 1 else round(yes_raw)
+        no_c  = round(no_raw  * 100) if no_raw  <= 1 else round(no_raw)
+        if yes_c == 0 and no_c == 0: continue
+        pick_side   = "YES" if yes_c >= no_c else "NO"
+        top_price   = max(yes_c, no_c)
+        vol         = m.get("volume") or 0
+        game_start  = _to_et_str(m.get("close_time") or m.get("expiration_time") or "")
+
+        for g in enriched.values():
+            ht_tok = _norm(g["home_team"]).split()[:1]
+            at_tok = _norm(g["away_team"]).split()[:1]
+            tokens = [t for t in (ht_tok + at_tok) if len(t) > 3]
+            if not any(tok in t_low for tok in tokens):
+                continue
+            # Append this Kalshi market to the game's kalshi list
+            g["kalshi"].append({
+                "title":         f"{title} {sub}".strip()[:60],
+                "yes_c":         yes_c,
+                "no_c":          no_c,
+                "pick":          pick_side,
+                "volume":        vol,
+                "game_start_et": game_start,
+            })
+            # Update kalshi_agrees: check if Kalshi's pick side matches bot_pick
+            if g["bot_pick"] and g["bot_pick"] != "—":
+                bp_tok = _norm(g["bot_pick"]).split()[:1]
+                if bp_tok and any(t in t_low for t in bp_tok):
+                    if pick_side == "YES":
+                        g["kalshi_agrees"] = True
+                        if top_price > (g["kalshi_top_price"] or 0):
+                            g["kalshi_top_price"] = top_price
+            break
+
+    # Sort each game's Kalshi markets by volume descending
+    for g in enriched.values():
+        g["kalshi"].sort(key=lambda x: x["volume"], reverse=True)
+
     out = list(enriched.values())
+    # Only cache games that have odds (same filter as the display table)
+    out = [g for g in out if g["h2h_raw"]]
+
     r.setex("games:enriched", 2400, json.dumps(out))
-    logger.info("games:enriched built: %d games (kalshi_match=%d, with_props=%d)",
-                len(out),
-                sum(1 for g in out if g["kalshi_price"]),
-                sum(1 for g in out if g["props"]))
+    logger.info(
+        "games:enriched: %d games | %d LIVE | %d with Kalshi | %d with props | %d DAY / %d NIGHT",
+        len(out),
+        sum(1 for g in out if "LIVE" in g["status"]),
+        sum(1 for g in out if g["kalshi"]),
+        sum(1 for g in out if g["props"]),
+        sum(1 for g in out if g["period"] == "DAY"),
+        sum(1 for g in out if g["period"] == "NIGHT"),
+    )
     return out
