@@ -1479,15 +1479,8 @@ def track_slips() -> dict:
                     continue
                 logger.info("Slip %s pick '%s': no result yet (ct=%s)", slip.get("id"), _pick_name, pick.get("commence_time", "none"))
 
-                # Last resort timeout — only if Sofascore has no data at all after 24h
-                if ct and (now - ct).total_seconds() > 24 * 3600:
-                    results.append("unknown")
-                    logger.warning("Slip %s pick: no result after 24h — marking unknown", slip.get("id"))
-                elif not ct:
-                    slip_created = _parse_time(slip.get("created", ""))
-                    if slip_created and (now - slip_created).total_seconds() > 12 * 3600:
-                        results.append("unknown")
-                        logger.warning("Slip %s: no commence_time and no result after 12h — marking unknown", slip.get("id"))
+                # Sofascore didn't return a result yet — keep polling
+                logger.info("Slip %s pick '%s': waiting for Sofascore to post result", slip.get("id"), _pick_name)
 
             # Settle only when ALL legs have a result (real or timeout-unknown).
             #   all won                → cashed
