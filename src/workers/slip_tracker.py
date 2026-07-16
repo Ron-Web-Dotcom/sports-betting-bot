@@ -1456,7 +1456,7 @@ def track_slips() -> dict:
                     elif any(k in sport for k in ("baseball", "mlb")):
                         _timeout = -360   # 6h after start (extra innings, delays)
                     elif any(k in sport for k in ("basketball", "nba", "wnba")):
-                        _timeout = -180   # 3h after start (OT included)
+                        _timeout = -210   # 2.5h game + 1h buffer — Sofascore posts result instantly
                     elif any(k in sport for k in ("tennis",)):
                         _timeout = -300   # 5h after start
                     else:
