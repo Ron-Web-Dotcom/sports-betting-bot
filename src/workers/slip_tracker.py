@@ -1421,7 +1421,50 @@ def track_slips() -> dict:
                     logger.info("Slip %s pick '%s': game starts in %d min — waiting", slip.get("id"), _pick_name, _mins_to_start)
                     continue
 
-                # Try Sofascore first — instant result the moment game ends
+                # Check Sofascore status first — if still live, wait 5 min before checking again
+                _sf_id = pick.get("sofascore_id", "")
+                _live_cache_key = f"slip:live:{_sf_id or _pick_name}"
+                _is_live = r.get(_live_cache_key)
+                if _is_live:
+                    logger.info("Slip %s pick '%s': still live per Sofascore — checking again in 5 min", slip.get("id"), _pick_name)
+                    continue
+
+                # Resolve sofascore_id if missing
+                if not _sf_id:
+                    _ht = pick.get("home_team", "")
+                    _at = pick.get("away_team", "")
+                    if _ht and _at:
+                        try:
+                            from src.apis.sofascore import find_event_by_teams as _fet2
+                            _ct_str = pick.get("commence_time", "")
+                            _ct_dt  = _parse_time(_ct_str)
+                            _date_s = _ct_dt.strftime("%Y-%m-%d") if _ct_dt else None
+                            _ev2 = _fet2(_ht, _at, date_str=_date_s)
+                            if _ev2 and _ev2.get("id"):
+                                _sf_id = str(_ev2["id"])
+                                pick["sofascore_id"] = _sf_id
+                                _save_slip(r, slip)
+                        except Exception:
+                            pass
+
+                # Check Sofascore event status directly
+                if _sf_id:
+                    try:
+                        from src.apis.sofascore import get_event_result as _ger
+                        _sf_ev = _ger(_sf_id)
+                        if _sf_ev:
+                            if _sf_ev.get("is_live"):
+                                # Game still in progress — check again in 5 min
+                                r.setex(_live_cache_key, 300, "1")
+                                logger.info("Slip %s pick '%s': Sofascore says LIVE — waiting 5 min", slip.get("id"), _pick_name)
+                                continue
+                            elif not _sf_ev.get("is_finished"):
+                                # Not started yet or status unknown — keep waiting
+                                continue
+                    except Exception:
+                        pass
+
+                # Sofascore not live — get result now
                 res = _check_pick_result(pick)
                 # Persist any sofascore_id that was resolved during the check
                 if pick.get("sofascore_id") and not slip.get("_sf_saved"):
@@ -1429,45 +1472,22 @@ def track_slips() -> dict:
                     slip["_sf_saved"] = True
                 if res:
                     logger.info("Slip %s pick '%s': result=%s", slip.get("id"), _pick_name, res)
-                    # Cache so purge_ghost_slips can read it next day (Sofascore drops results)
+                    # Cache result so purge_ghost_slips can read it next day
                     _pick_idx = picks.index(pick)
                     r.setex(f"picks:result:{slip.get('id')}:{_pick_idx}", 172800, res)
                     results.append(res)
                     continue
                 logger.info("Slip %s pick '%s': no result yet (ct=%s)", slip.get("id"), _pick_name, pick.get("commence_time", "none"))
 
-                # Not settled yet — check timeout to avoid waiting forever
+                # Last resort timeout — only if Sofascore has no data at all after 24h
                 if ct and (now - ct).total_seconds() > 24 * 3600:
                     results.append("unknown")
                     logger.warning("Slip %s pick: no result after 24h — marking unknown", slip.get("id"))
                 elif not ct:
                     slip_created = _parse_time(slip.get("created", ""))
-                    # No commence_time: time out 6h after slip creation (games last at most 4h)
-                    if slip_created and (now - slip_created).total_seconds() > 6 * 3600:
+                    if slip_created and (now - slip_created).total_seconds() > 12 * 3600:
                         results.append("unknown")
-                        logger.warning("Slip %s: no commence_time and no result after 6h — marking unknown", slip.get("id"))
-                else:
-                    mins = (ct - now).total_seconds() / 60
-                    sport = pick.get("sport_key", "")
-                    # Generous timeouts — don't give up before Sofascore posts the result.
-                    # Only fire after game has been over long enough that a result must exist.
-                    if any(k in sport for k in ("mma", "boxing")):
-                        _timeout = -180   # 3h after start
-                    elif any(k in sport for k in ("baseball", "mlb")):
-                        _timeout = -360   # 6h after start (extra innings, delays)
-                    elif any(k in sport for k in ("basketball", "nba", "wnba")):
-                        _timeout = -210   # 2.5h game + 1h buffer — Sofascore posts result instantly
-                    elif any(k in sport for k in ("tennis",)):
-                        _timeout = -300   # 5h after start
-                    else:
-                        _timeout = -300   # 5h default
-                    if mins < _timeout:
-                        results.append("unknown")
-                        logger.info(
-                            "Slip %s: no score after %dh for %s (%s) — marking unknown",
-                            slip.get("id"), abs(_timeout) // 60,
-                            pick.get("selection") or pick.get("player"), sport,
-                        )
+                        logger.warning("Slip %s: no commence_time and no result after 12h — marking unknown", slip.get("id"))
 
             # Settle only when ALL legs have a result (real or timeout-unknown).
             #   all won                → cashed
