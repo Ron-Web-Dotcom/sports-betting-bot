@@ -1087,13 +1087,31 @@ def _check_pick_result(pick: dict) -> str | None:
     if pick.get("question") or pick.get("market_id"):
         return _check_kalshi_result(pick)
 
+    # Rate-limit Odds API score calls — cache result for 5 min per game to avoid burning credits
+    _home_key = (pick.get("home_team") or "").lower().replace(" ", "_")
+    _away_key = (pick.get("away_team") or "").lower().replace(" ", "_")
+    _score_cache_key = f"scores:result:{_home_key}:{_away_key}"
+    try:
+        _r = _redis()
+        _cached_scores = _r.get(_score_cache_key)
+        if _cached_scores == "pending":
+            return None  # already checked recently — don't burn credits again
+    except Exception:
+        _r = None
+
     try:
         from src.engines.odds_engine import fetch_scores
         sport_key = pick.get("sport_key", "")
         if not sport_key:
             return None
 
-        scores = fetch_scores(sport_key, days_from=14)
+        scores = fetch_scores(sport_key, days_from=3)
+        # Cache "pending" for 5 min so we don't call Odds API every 30s
+        try:
+            if _r:
+                _r.setex(_score_cache_key, 300, "pending")
+        except Exception:
+            pass
         home = (pick.get("home_team") or "").lower()
         away = (pick.get("away_team") or "").lower()
 
@@ -1438,7 +1456,7 @@ def track_slips() -> dict:
                     elif any(k in sport for k in ("baseball", "mlb")):
                         _timeout = -360   # 6h after start (extra innings, delays)
                     elif any(k in sport for k in ("basketball", "nba", "wnba")):
-                        _timeout = -240   # 4h after start (OT)
+                        _timeout = -300   # 5h after start (OT + Sofascore delay buffer)
                     elif any(k in sport for k in ("tennis",)):
                         _timeout = -300   # 5h after start
                     else:
