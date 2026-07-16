@@ -1327,9 +1327,12 @@ def track_slips() -> dict:
                                 r.setex(_live_cache_key, 300, "1")
                                 logger.info("Slip %s pick '%s': Sofascore says LIVE — waiting 5 min", slip.get("id"), _pick_name)
                                 continue
-                            elif not _sf_ev.get("is_finished"):
-                                # Not started yet or status unknown — keep waiting
-                                continue
+                            elif not _sf_ev.get("is_finished") and not _sf_ev.get("is_live"):
+                                _status = _sf_ev.get("status_type", "")
+                                if _status == "notstarted":
+                                    # Game hasn't started yet — keep waiting
+                                    continue
+                                # Any other status (after OT, interrupted, etc.) — try to resolve result
                     except Exception:
                         pass
 

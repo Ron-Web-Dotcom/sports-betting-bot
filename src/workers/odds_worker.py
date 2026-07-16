@@ -453,6 +453,8 @@ def build_enriched_games_cache():
             # Append this Kalshi market to the game's kalshi list
             g["kalshi"].append({
                 "title":         f"{title} {sub}".strip()[:60],
+                "market_id":     m.get("ticker") or m.get("market_id") or "",
+                "event_ticker":  m.get("event_ticker") or "",
                 "yes_c":         yes_c,
                 "no_c":          no_c,
                 "pick":          pick_side,
