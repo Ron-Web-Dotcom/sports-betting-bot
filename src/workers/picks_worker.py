@@ -166,6 +166,13 @@ def generate_picks():
             opp_prob      = ai.get("opponent_probability")
             opponent_odds = (decimal_to_american(1.0 / opp_prob)
                              if opp_prob and 0 < opp_prob < 1 else None)
+            # Fallback: derive opponent odds from h2h snapshots directly
+            if opponent_odds is None:
+                _opp_snaps = [s for s in snap_list if s.get("market") == market and s.get("selection") != selection]
+                if _opp_snaps:
+                    _opp_best = max((s.get("best_odds") for s in _opp_snaps if s.get("best_odds") is not None), default=None)
+                    if _opp_best is not None:
+                        opponent_odds = _opp_best
             confidence = compute_confidence(
                 ai_win_prob         = ai.get("win_probability", 0.5),
                 model_consensus     = ai.get("confidence", 0.5),
@@ -267,7 +274,7 @@ def generate_picks():
                 "best_book":    next((bk for bk, v in books_odds.items() if v == best_odds_val), best_snap.get("book", "hardrock")),
                 "books_odds":   books_odds,
                 "ev_pct":       ev_result.ev_pct,
-                "confidence":   confidence.calibrated_score,
+                "confidence":   _effective_conf,
                 "units":        ev_result.units,
                 "insight":      insight,
                 "injuries":     len([i for i in all_injuries if i.get("status") in ("out", "doubtful")]),
