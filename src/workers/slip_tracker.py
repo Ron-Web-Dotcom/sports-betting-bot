@@ -1211,7 +1211,7 @@ def track_slips() -> dict:
                     mins_to_start = (ct_stored - now).total_seconds() / 60
                     gt = ct_stored.astimezone(_ET).strftime("%-I:%M %p ET")
                     soon_key = f"game:soon:{gid}"
-                    if 5 <= mins_to_start <= 60 and not _alerted(r, soon_key):
+                    if 5 <= mins_to_start <= 30 and not _alerted(r, soon_key):
                         all_soon.append(f"**{name}**  ·  🕐 {gt}  {tag}")
                         _mark_alerted(r, soon_key)
 
