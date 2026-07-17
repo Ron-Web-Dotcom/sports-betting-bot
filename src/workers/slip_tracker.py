@@ -1224,7 +1224,9 @@ def track_slips() -> dict:
                     if _home_t and _away_t:
                         try:
                             from src.apis.sofascore import find_event_by_teams as _fet
-                            _ev_match = _fet(_home_t, _away_t)
+                            _ct_p1 = _parse_time(pick.get("commence_time", ""))
+                            _date_p1 = _ct_p1.strftime("%Y-%m-%d") if _ct_p1 else None
+                            _ev_match = _fet(_home_t, _away_t, date_str=_date_p1)
                             if _ev_match:
                                 _resolved_sf_id = str(_ev_match.get("id", ""))
                         except Exception:
@@ -1241,11 +1243,24 @@ def track_slips() -> dict:
 
                 live_key = f"game:live:{gid}"
                 if sf_status == "inprogress" and not _alerted(r, live_key):
-                    gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else (
-                        ct_stored.astimezone(_ET).strftime("%-I:%M %p ET") if ct_stored else ""
-                    )
-                    all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
-                    _mark_alerted(r, live_key)
+                    # Sanity-check: Sofascore event start time must be within 3h of our stored
+                    # commence_time — guards against find_event_by_teams matching the wrong game
+                    _sf_start_ok = True
+                    if start_ts and ct_stored:
+                        _sf_start_dt = _dt2.fromtimestamp(start_ts, tz=_ET)
+                        _diff_h = abs((_sf_start_dt - ct_stored).total_seconds()) / 3600
+                        if _diff_h > 3:
+                            logger.warning(
+                                "slip_tracker: Sofascore event start %s differs from stored commence %s by %.1f h — wrong game, skipping live alert",
+                                _sf_start_dt.strftime("%H:%M"), ct_stored.strftime("%H:%M"), _diff_h
+                            )
+                            _sf_start_ok = False
+                    if _sf_start_ok:
+                        gt_live = _dt2.fromtimestamp(start_ts, tz=_ET).strftime("%-I:%M %p ET") if start_ts else (
+                            ct_stored.astimezone(_ET).strftime("%-I:%M %p ET") if ct_stored else ""
+                        )
+                        all_live.append(f"🔴 **{name}**" + (f"  ·  🕐 {gt_live}" if gt_live else "") + f"  {tag}")
+                        _mark_alerted(r, live_key)
 
                 # Fallback live detection: if no Sofascore status but game started >5 min ago
                 # Runs regardless of whether sofascore_id is available — uses stored commence_time
