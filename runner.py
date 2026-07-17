@@ -325,9 +325,11 @@ def main():
 
         # ── Interval tasks ──────────────────────────────────────────────────
         # Skip interval tasks during sleep window (3–5 AM ET)
+        # Exception: track_slips always runs so results post the moment a game ends
         _in_sleep = 3 <= now.hour < 5
+        _SLEEP_EXEMPT = {"track_slips"}
         for interval, name in INTERVAL_TASKS:
-            if _in_sleep:
+            if _in_sleep and name not in _SLEEP_EXEMPT:
                 last_run[name] = ts  # reset timer so tasks don't pile up at 5 AM
                 continue
             if ts - last_run[name] >= interval:
