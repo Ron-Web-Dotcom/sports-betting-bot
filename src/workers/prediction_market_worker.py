@@ -619,71 +619,95 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 "commence_time": _kickoff_et,
                 "expiration_time": m.get("expiration_time", ""),
             })
-        # Enrich existing candidates + add any Kalshi markets from games:enriched that were missed
-        try:
-            import json as _cej
-            import redis as _cer
-            from src.core.config import REDIS_URL as _ceurl
-            _cer2 = _cer.from_url(_ceurl, decode_responses=True, socket_connect_timeout=2)
-            _ce_raw = _cer2.get("games:enriched")
-            if _ce_raw:
-                _ce_list = _cej.loads(_ce_raw)
-                _existing_market_ids = {c.get("market_id","") for c in candidates}
-
-                for _ceg in _ce_list:
-                    _ceh = (_ceg.get("home_team","") or "").lower()
-                    _cea = (_ceg.get("away_team","") or "").lower()
-
-                    # Enrich existing candidates with enriched data
-                    for _cand in candidates:
-                        _ch = (_cand.get("home_team","") or "").lower()
-                        _ca = (_cand.get("away_team","") or "").lower()
-                        if _ceh and _cea and (_ceh in _ch or _ch in _ceh) and (_cea in _ca or _ca in _cea):
-                            _cand["odds_api_novig_conf"] = _ceg.get("confidence")
-                            _cand["odds_api_pick_team"]  = _ceg.get("bot_pick","")
-                            _cand["odds_api_pick_odds"]  = _ceg.get("bot_pick_odds")
-                            _cand["kalshi_agrees"]        = _ceg.get("kalshi_agrees", False)
-                            _cand["kalshi_price"]         = _ceg.get("kalshi_top_price")
-                            _cand["game_props"]           = _ceg.get("props", [])[:5]
-
-                    # Add Kalshi markets from enriched that weren't found by the main scan
-                    for _km in (_ceg.get("kalshi") or []):
-                        _km_id = _km.get("market_id","") or _km.get("ticker","")
-                        if not _km_id or _km_id in _existing_market_ids:
-                            continue
-                        _existing_market_ids.add(_km_id)
-                        _yes_c = float(_km.get("yes_c") or 0)
-                        _no_c  = float(_km.get("no_c") or 0)
-                        if _yes_c <= 0 or _no_c <= 0:
-                            continue
-                        candidates.append({
-                            "source":        "enriched",
-                            "market_id":     _km_id,
-                            "title":         _km.get("title",""),
-                            "subtitle":      f"{_ceg.get('away_team','')} vs {_ceg.get('home_team','')}",
-                            "event_title":   _km.get("title",""),
-                            "event_ticker":  _km.get("event_ticker",""),
-                            "sport_key":     _ceg.get("sport",""),
-                            "home_team":     _ceg.get("home_team",""),
-                            "away_team":     _ceg.get("away_team",""),
-                            "sofascore_id":  _ceg.get("sofascore_id",""),
-                            "yes_prob":      _yes_c / 100,
-                            "no_prob":       _no_c  / 100,
-                            "yes_american":  round(-_yes_c / (1 - _yes_c/100)) if _yes_c < 100 else -9999,
-                            "no_american":   round(-_no_c  / (1 - _no_c /100)) if _no_c  < 100 else -9999,
-                            "volume":        _km.get("volume", 0),
-                            "commence_time": _ceg.get("commence_time",""),
-                            "odds_api_novig_conf": _ceg.get("confidence"),
-                            "odds_api_pick_team":  _ceg.get("bot_pick",""),
-                            "kalshi_agrees":       _ceg.get("kalshi_agrees", False),
-                            "kalshi_price":        _ceg.get("kalshi_top_price"),
-                            "game_props":          _ceg.get("props", [])[:5],
-                        })
-                        logger.info("Kalshi [%s]: added enriched market %s (%s)", period, _km_id, _km.get("title",""))
-        except Exception as _ce_err:
-            logger.warning("games:enriched Kalshi merge failed: %s", _ce_err)
-
         candidates.sort(key=lambda x: x["volume"], reverse=True)
+
+    # Enrich existing candidates + add any Kalshi markets from games:enriched that were missed.
+    # Runs regardless of whether kalshi_full had markets — enriched is an independent source.
+    try:
+        import json as _cej
+        import redis as _cer
+        from src.core.config import REDIS_URL as _ceurl
+        from dateutil.parser import parse as _dp_ce
+        _cer2 = _cer.from_url(_ceurl, decode_responses=True, socket_connect_timeout=2)
+        _ce_raw = _cer2.get("games:enriched")
+        if _ce_raw:
+            _ce_list = _cej.loads(_ce_raw)
+            _existing_market_ids = {c.get("market_id","") for c in candidates}
+
+            for _ceg in _ce_list:
+                _ceh = (_ceg.get("home_team","") or "").lower()
+                _cea = (_ceg.get("away_team","") or "").lower()
+
+                # Enrich existing candidates with enriched data
+                for _cand in candidates:
+                    _ch = (_cand.get("home_team","") or "").lower()
+                    _ca = (_cand.get("away_team","") or "").lower()
+                    if _ceh and _cea and (_ceh in _ch or _ch in _ceh) and (_cea in _ca or _ca in _cea):
+                        _cand["odds_api_novig_conf"] = _ceg.get("confidence")
+                        _cand["odds_api_pick_team"]  = _ceg.get("bot_pick","")
+                        _cand["odds_api_pick_odds"]  = _ceg.get("bot_pick_odds")
+                        _cand["kalshi_agrees"]        = _ceg.get("kalshi_agrees", False)
+                        _cand["kalshi_price"]         = _ceg.get("kalshi_top_price")
+                        _cand["game_props"]           = _ceg.get("props", [])[:5]
+
+                # Add Kalshi markets from enriched that weren't found by the main scan
+                for _km in (_ceg.get("kalshi") or []):
+                    _km_id = _km.get("market_id","") or _km.get("ticker","")
+                    if not _km_id or _km_id in _existing_market_ids:
+                        continue
+                    _existing_market_ids.add(_km_id)
+                    _yes_c = float(_km.get("yes_c") or 0)
+                    _no_c  = float(_km.get("no_c") or 0)
+                    if _yes_c <= 0 or _no_c <= 0:
+                        continue
+                    # Period gate — same rule as main kalshi_full loop
+                    _enr_ct = _ceg.get("commence_time","") or _km.get("game_start_et","")
+                    if _enr_ct:
+                        try:
+                            _enr_dt = _dp_ce(_enr_ct)
+                            if _enr_dt.tzinfo is None:
+                                import zoneinfo as _zi_enr
+                                _enr_dt = _enr_dt.replace(tzinfo=_zi_enr.ZoneInfo("America/New_York"))
+                            import zoneinfo as _zi_enr2
+                            _enr_h = _enr_dt.astimezone(_zi_enr2.ZoneInfo("America/New_York")).hour
+                            _enr_is_night = _enr_h >= 16
+                            if period == "night" and not _enr_is_night:
+                                continue
+                            if period == "day" and _enr_is_night:
+                                continue
+                            # Skip games that already started
+                            import datetime as _dt_enr
+                            _enr_now = _dt_enr.datetime.now(_zi_enr2.ZoneInfo("America/New_York"))
+                            if (_enr_now - _enr_dt.astimezone(_zi_enr2.ZoneInfo("America/New_York"))).total_seconds() > 5 * 60:
+                                continue
+                        except Exception:
+                            pass
+                    candidates.append({
+                        "source":        "enriched",
+                        "market_id":     _km_id,
+                        "title":         _km.get("title",""),
+                        "subtitle":      f"{_ceg.get('away_team','')} vs {_ceg.get('home_team','')}",
+                        "event_title":   _km.get("title",""),
+                        "event_ticker":  _km.get("event_ticker",""),
+                        "sport_key":     _ceg.get("sport",""),
+                        "home_team":     _ceg.get("home_team",""),
+                        "away_team":     _ceg.get("away_team",""),
+                        "sofascore_id":  _ceg.get("sofascore_id",""),
+                        "yes_prob":      _yes_c / 100,
+                        "no_prob":       _no_c  / 100,
+                        "yes_american":  round(-_yes_c / (1 - _yes_c/100)) if _yes_c < 100 else -9999,
+                        "no_american":   round(-_no_c  / (1 - _no_c /100)) if _no_c  < 100 else -9999,
+                        "volume":        _km.get("volume", 0),
+                        "commence_time": _enr_ct,
+                        "odds_api_novig_conf": _ceg.get("confidence"),
+                        "odds_api_pick_team":  _ceg.get("bot_pick",""),
+                        "kalshi_agrees":       _ceg.get("kalshi_agrees", False),
+                        "kalshi_price":        _ceg.get("kalshi_top_price"),
+                        "game_props":          _ceg.get("props", [])[:5],
+                    })
+                    logger.info("Kalshi [%s]: added enriched market %s (%s)", period, _km_id, _km.get("title",""))
+    except Exception as _ce_err:
+        logger.warning("games:enriched Kalshi merge failed: %s", _ce_err)
     logger.info("Kalshi [%s]: %d candidates from %d markets (%d sf_games)",
                 period, len(candidates), len(kalshi_full), len(_sf_games))
     if not candidates and kalshi_full:
