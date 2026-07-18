@@ -813,12 +813,11 @@ def _build_hardrock_candidates(
             if _ct_et.date() != _today_et:
                 continue
             _now_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York"))
-            # Allow games that started within the last 3 hours — ML/spread lines
-            # are still posted pre-game and props are live early in a game.
-            # Exclude games finished more than 3 hours ago to avoid stale data.
+            # Only pick games that haven't started yet (5 min grace for scheduling jitter).
+            # Never pick a game already in progress — lines are closed, can't place the bet.
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
-            if _mins_since_start > 120:
-                continue  # game started 2h+ ago — lines closed, skip
+            if _mins_since_start > 5:
+                continue  # game already started — skip
             _is_night = _ct_et.hour >= 16
             # Day entry: only games starting before 4 PM ET.
             # Night entry: only games starting at 4 PM ET or later.
@@ -1052,6 +1051,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
     player_pre: list[dict] = []
     team_pre:   list[dict] = []
 
+    _prop_now_et = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo("America/New_York"))
     for prop in all_redis_props:
         player    = (prop.get("player") or prop.get("subject") or "").strip()
         stat      = prop.get("stat", "")
@@ -1063,6 +1063,20 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             continue
         if not is_team and not player:
             continue
+        # Skip games that have already started
+        _prop_ct_raw = prop.get("commence_time", "")
+        if _prop_ct_raw:
+            try:
+                from dateutil.parser import parse as _dp_prop
+                import zoneinfo as _zi_prop
+                _prop_ct = _dp_prop(_prop_ct_raw)
+                _ET_prop = _zi_prop.ZoneInfo("America/New_York")
+                if _prop_ct.tzinfo is None:
+                    _prop_ct = _prop_ct.replace(tzinfo=_ET_prop)
+                if (_prop_now_et - _prop_ct.astimezone(_ET_prop)).total_seconds() > 5 * 60:
+                    continue  # game already started
+            except Exception:
+                pass
 
         over_odds  = prop.get("over_odds", {})
         under_odds = prop.get("under_odds", {})
@@ -1137,8 +1151,12 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
                 _ET_zone2 = _zi2.ZoneInfo("America/New_York")
                 if _ct2.tzinfo is None:
                     _ct2 = _ct2.replace(tzinfo=_ET_zone2)  # naive = ET
-                if _ct2.astimezone(_ET_zone2).date() != _today_et2:
+                _ct2_et = _ct2.astimezone(_ET_zone2)
+                if _ct2_et.date() != _today_et2:
                     continue
+                _now2 = __import__('datetime').datetime.now(_ET_zone2)
+                if (_now2 - _ct2_et).total_seconds() > 5 * 60:
+                    continue  # game already started — skip
             except Exception:
                 pass
             for snap in snap_list:
