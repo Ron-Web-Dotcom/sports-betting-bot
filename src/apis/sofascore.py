@@ -791,7 +791,11 @@ def get_event_result(event_id: str) -> dict | None:
         "status_desc": status.get("description", ""),
         "winner":      winner,
         "is_live":     status_type == "inprogress",
-        "is_finished": status_type == "finished",
+        "is_finished": status_type in (
+            "finished", "ended", "afterExtraTime", "afterPenalties",
+            "awaitingExtraTime", "awaitingPenalties", "retired", "walkover",
+            "canceled", "postponed", "interrupted",
+        ),
     }
 
 
