@@ -771,14 +771,21 @@ def get_event_result(event_id: str) -> dict | None:
     hs = (ev.get("homeScore") or {}).get("current")
     as_ = (ev.get("awayScore") or {}).get("current")
     status_type = status.get("type", "")
+    home_name = (ev.get("homeTeam") or {}).get("name", "home")
+    away_name = (ev.get("awayTeam") or {}).get("name", "away")
     winner: str
-    if hs is not None and as_ is not None:
-        if hs > as_:
-            winner = (ev.get("homeTeam") or {}).get("name", "home")
-        elif as_ > hs:
-            winner = (ev.get("awayTeam") or {}).get("name", "away")
-        else:
-            winner = "draw"
+    # winnerCode: 1=home wins, 2=away wins, 3=draw — always set by Sofascore
+    # Use score comparison first; fall back to winnerCode for sports without
+    # numeric scores (boxing, cricket innings, etc.)
+    winner_code = ev.get("winnerCode")
+    if hs is not None and as_ is not None and hs != as_:
+        winner = home_name if hs > as_ else away_name
+    elif winner_code == 1:
+        winner = home_name
+    elif winner_code == 2:
+        winner = away_name
+    elif winner_code == 3 or (hs is not None and as_ is not None and hs == as_):
+        winner = "draw"
     else:
         winner = "unknown"
     return {
