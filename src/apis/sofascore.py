@@ -836,21 +836,29 @@ def find_event_by_teams(home_team: str, away_team: str, date_str: str | None = N
     except Exception:
         pass
 
-    if not events:
-        events = get_all_scheduled_events(date_str)
-
     home_n = home_team.lower().strip()
     away_n = away_team.lower().strip()
-    for ev in events:
-        eh = (ev.get("home_team") or "").lower()
-        ea = (ev.get("away_team") or "").lower()
-        home_match = home_n in eh or eh in home_n
-        away_match = away_n in ea or ea in away_n
-        if home_match and away_match:
-            if sport_key and ev.get("sport") and ev["sport"] != sport_key:
-                continue
-            return ev
-    return None
+
+    def _search(evs: list) -> dict | None:
+        for ev in evs:
+            eh = (ev.get("home_team") or "").lower()
+            ea = (ev.get("away_team") or "").lower()
+            if (home_n in eh or eh in home_n) and (away_n in ea or ea in away_n):
+                if sport_key and ev.get("sport") and ev["sport"] != sport_key:
+                    continue
+                return ev
+        return None
+
+    # Search cached events first (fast path)
+    found = _search(events) if events else None
+
+    # If not found in cache, do a live Sofascore scan — cache may not include
+    # all leagues (e.g. Swedish Allsvenskan, lower-division games)
+    if not found:
+        live_events = get_all_scheduled_events(date_str)
+        found = _search(live_events)
+
+    return found
 
 
 def _normalise_event(e: dict, sport_key: str) -> dict:
