@@ -813,11 +813,11 @@ def _build_hardrock_candidates(
             if _ct_et.date() != _today_et:
                 continue
             _now_et = _dt.datetime.now(_zi.ZoneInfo("America/New_York"))
-            # Only pick games that haven't started yet (5 min grace for scheduling jitter).
-            # Never pick a game already in progress — lines are closed, can't place the bet.
+            # Only pick games with at least 15 min until kickoff — need time to place the bet.
+            # Negative = future, positive = past. Skip anything within 15 min of start.
             _mins_since_start = (_now_et - _ct_et).total_seconds() / 60
-            if _mins_since_start > 5:
-                continue  # game already started — skip
+            if _mins_since_start > -15:
+                continue  # game starts in under 15 min or already started — skip
             _is_night = _ct_et.hour >= 16
             # Day entry: only games starting before 4 PM ET.
             # Night entry: only games starting at 4 PM ET or later.
@@ -1073,8 +1073,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
                 _ET_prop = _zi_prop.ZoneInfo("America/New_York")
                 if _prop_ct.tzinfo is None:
                     _prop_ct = _prop_ct.replace(tzinfo=_ET_prop)
-                if (_prop_now_et - _prop_ct.astimezone(_ET_prop)).total_seconds() > 5 * 60:
-                    continue  # game already started
+                if (_prop_now_et - _prop_ct.astimezone(_ET_prop)).total_seconds() > -15 * 60:
+                    continue  # game starts within 15 min or already started
             except Exception:
                 pass
 
@@ -1155,8 +1155,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
                 if _ct2_et.date() != _today_et2:
                     continue
                 _now2 = __import__('datetime').datetime.now(_ET_zone2)
-                if (_now2 - _ct2_et).total_seconds() > 5 * 60:
-                    continue  # game already started — skip
+                if (_now2 - _ct2_et).total_seconds() > -15 * 60:
+                    continue  # game starts within 15 min or already started — skip
             except Exception:
                 pass
             for snap in snap_list:
