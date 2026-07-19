@@ -947,20 +947,27 @@ def _check_sofascore_result(pick: dict) -> str | None:
         sf_ev = None
         if sf_id:
             sf_ev = get_event_result(sf_id)
+            logger.info("SF result check [%s vs %s] sf_id=%s → %s", home, away, sf_id,
+                        sf_ev.get("status_type","?") if sf_ev else "None")
         if not sf_ev and home and away:
-            # Pass the game date so we search the right day's events (yesterday's games
-            # are NOT in today's sofascore:today_events cache)
             _ct = _parse_time(pick.get("commence_time", ""))
             _date_str = _ct.strftime("%Y-%m-%d") if _ct else None
             ev_found = find_event_by_teams(home, away, date_str=_date_str)
+            logger.info("SF find_event [%s vs %s] date=%s → %s", home, away, _date_str,
+                        ev_found.get("id","?") if ev_found else "not found")
             if ev_found:
                 _resolved_id = str(ev_found.get("id", ""))
-                # Cache resolved sofascore_id back into pick so future polls skip the lookup
                 if _resolved_id and not sf_id:
                     pick["sofascore_id"] = _resolved_id
                 sf_ev = get_event_result(_resolved_id) if _resolved_id else None
+                logger.info("SF result after lookup [%s vs %s] → finished=%s winner=%s",
+                            home, away,
+                            sf_ev.get("is_finished") if sf_ev else "None",
+                            sf_ev.get("winner","?") if sf_ev else "None")
 
         if not sf_ev or not sf_ev.get("is_finished"):
+            logger.info("SF no result yet [%s vs %s]: sf_ev=%s is_finished=%s",
+                        home, away, bool(sf_ev), sf_ev.get("is_finished") if sf_ev else None)
             return None  # not finished yet — keep polling
 
         hs = sf_ev.get("home_score")
