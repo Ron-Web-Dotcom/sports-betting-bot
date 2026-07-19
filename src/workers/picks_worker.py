@@ -871,6 +871,18 @@ def _build_hardrock_candidates(
                 commence = _sf_ev["commence_time"]
                 break
 
+        # Hard block: skip any game Sofascore says is already live or finished
+        if _sf_id:
+            try:
+                from src.apis.sofascore import get_event_result as _ger_chk
+                _live_chk = _ger_chk(_sf_id)
+                if _live_chk and (_live_chk.get("is_live") or _live_chk.get("is_finished")):
+                    logger.info("HardRock [%s]: skipping %s @ %s — Sofascore status=%s",
+                                period, away_team, home_team, _live_chk.get("status_type","?"))
+                    continue
+            except Exception:
+                pass
+
         # ── Try up to 3 markets per game ─────────────────────────────────────
         priority = ["h2h", "spreads", "totals", "team_totals", "alternate_totals",
                     "btts", "draw_no_bet", "innings_1_5_total", "team_points_q1"]

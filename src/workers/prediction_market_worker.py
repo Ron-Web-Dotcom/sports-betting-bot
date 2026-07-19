@@ -455,7 +455,11 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
             # Sofascore is source of truth — skip if game already live or finished
             sf_status = (sf_game.get("status_type") or sf_game.get("status") or "") if sf_game else ""
-            if sf_status in ("inprogress", "finished", "canceled", "postponed"):
+            _DONE_STATUSES = {
+                "inprogress", "finished", "ended", "afterExtraTime", "afterPenalties",
+                "canceled", "postponed", "interrupted", "retired", "walkover",
+            }
+            if sf_status in _DONE_STATUSES:
                 logger.info("Kalshi: skipping '%s' — Sofascore status=%s", subtitle, sf_status)
                 continue
 
