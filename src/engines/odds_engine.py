@@ -893,56 +893,45 @@ def scan_all_sports() -> dict[str, list[dict]]:
 
     # Load Sofascore confirmed today games — source of truth
     sf_teams: set[str] = set()
-    sf_sport_keys: set[str] = set()
+    sf_exact_sport_keys: set[str] = set()  # exact Odds API sport keys from enriched cache
     try:
         _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
-            _raw = _r.get(_sfkey)
-            if _raw:
-                for ev in _json.loads(_raw):
-                    if ev.get("home_team"):
-                        sf_teams.add(ev["home_team"].lower())
-                    if ev.get("away_team"):
-                        sf_teams.add(ev["away_team"].lower())
-                    if ev.get("sport"):
-                        sf_sport_keys.add(ev["sport"])
+
+        # Primary: games:enriched already has the exact Odds API sport_key matched per game
+        _enriched_raw = _r.get("games:enriched")
+        if _enriched_raw:
+            for ev in _json.loads(_enriched_raw):
+                if ev.get("home_team"):
+                    sf_teams.add(ev["home_team"].lower())
+                if ev.get("away_team"):
+                    sf_teams.add(ev["away_team"].lower())
+                if ev.get("sport_key"):
+                    sf_exact_sport_keys.add(ev["sport_key"])
+
+        # Fallback: sofascore day/night games (team names only, no exact sport key)
+        if not sf_teams:
+            for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
+                _raw = _r.get(_sfkey)
+                if _raw:
+                    for ev in _json.loads(_raw):
+                        if ev.get("home_team"):
+                            sf_teams.add(ev["home_team"].lower())
+                        if ev.get("away_team"):
+                            sf_teams.add(ev["away_team"].lower())
     except Exception as _e:
         logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
 
-    # Map Sofascore slugs → Odds API key prefixes so we can filter correctly.
-    # SPORT_MAP in sofascore.py is { odds_api_key: sf_slug }, so we invert it.
-    _SF_SLUG_TO_PREFIX: dict[str, str] = {
-        "soccer":            "soccer_",
-        "basketball":        "basketball_",
-        "american-football": "americanfootball_",
-        "ice-hockey":        "icehockey_",
-        "baseball":          "baseball_",
-        "tennis":            "tennis_",
-        "mma":               "mma_",
-        "boxing":            "boxing_",
-        "golf":              "golf_",
-        "rugby-union":       "rugbyunion_",
-        "rugby-league":      "rugbyleague_",
-        "cricket":           "cricket_",
-        "aussie-rules":      "aussierules_",
-        "handball":          "handball_",
-    }
-
     active_keys = get_live_active_sport_keys()
-    if sf_sport_keys:
-        # Build the set of Odds API key prefixes confirmed by Sofascore today
-        _sf_prefixes = {_SF_SLUG_TO_PREFIX[slug] for slug in sf_sport_keys if slug in _SF_SLUG_TO_PREFIX}
-        if _sf_prefixes:
-            sport_keys = {k for k in active_keys if any(k.startswith(p) for p in _sf_prefixes)}
-        else:
-            sport_keys = active_keys  # unknown slugs — scan everything
+    if sf_exact_sport_keys:
+        # Best case: we have exact sport keys from enriched cache — only scan those
+        sport_keys = active_keys & sf_exact_sport_keys
         if not sport_keys:
-            sport_keys = active_keys  # fallback if prefix map produced empty set
+            sport_keys = active_keys  # fallback: enriched keys not in Odds API active list yet
     else:
-        sport_keys = active_keys  # cold start — no Sofascore cache yet
+        sport_keys = active_keys  # cold start — enriched cache empty, scan everything
 
-    logger.info("OddsAPI scanning %d sport keys today (Sofascore confirmed %d teams across %d sports/slugs=%s, Odds API active: %d)",
-                len(sport_keys), len(sf_teams), len(sf_sport_keys), sorted(sf_sport_keys), len(active_keys))
+    logger.info("OddsAPI scanning %d sport keys today (Sofascore confirmed %d teams, enriched sport keys=%s, Odds API active: %d)",
+                len(sport_keys), len(sf_teams), sorted(sf_exact_sport_keys) or "cold-start", len(active_keys))
 
     result: dict[str, list[dict]] = {}
     raw_events: dict[str, list[dict]] = {}  # unfiltered, kept as fallback
