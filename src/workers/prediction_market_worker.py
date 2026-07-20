@@ -407,6 +407,8 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                 continue
 
             subtitle = m.get("subtitle", "")
+            if not subtitle and not m.get("title", ""):
+                continue  # nothing to match against — skip silently
 
             # Night entry: skip any game already used in the day slip
             if period == "night" and (_blocked_subtitles or _blocked_tickers or _blocked_teams):
@@ -450,7 +452,8 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
 
             if not sf_kickoff:
                 # No Sofascore match — skip. Sofascore is the only source of truth.
-                logger.warning("Kalshi: skipping '%s' — no Sofascore match (have %d SF games)", subtitle, len(_sf_games))
+                if subtitle:  # don't spam log for empty-title markets
+                    logger.debug("Kalshi: skipping '%s' — no Sofascore match (have %d SF games)", subtitle, len(_sf_games))
                 continue
 
             # Sofascore is source of truth — skip if game already live or finished
