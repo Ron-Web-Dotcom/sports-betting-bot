@@ -220,9 +220,64 @@ def scan_player_props():
         prev_props: list[dict] = json.loads(prev_raw) if prev_raw else []
         all_changes = _detect_prop_changes(prev_props, odds_props, "odds_api")
 
-        # Cache
+        # Cache flat lists
         r.setex("props:odds_api", 2400, json.dumps(odds_props))
         r.setex("props:all",      2400, json.dumps(odds_props + kalshi_markets))
+
+        # Build odds:events_grouped — sport → event → { game info, markets, props[] }
+        try:
+            _grouped: dict[str, list[dict]] = {}
+            # Index props by (sport_key, event_id) for fast lookup
+            _props_idx: dict[tuple, list] = {}
+            for _p in odds_props:
+                _key = (_p.get("sport_key", ""), _p.get("event_id", ""))
+                _props_idx.setdefault(_key, []).append({
+                    "player":     _p.get("player", ""),
+                    "stat":       _p.get("stat", ""),
+                    "line":       _p.get("line"),
+                    "over_odds":  _p.get("over_odds", {}),
+                    "under_odds": _p.get("under_odds", {}),
+                    "is_team":    _p.get("is_team_prop", False),
+                })
+            for _sk, _events in all_events.items():
+                _grouped[_sk] = []
+                for _ev in _events:
+                    _eid = _ev.get("id", "")
+                    _ev_props = _props_idx.get((_sk, _eid), [])
+                    # Extract best game-line odds from normalised markets dict
+                    _mkts = _ev.get("markets", {})
+                    def _best(mkt, sel):
+                        entries = _mkts.get(mkt, {}).get(sel, [])
+                        return entries[0]["american_odds"] if entries else None
+                    _grouped[_sk].append({
+                        "event_id":     _eid,
+                        "sport_key":    _sk,
+                        "home_team":    _ev.get("home_team", ""),
+                        "away_team":    _ev.get("away_team", ""),
+                        "commence_time": _ev.get("commence_time", ""),
+                        "markets": {
+                            "h2h": {
+                                "home": _best("h2h", _ev.get("home_team", "")),
+                                "away": _best("h2h", _ev.get("away_team", "")),
+                            },
+                            "spreads": {
+                                "home": _best("spreads", _ev.get("home_team", "")),
+                                "away": _best("spreads", _ev.get("away_team", "")),
+                            },
+                            "totals": {
+                                "over":  _best("totals", "Over"),
+                                "under": _best("totals", "Under"),
+                            },
+                        },
+                        "props": _ev_props,
+                    })
+            r.setex("odds:events_grouped", 2400, json.dumps(_grouped))
+            _total_events = sum(len(v) for v in _grouped.values())
+            _total_props  = sum(len(e["props"]) for evs in _grouped.values() for e in evs)
+            logger.info("odds:events_grouped cached: %d sports, %d events, %d props",
+                        len(_grouped), _total_events, _total_props)
+        except Exception as _ge:
+            logger.warning("odds:events_grouped build failed: %s", _ge)
 
         if all_changes:
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
