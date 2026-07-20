@@ -215,9 +215,13 @@ def scan_props_only() -> dict:
         _cached = _r.get("odds:events_grouped")
         if _cached:
             _grouped = json.loads(_cached)
-            # Rebuild all_events dict in the format fetch_all_player_props expects
+            # Rebuild all_events dict in the format fetch_all_player_props expects.
+            # Grouped cache uses "event_id" key; fetch_all_player_props looks for "id" — remap.
             for sk, evs in _grouped.items():
-                all_events[sk] = evs
+                all_events[sk] = [
+                    {**ev, "id": ev.get("id") or ev.get("event_id", "")}
+                    for ev in evs
+                ]
             logger.info("scan_props_only: using cached odds:events_grouped (%d sports)", len(all_events))
     except Exception:
         pass
@@ -347,6 +351,7 @@ def scan_player_props():
                         entries = _m.get(mkt, {}).get(sel, [])
                         return entries[0]["american_odds"] if entries else None
                     _grouped[_sk].append({
+                        "id":            _eid,
                         "event_id":      _eid,
                         "sport_key":     _sk,
                         "home_team":     _ev.get("home_team", ""),
