@@ -515,12 +515,13 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
       → routes request through HTTP proxy
     """
     import httpx
+    from urllib.parse import quote as _quote
     target_url = f"{_BASE}{path}"
 
     # ZenRows API mode — detected by api.zenrows.com in the URL
     if "api.zenrows.com" in proxy_url:
         try:
-            api_url = proxy_url.rstrip("&") + f"&url={target_url}"
+            api_url = proxy_url.rstrip("&") + "&url=" + _quote(target_url, safe="")
             # Accept-Encoding: identity — tell the origin not to compress so ZenRows
             # can forward the response as plain text without codec issues
             _zr_headers = {**_HEADERS, "Accept-Encoding": "identity"}
@@ -572,10 +573,10 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
         )
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 404:
-            logger.debug("Sofascore 404 via proxy [%s] (no games)", path)
-        else:
-            logger.warning("Sofascore %s via proxy [%s]", r.status_code, path)
+        if r.status_code in (404, 422):
+            logger.debug("Sofascore %s via proxy [%s] (no data)", r.status_code, path)
+            return _NO_DATA  # proxy is healthy — don't penalise CB
+        logger.warning("Sofascore %s via proxy [%s]", r.status_code, path)
         return None
     except Exception as e:
         logger.warning("Sofascore proxy request failed [%s]: %s", path, e)
@@ -685,13 +686,14 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
 
     # Use more workers for direct proxy (fast), fewer for ScraperAPI (slower, rate-limited)
     import os as _os
-    using_scraper = bool(_os.getenv("SOFASCORE_PROXY_URL", ""))
-    max_workers   = 4 if using_scraper else 8
-    fut_timeout   = 60 if using_scraper else 25
+    _sf_proxy_url = _os.getenv("SOFASCORE_PROXY_URL", "")
+    _is_zenrows   = "api.zenrows.com" in _sf_proxy_url
+    max_workers   = 8 if (_is_zenrows or not _sf_proxy_url) else 4
+    fut_timeout   = 120  # fixed 2-min wall-clock ceiling regardless of task count
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch, slug, endpoint): (slug, endpoint) for slug, endpoint in tasks}
-        for fut in as_completed(futures, timeout=fut_timeout * len(tasks)):
+        for fut in as_completed(futures, timeout=fut_timeout):
             slug, endpoint = futures[fut]
             try:
                 for ev in fut.result():
