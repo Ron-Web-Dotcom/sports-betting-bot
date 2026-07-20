@@ -998,7 +998,8 @@ def scan_all_sports() -> dict[str, list[dict]]:
 
     from datetime import timedelta
     from dateutil.parser import parse as _dp_scan
-    _ET_scan = ZoneInfo("America/New_York")
+    from zoneinfo import ZoneInfo as _ZI_scan
+    _ET_scan = _ZI_scan("America/New_York")
     _now_et  = datetime.now(_ET_scan)
     _window  = _now_et + timedelta(hours=36)  # only events within 36h
 
@@ -1016,7 +1017,7 @@ def scan_all_sports() -> dict[str, list[dict]]:
             try:
                 dt = _dp_scan(ct)
                 dt = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
-                return dt.astimezone(_ET_scan) <= _window
+                return dt.astimezone(_ET_scan) <= _window  # noqa: B023
             except Exception:
                 return True
         events = [e for e in events if _within_window(e)]
