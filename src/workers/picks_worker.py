@@ -253,9 +253,9 @@ def generate_picks():
             # +odds one side only   → no adjustment, EV gate handles it
             _both_plus = best_odds_val > 0 and (opponent_odds is not None and opponent_odds > 0)
             if _both_plus:
-                # Least positive wins — 1% boost for the lower +odds side, penalise the higher
-                _is_higher_plus = best_odds_val > opponent_odds
-                _fav_bonus = -0.06 if _is_higher_plus else 0.01
+                # Lower +odds side (more likely) gets +1% boost; higher side no adjustment
+                _is_lower_plus = best_odds_val <= opponent_odds
+                _fav_bonus = 0.01 if _is_lower_plus else 0.0
             elif best_odds_val > 0:
                 _fav_bonus = 0.01  # single +odds side — slight boost
             elif best_odds_val <= -500:
