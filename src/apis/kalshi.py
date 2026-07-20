@@ -847,4 +847,39 @@ def get_sports_events(limit: int = 500) -> list[dict]:
 
     out.sort(key=lambda x: x["volume"], reverse=True)
     logger.info("Kalshi: %d sports markets fetched (from %d total)", len(out), len(all_markets))
+
+    # Build grouped structure: event_ticker → {title, game_time, series_ticker, markets[]}
+    # Stored in kalshi:events_grouped so UI/debug can show series > event > sub-markets.
+    try:
+        import json as _jg
+        _grouped: dict[str, dict] = {}
+        for _sm in out:
+            _etk = _sm.get("event_ticker") or _sm.get("market_id", "")
+            # Derive series ticker from event ticker (everything before the date segment)
+            _parts = _etk.split("-")
+            _series_tk = _parts[0] if _parts else _etk
+            if _etk not in _grouped:
+                _grouped[_etk] = {
+                    "event_ticker":  _etk,
+                    "series_ticker": _series_tk,
+                    "title":         _sm.get("subtitle") or _sm.get("event_title", ""),
+                    "game_time":     _sm.get("game_time", ""),
+                    "close_time":    _sm.get("close_time", ""),
+                    "markets":       [],
+                }
+            _grouped[_etk]["markets"].append({
+                "market_id":   _sm["market_id"],
+                "title":       _sm.get("title", ""),
+                "yes_price":   _sm["yes_price"],
+                "no_price":    _sm["no_price"],
+                "yes_american": _sm["yes_american"],
+                "no_american":  _sm["no_american"],
+                "volume":      _sm["volume"],
+            })
+        if _rc:
+            _rc.setex("kalshi:events_grouped", 2400, _jg.dumps(list(_grouped.values())))
+            logger.debug("Kalshi: cached %d events in kalshi:events_grouped", len(_grouped))
+    except Exception as _eg_err:
+        logger.debug("Kalshi: events_grouped cache failed: %s", _eg_err)
+
     return out
