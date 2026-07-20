@@ -1746,6 +1746,19 @@ def _generate_hardrock_entry(period: str) -> dict:
 
         _game_raw  = _build_hardrock_candidates(period, sofascore_events)
         _props_raw = _build_prop_candidates(sofascore_events)
+
+        # If both are completely empty, odds data is missing — retry scan once
+        if not _game_raw and not _props_raw:
+            logger.warning("HardRock %s: zero candidates — retrying odds + props scan now", period)
+            try:
+                from src.workers.odds_worker import scan_and_save_odds as _retry_odds, scan_player_props as _retry_props
+                _retry_odds()
+                _retry_props()
+                _game_raw  = _build_hardrock_candidates(period, sofascore_events)
+                _props_raw = _build_prop_candidates(sofascore_events)
+            except Exception as _re:
+                logger.warning("HardRock %s: retry scan failed: %s", period, _re)
+
         _top_conf_seen = max(
             next((c.get("_top_conf", 0) for c in _game_raw  if c.get("_meta")), 0),
             next((c.get("_top_conf", 0) for c in _props_raw if c.get("_meta")), 0),

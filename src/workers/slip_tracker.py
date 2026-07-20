@@ -1094,7 +1094,20 @@ def _check_pick_result(pick: dict) -> str | None:
     if pick.get("question") or pick.get("market_id"):
         return _check_kalshi_result(pick)
 
-    # Sofascore is the only result source — _check_sofascore_result already ran above
+    # Timeout fallback: if game started 4+ hours ago and Sofascore still has no result,
+    # mark unknown so the slip can void rather than hanging forever
+    try:
+        _ct_fb = _parse_time(pick.get("commence_time", ""))
+        if _ct_fb:
+            import datetime as _dt_fb, zoneinfo as _zi_fb
+            _now_fb = _dt_fb.datetime.now(_zi_fb.ZoneInfo("America/New_York"))
+            if (_now_fb - _ct_fb).total_seconds() > 4 * 3600:
+                logger.warning("Result timeout [%s @ %s]: 4h past start, Sofascore unavailable — marking unknown",
+                               pick.get("away_team","?"), pick.get("home_team","?"))
+                return "unknown"
+    except Exception:
+        pass
+
     return None
 
 
