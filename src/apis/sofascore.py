@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.sofascore.com/api/v1"
 
+# Sentinel returned by _generic_proxy_get when the request succeeded at the proxy
+# level but the sport/date has no data (404 or 422). Callers treat it like None
+# (no data) but _get() does NOT count it as a circuit-breaker failure.
+_NO_DATA = object()
+
 # ── Circuit breaker — trip after 3 consecutive 403s, reset after 30 min ────────
 _cb_lock         = threading.Lock()
 _cb_failures     = 0
@@ -524,10 +529,12 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
             )
             if r.status_code == 200:
                 return r.json()
-            if r.status_code == 404:
-                logger.debug("Sofascore 404 via ZenRows [%s] (no games)", path)
-            else:
-                logger.warning("Sofascore %s via ZenRows [%s]", r.status_code, path)
+            if r.status_code in (404, 422):
+                # 404 = no games for this sport/date; 422 = ZenRows can't parse this URL
+                # Neither means the proxy is down — don't penalise the circuit breaker
+                logger.debug("Sofascore %s via ZenRows [%s] (no data — skipping)", r.status_code, path)
+                return _NO_DATA  # sentinel: request worked, content just absent
+            logger.warning("Sofascore %s via ZenRows [%s]", r.status_code, path)
             return None
         except Exception as e:
             logger.warning("Sofascore ZenRows request failed [%s]: %s", path, e)
@@ -566,6 +573,9 @@ def _get(path: str) -> dict | list | None:
         return None
 
     result = _generic_proxy_get(path, sf_proxy)
+    if result is _NO_DATA:
+        _cb_record_success()  # proxy is alive — 404/422 is content, not connectivity
+        return None
     if result is not None:
         _cb_record_success()
     else:
