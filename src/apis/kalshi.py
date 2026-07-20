@@ -673,42 +673,74 @@ def get_sports_events(limit: int = 500) -> list[dict]:
         "KXSNOOKERGAME",    # Snooker match
     ]
 
-    all_markets: list[dict] = []
-    seen_tickers: set[str] = set()
+    # Return cached result if fresh (40-min TTL — Kalshi markets don't change every second)
+    try:
+        import json as _json
+        from src.core.config import REDIS_URL as _REDIS_URL
+        import redis as _redis_mod
+        _rc = _redis_mod.from_url(_REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _cached = _rc.get("kalshi:series_raw")
+        if _cached:
+            _raw_list = _json.loads(_cached)
+            logger.debug("Kalshi get_sports_events: returning %d markets from cache", len(_raw_list))
+            # still run the filter/format section below by injecting into all_markets
+            all_markets_cached: list[dict] = _raw_list
+        else:
+            all_markets_cached = []
+    except Exception:
+        _rc = None
+        all_markets_cached = []
 
-    # 1. Direct series queries — most reliable, hits the right markets immediately
-    for series in _SERIES:
-        data = _get("/markets", {"limit": 100, "status": "open", "series_ticker": series})
-        if data and isinstance(data, dict):
-            for m in data.get("markets", []):
-                t = m.get("ticker", "")
-                if t and t not in seen_tickers:
-                    seen_tickers.add(t)
-                    all_markets.append(m)
-
-    if not all_markets:
-        logger.warning("Kalshi series fetch returned 0 markets across %d series — possible auth failure or API outage", len(_SERIES))
+    if all_markets_cached:
+        all_markets = all_markets_cached
+        seen_tickers: set[str] = {m.get("ticker", "") for m in all_markets}
     else:
-        logger.info("Kalshi series fetch: %d markets from %d series", len(all_markets), len(_SERIES))
+        all_markets = []
+        seen_tickers = set()
 
-    # 2. Fallback: paginated scan catches anything not in known series
-    if len(all_markets) < 50:
-        cursor = None
-        for _ in range(5):
-            params: dict = {"limit": 100, "status": "open"}
-            if cursor:
-                params["cursor"] = cursor
-            data = _get("/markets", params)
-            if not data or not isinstance(data, dict):
-                break
-            for m in data.get("markets", []):
-                t = m.get("ticker", "")
-                if t and t not in seen_tickers:
-                    seen_tickers.add(t)
-                    all_markets.append(m)
-            cursor = data.get("cursor")
-            if not cursor:
-                break
+        # 1. Direct series queries — most reliable, hits the right markets immediately
+        for i, series in enumerate(_SERIES):
+            data = _get("/markets", {"limit": 100, "status": "open", "series_ticker": series})
+            if data and isinstance(data, dict):
+                for m in data.get("markets", []):
+                    t = m.get("ticker", "")
+                    if t and t not in seen_tickers:
+                        seen_tickers.add(t)
+                        all_markets.append(m)
+            if i % 10 == 9:
+                time.sleep(0.3)  # brief pause every 10 requests to avoid burst 429s
+
+        if not all_markets:
+            logger.warning("Kalshi series fetch returned 0 markets across %d series — possible auth failure or API outage", len(_SERIES))
+        else:
+            logger.info("Kalshi series fetch: %d markets from %d series", len(all_markets), len(_SERIES))
+
+        # 2. Fallback: paginated scan catches anything not in known series
+        if len(all_markets) < 50:
+            cursor = None
+            for _ in range(5):
+                params: dict = {"limit": 100, "status": "open"}
+                if cursor:
+                    params["cursor"] = cursor
+                data = _get("/markets", params)
+                if not data or not isinstance(data, dict):
+                    break
+                for m in data.get("markets", []):
+                    t = m.get("ticker", "")
+                    if t and t not in seen_tickers:
+                        seen_tickers.add(t)
+                        all_markets.append(m)
+                cursor = data.get("cursor")
+                if not cursor:
+                    break
+
+        # Cache raw markets for 40 min so subsequent calls skip the 80-request series loop
+        try:
+            import json as _json2
+            if _rc is not None and all_markets:
+                _rc.setex("kalshi:series_raw", 2400, _json2.dumps(all_markets))
+        except Exception:
+            pass
 
     logger.info("Kalshi /markets: %d total fetched", len(all_markets))
 
