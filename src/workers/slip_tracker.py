@@ -953,6 +953,13 @@ def _check_sofascore_result(pick: dict) -> str | None:
             _ct = _parse_time(pick.get("commence_time", ""))
             _date_str = _ct.strftime("%Y-%m-%d") if _ct else None
             ev_found = find_event_by_teams(home, away, date_str=_date_str)
+            if not ev_found:
+                # Fallback: search by team name for lower-division leagues not in scan cache
+                from src.apis.sofascore import find_event_by_team_search
+                ev_found = find_event_by_team_search(home, away, date_str=_date_str)
+                if ev_found:
+                    logger.info("SF team-search fallback [%s vs %s] → found id=%s",
+                                home, away, ev_found.get("id","?"))
             logger.info("SF find_event [%s vs %s] date=%s → %s", home, away, _date_str,
                         ev_found.get("id","?") if ev_found else "not found")
             if ev_found:
@@ -1102,8 +1109,8 @@ def _check_pick_result(pick: dict) -> str | None:
             import datetime as _dt_fb
             import zoneinfo as _zi_fb
             _now_fb = _dt_fb.datetime.now(_zi_fb.ZoneInfo("America/New_York"))
-            if (_now_fb - _ct_fb).total_seconds() > 4 * 3600:
-                logger.warning("Result timeout [%s @ %s]: 4h past start, Sofascore unavailable — marking unknown",
+            if (_now_fb - _ct_fb).total_seconds() > 8 * 3600:
+                logger.warning("Result timeout [%s @ %s]: 8h past start, Sofascore unavailable — marking unknown",
                                pick.get("away_team","?"), pick.get("home_team","?"))
                 return "unknown"
     except Exception:

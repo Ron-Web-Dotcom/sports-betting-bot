@@ -866,6 +866,52 @@ def find_event_by_teams(home_team: str, away_team: str, date_str: str | None = N
     return found
 
 
+def find_event_by_team_search(home_team: str, away_team: str, date_str: str | None = None) -> dict | None:
+    """
+    Fallback event finder: search Sofascore by team name, then check their recent events.
+    Used when find_event_by_teams fails (e.g. lower-division Scandinavian soccer not in cache).
+    Returns a normalised event dict if the finished game is found, else None.
+    """
+    from urllib.parse import quote as _qu
+    home_n = home_team.lower().strip()
+    away_n = away_team.lower().strip()
+
+    data = _get(f"/search/all/?q={_qu(home_team)}")
+    if not data:
+        return None
+    team_hits = (data.get("teams") or {}).get("hits", [])
+    if not team_hits:
+        return None
+
+    for hit in team_hits[:5]:
+        team = hit.get("entity", {})
+        team_id = str(team.get("id", ""))
+        team_name = (team.get("name") or "").lower()
+        # Rough name match — team hit must resemble what we're looking for
+        if not team_id or not (home_n in team_name or team_name in home_n):
+            continue
+        events_data = _get(f"/team/{team_id}/events/last/0")
+        if not events_data:
+            continue
+        events_raw = events_data if isinstance(events_data, list) else events_data.get("events", [])
+        for ev in events_raw:
+            away_t = ev.get("awayTeam", {})
+            ea = (away_t.get("name") or "").lower()
+            if not (away_n in ea or ea in away_n):
+                continue
+            if date_str:
+                ts = ev.get("startTimestamp", 0)
+                try:
+                    ev_date = datetime.fromtimestamp(ts, tz=ET).strftime("%Y-%m-%d")
+                    if ev_date != date_str:
+                        continue
+                except Exception:
+                    pass
+            return _normalise_event(ev, "football")
+
+    return None
+
+
 def _normalise_event(e: dict, sport_key: str) -> dict:
     home = e.get("homeTeam", {})
     away = e.get("awayTeam", {})
