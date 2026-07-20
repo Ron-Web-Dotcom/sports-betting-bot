@@ -182,12 +182,38 @@ def _props_window() -> bool:
 
 
 def scan_odds_only() -> dict:
-    """Scan Odds API game lines only (no props, no Kalshi). Returns event counts by sport."""
+    """Scan Odds API game lines only (no props, no Kalshi). Returns event counts by sport.
+    Also writes odds:events_grouped so scan_props_only() can run without a double API call."""
     from src.engines.odds_engine import scan_all_sports
+    from src.core.config import REDIS_URL
+    import redis as _redis
+    import json
     import time
     t0 = time.time()
     all_events = scan_all_sports()
     elapsed = round(time.time() - t0, 1)
+
+    # Write grouped cache so scan_props_only() can reuse it
+    try:
+        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _grouped = {}
+        for _sk, _evs in all_events.items():
+            _grouped[_sk] = [
+                {
+                    "id":            ev.get("id", ""),
+                    "event_id":      ev.get("id", ""),
+                    "sport_key":     _sk,
+                    "home_team":     ev.get("home_team", ""),
+                    "away_team":     ev.get("away_team", ""),
+                    "commence_time": ev.get("commence_time", ""),
+                    "markets":       ev.get("markets", {}),
+                }
+                for ev in _evs
+            ]
+        _r.setex("odds:events_grouped", 2400, json.dumps(_grouped))
+    except Exception as _e:
+        logger.warning("scan_odds_only: could not write odds:events_grouped: %s", _e)
+
     result = {sk: len(evs) for sk, evs in all_events.items()}
     result["_total_events"] = sum(len(v) for v in all_events.values())
     result["_elapsed_s"] = elapsed
