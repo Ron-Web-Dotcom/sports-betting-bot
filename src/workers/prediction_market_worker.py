@@ -451,10 +451,17 @@ def _build_entry(kalshi_markets: list[dict], max_picks: int = 1, period: str = "
                     pass
 
             if not sf_kickoff:
-                # No Sofascore match — skip. Sofascore is the only source of truth.
-                if subtitle:  # don't spam log for empty-title markets
-                    logger.debug("Kalshi: skipping '%s' — no Sofascore match (have %d SF games)", subtitle, len(_sf_games))
-                continue
+                # No Sofascore match — fall back to Kalshi close_time (= game start).
+                # Happens when Sofascore doesn't cover the sport (e.g. MLB) but Kalshi does.
+                # Date/period gates still apply; we just skip Sofascore enrichment.
+                _close_fallback = m.get("close_time") or m.get("expiration_time") or ""
+                if _close_fallback:
+                    sf_kickoff = _close_fallback
+                    logger.debug("Kalshi: no SF match for '%s' — using Kalshi close_time %s", subtitle, sf_kickoff)
+                else:
+                    if subtitle:
+                        logger.debug("Kalshi: skipping '%s' — no Sofascore match and no close_time", subtitle)
+                    continue
 
             # Sofascore is source of truth — skip if game already live or finished
             sf_status = (sf_game.get("status_type") or sf_game.get("status") or "") if sf_game else ""
