@@ -996,10 +996,34 @@ def scan_all_sports() -> dict[str, list[dict]]:
     result: dict[str, list[dict]] = {}
     raw_events: dict[str, list[dict]] = {}  # unfiltered, kept as fallback
 
+    from datetime import timedelta
+    from dateutil.parser import parse as _dp_scan
+    _ET_scan = ZoneInfo("America/New_York")
+    _now_et  = datetime.now(_ET_scan)
+    _window  = _now_et + timedelta(hours=36)  # only events within 36h
+
     for sport_key in sport_keys:
         events = fetch_events(sport_key)
         if not events:
             continue
+
+        # Date gate: drop events more than 36h away — they're future schedule filler,
+        # not today's games. Props aren't posted for them and they waste API credits.
+        def _within_window(ev: dict) -> bool:
+            ct = ev.get("commence_time")
+            if not ct:
+                return True  # no time → allow through
+            try:
+                dt = _dp_scan(ct)
+                dt = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+                return dt.astimezone(_ET_scan) <= _window
+            except Exception:
+                return True
+        events = [e for e in events if _within_window(e)]
+        if not events:
+            logger.info("Odds: 0 events for %s within 36h window — skipping", sport_key)
+            continue
+
         raw_events[sport_key] = events
 
         # Filter to only games where at least one team is in Sofascore's today list.
