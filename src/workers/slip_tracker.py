@@ -1306,8 +1306,8 @@ def track_slips() -> dict:
                               pick.get("player") or
                               f"{pick.get('away_team','')} @ {pick.get('home_team','')}").strip(" @") or "?"
 
-                # Don't check results before the game has started (10 min buffer)
-                if ct and (now - ct).total_seconds() < 10 * 60:
+                # Don't check results until 45 min after game start — games need time to finish
+                if ct and (now - ct).total_seconds() < 45 * 60:
                     _mins_to_start = int((ct - now).total_seconds() / 60)
                     logger.info("Slip %s pick '%s': game starts in %d min — waiting", slip.get("id"), _pick_name, _mins_to_start)
                     continue
