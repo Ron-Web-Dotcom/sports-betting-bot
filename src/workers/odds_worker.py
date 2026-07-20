@@ -296,8 +296,13 @@ def scan_player_props():
             logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
             _alert_active_pick_changes(r, all_changes)
 
-        logger.info("Props scan complete: odds_api=%d kalshi=%d | changes=%d",
-                    len(odds_props), len(kalshi_markets), len(all_changes))
+        # Count kalshi events (grouped by event_ticker)
+        _kalshi_event_count = len({m.get("event_ticker", m.get("market_id", "")) for m in kalshi_markets})
+
+        logger.info(
+            "Props scan complete: odds_api=%d odds_props=%d | kalshi_events=%d kalshi_submarkets=%d | changes=%d",
+            len(all_events), len(odds_props), _kalshi_event_count, len(kalshi_markets), len(all_changes),
+        )
 
         # Build enriched game cache for picks_worker + prediction_market_worker
         try:
@@ -305,8 +310,13 @@ def scan_player_props():
         except Exception as e:
             logger.warning("build_enriched_games_cache failed: %s", e)
 
-        return {"odds_api": len(odds_props), "kalshi": len(kalshi_markets),
-                "total": len(odds_props), "changes": len(all_changes)}
+        return {
+            "odds_api":           len(all_events),
+            "odds_props":         len(odds_props),
+            "kalshi_events":      _kalshi_event_count,
+            "kalshi_submarkets":  len(kalshi_markets),
+            "changes":            len(all_changes),
+        }
 
     except Exception as exc:
         logger.error("Props scan failed: %s", exc)
