@@ -130,6 +130,7 @@ CRON_TASKS = [
     (8,  0,  "scan_todays_games",                        None, None),  # 8 AM full Sofascore scan — worldwide day + night
     (8,  0,  "scan_and_save_odds",                       None, None),  # 8 AM HardRock odds pull
     (8,  0,  "scan_player_props",                        None, None),  # 8 AM Kalshi pricing pull
+    (9,  0,  "scan_player_props",                        None, None),  # 9 AM Kalshi API pull — fresh markets before day slip
     (9,  30, "scan_todays_games",                        None, None),  # 9:30 AM rescan — late additions / lineup updates
     (10, 0,  "scan_and_save_odds",                       None, None),  # 10 AM HardRock odds pull
     (10, 0,  "scan_player_props",                        None, None),  # 10 AM Kalshi pricing pull
@@ -203,6 +204,7 @@ CATCHUP_TASKS = [
     (8,  0,  120, "scan_todays_games"),
     (8,  0,  120, "scan_and_save_odds"),
     (8,  0,  120, "scan_player_props"),
+    (9,  0,   90, "scan_player_props"),
     (9,  30,  90, "scan_todays_games"),
     (10, 0,   90, "scan_and_save_odds"),
     (10, 0,   90, "scan_player_props"),
