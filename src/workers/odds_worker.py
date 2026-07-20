@@ -53,12 +53,9 @@ def _alert_active_pick_changes(r, all_changes: list[dict]):
     This prevents spamming every prop refresh as an alert.
     """
     import json
-    from src.core.timezone import et_naive
-
     # Load all active slip picks keyed by player|stat
     slip_pick_keys: dict[str, dict] = {}
     try:
-        today = et_naive().strftime("%Y-%m-%d")
         for slip_key in r.hkeys("slips:active"):
             raw = r.hget("slips:active", slip_key)
             if not raw:
@@ -191,7 +188,6 @@ def scan_odds_only() -> dict:
     t0 = time.time()
     all_events = scan_all_sports()
     elapsed = round(time.time() - t0, 1)
-    total = sum(len(v) for v in all_events.items())
     result = {sk: len(evs) for sk, evs in all_events.items()}
     result["_total_events"] = sum(len(v) for v in all_events.values())
     result["_elapsed_s"] = elapsed
@@ -205,7 +201,6 @@ def scan_props_only() -> dict:
     import time
     t0 = time.time()
     all_events = scan_all_sports()
-    t1 = time.time()
     odds_props = fetch_all_player_props(all_events)
     elapsed = round(time.time() - t0, 1)
     by_sport: dict[str, int] = {}
@@ -223,7 +218,8 @@ def scan_kalshi_only() -> dict:
     from src.apis.kalshi import get_sports_events
     from src.core.config import REDIS_URL
     import redis as _redis
-    import json, time
+    import json
+    import time
     t0 = time.time()
     kalshi_markets = get_sports_events(limit=500)
     elapsed = round(time.time() - t0, 1)
