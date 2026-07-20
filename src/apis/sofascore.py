@@ -67,7 +67,6 @@ def _cb_record_success():
     with _cb_lock:
         _cb_failures = 0
 
-import os as _os
 
 # ── Complete list of ALL Sofascore sport slugs ───────────────────────────────
 # Used by get_all_scheduled_events to scan EVERY sport worldwide — including sports
@@ -536,7 +535,8 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
                 except Exception:
                     # ZenRows stripped Content-Encoding — response may be gzip-compressed.
                     # Try manual decompression before giving up.
-                    import gzip as _gzip, json as _json_mod
+                    import gzip as _gzip
+                    import json as _json_mod
                     try:
                         return _json_mod.loads(_gzip.decompress(r.content))
                     except Exception:
@@ -613,7 +613,8 @@ def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
         return []
     date = date or et_naive().strftime("%Y-%m-%d")
     try:
-        import redis as _r_gs, json as _j_gs
+        import redis as _r_gs
+        import json as _j_gs
         from src.core.config import REDIS_URL as _ru_gs
         _rc_gs = _r_gs.from_url(_ru_gs, decode_responses=True, socket_connect_timeout=2)
         _ck_gs = f"sofascore:sport:{slug}:{date}"
@@ -710,7 +711,8 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
 
     # Cache the full result for the rest of the day so this 200+ request scan is never repeated
     try:
-        import redis as _r_all, json as _j_all
+        import redis as _r_all
+        import json as _j_all
         from src.core.config import REDIS_URL as _ru_all
         _rc_all = _r_all.from_url(_ru_all, decode_responses=True, socket_connect_timeout=2)
         _rc_all.setex("sofascore:today_events", 86400, _j_all.dumps(all_events))

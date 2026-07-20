@@ -2148,7 +2148,7 @@ def _pre_research(period: str) -> dict:
     except Exception as e:
         return {"error": f"redis: {e}"}
 
-    sofascore_events = _load_todays_games(period)
+    _load_todays_games(period)
     from src.engines.odds_engine import get_latest_snapshots_by_game as _snaps
     snapshots = _snaps() or {}
 

@@ -1099,7 +1099,8 @@ def _check_pick_result(pick: dict) -> str | None:
     try:
         _ct_fb = _parse_time(pick.get("commence_time", ""))
         if _ct_fb:
-            import datetime as _dt_fb, zoneinfo as _zi_fb
+            import datetime as _dt_fb
+            import zoneinfo as _zi_fb
             _now_fb = _dt_fb.datetime.now(_zi_fb.ZoneInfo("America/New_York"))
             if (_now_fb - _ct_fb).total_seconds() > 4 * 3600:
                 logger.warning("Result timeout [%s @ %s]: 4h past start, Sofascore unavailable — marking unknown",
