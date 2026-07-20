@@ -62,80 +62,7 @@ def _cb_record_success():
     with _cb_lock:
         _cb_failures = 0
 
-# ── Sofascore-specific proxy port pool ───────────────────────────────────────
-# Decodo sticky residential endpoints: ports 10001-10050 (50 unique IPs).
-# General sources use 10001-10010.  Sofascore gets its own wider slice:
-#   Primary:  10021-10050  (30 fresh IPs, never used for Sofascore before)
-#   Fallback: 10011-10020  (original 10 — may be temporarily banned)
-# Env override: SOFASCORE_PROXY_PORTS=10021,10025,10030 (comma-separated ints)
-import itertools as _itertools
 import os as _os
-
-def _build_sf_ports() -> list[int]:
-    env = _os.getenv("SOFASCORE_PROXY_PORTS", "")
-    if env:
-        try:
-            return [int(p.strip()) for p in env.split(",") if p.strip()]
-        except ValueError:
-            pass
-    return list(range(10021, 10051))   # 30 fresh ports by default
-
-_SF_PORTS      = _build_sf_ports()
-_sf_port_cycle = _itertools.cycle(_SF_PORTS)
-_sf_port_lock  = threading.Lock()
-
-def _next_sf_port() -> int:
-    with _sf_port_lock:
-        return next(_sf_port_cycle)
-
-# ── Decodo health tracker — auto-switch back when Decodo recovers ─────────────
-_decodo_ok        = True   # assume healthy at start
-_decodo_fail_at   = 0.0
-_DECODO_RETRY_SEC = 1800   # re-probe Decodo every 30 min after a failure
-_decodo_lock      = threading.Lock()
-
-def _decodo_is_healthy() -> bool:
-    global _decodo_ok, _decodo_fail_at
-    with _decodo_lock:
-        if _decodo_ok:
-            return True
-        # Retry after cooldown
-        if time.monotonic() - _decodo_fail_at >= _DECODO_RETRY_SEC:
-            _decodo_ok = True
-            logger.info("Sofascore: re-probing Decodo proxy after cooldown")
-            return True
-        return False
-
-def _decodo_mark_failed():
-    global _decodo_ok, _decodo_fail_at
-    with _decodo_lock:
-        _decodo_ok      = False
-        _decodo_fail_at = time.monotonic()
-
-def _decodo_mark_ok():
-    global _decodo_ok
-    with _decodo_lock:
-        _decodo_ok = True
-
-
-def _get_decodo_client():
-    import httpx
-    from src.core.config import DECODO_PROXY_URL
-    port = _next_sf_port()
-    return httpx.Client(
-        timeout=httpx.Timeout(connect=8.0, read=25.0, write=5.0, pool=5.0),
-        follow_redirects=True,
-        verify=False,
-        proxy=f"{DECODO_PROXY_URL}:{port}",
-    )
-
-
-def _get_sf_client():
-    """
-    Returns Decodo client. Used only when Decodo is healthy.
-    ScraperAPI fallback is handled directly in _get().
-    """
-    return _get_decodo_client()
 
 # ── Complete list of ALL Sofascore sport slugs ───────────────────────────────
 # Used by get_all_scheduled_events to scan EVERY sport worldwide — including sports
@@ -570,28 +497,6 @@ def _slug(sport_key: str) -> str | None:
     return SPORT_MAP.get(sport_key)
 
 
-def _scraperapi_get(path: str, api_key: str) -> dict | list | None:
-    """Make a Sofascore request via ScraperAPI REST endpoint."""
-    import httpx
-    target_url = f"{_BASE}{path}"
-    try:
-        r = httpx.get(
-            "https://api.scraperapi.com/",
-            params={"api_key": api_key, "url": target_url, "keep_headers": "true"},
-            headers=_HEADERS,
-            timeout=httpx.Timeout(connect=10.0, read=30.0, write=5.0, pool=5.0),
-        )
-        if r.status_code == 200:
-            return r.json()
-        if r.status_code == 404:
-            logger.debug("Sofascore 404 via ScraperAPI [%s] (no games)", path)
-        else:
-            logger.warning("Sofascore %s via ScraperAPI [%s]", r.status_code, path)
-        return None
-    except Exception as e:
-        logger.warning("Sofascore ScraperAPI request failed [%s]: %s", path, e)
-        return None
-
 
 def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
     """Make a Sofascore request via any standard HTTP/HTTPS proxy (e.g. ZenRows)."""
@@ -618,74 +523,22 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
 
 
 def _get(path: str) -> dict | list | None:
-    """
-    Sofascore request with auto-routing:
-      1. Decodo proxy (primary) — fast, unlimited
-      2. ScraperAPI (backup)    — kicks in when Decodo is blocked
-      3. Auto-recovery          — re-probes Decodo every 30 min; switches back when healthy
-
-    Circuit breaker still applies — trips after 5 consecutive failures from ANY source.
-    """
+    """Sofascore request via SOFASCORE_PROXY_URL (ZenRows or any HTTP proxy). Circuit breaker applies."""
     if _cb_is_open():
         return None
 
     import os
-    import re
-    # Import config first — triggers load_dotenv() so env vars are available
-    from src.core.config import DECODO_PROXY_URL
-    target_url = f"{_BASE}{path}"
-    sf_proxy   = os.getenv("SOFASCORE_PROXY_URL", "")
-    scraper_key = ""
-    if sf_proxy and "scraperapi.com" in sf_proxy:
-        m = re.search(r"scraperapi:([^@]+)@", sf_proxy)
-        scraper_key = m.group(1) if m else ""
+    sf_proxy = os.getenv("SOFASCORE_PROXY_URL", "")
+    if not sf_proxy:
+        logger.warning("Sofascore: SOFASCORE_PROXY_URL not set — cannot fetch [%s]", path)
+        return None
 
-    # ── Try Decodo first (if healthy and configured) ──────────────────────────
-    if DECODO_PROXY_URL and _decodo_is_healthy():
-        try:
-            client = _get_decodo_client()
-            r = client.get(target_url, headers=_HEADERS)
-            if r.status_code == 200:
-                _cb_record_success()
-                _decodo_mark_ok()
-                return r.json()
-            if r.status_code in (403, 429):
-                logger.warning("Sofascore: Decodo blocked (%s) — switching to ScraperAPI", r.status_code)
-                _decodo_mark_failed()
-                # fall through to ScraperAPI below
-            elif r.status_code == 404:
-                logger.debug("Sofascore 404 via Decodo [%s] (no games)", path)
-                return None
-            else:
-                logger.warning("Sofascore HTTP %s via Decodo [%s]", r.status_code, path)
-                _cb_record_failure()
-                # fall through to ScraperAPI for unexpected status codes
-        except Exception as e:
-            logger.warning("Sofascore Decodo request failed [%s]: %s", path, e)
-            _decodo_mark_failed()
-            # fall through to ScraperAPI below
-
-    # ── ScraperAPI fallback ───────────────────────────────────────────────────
-    if scraper_key:
-        result = _scraperapi_get(path, scraper_key)
-        if result is not None:
-            _cb_record_success()
-        else:
-            _cb_record_failure()
-        return result
-
-    # ── Generic proxy fallback (ZenRows or any http/https proxy) ─────────────
-    if sf_proxy and "scraperapi.com" not in sf_proxy:
-        result = _generic_proxy_get(path, sf_proxy)
-        if result is not None:
-            _cb_record_success()
-        else:
-            _cb_record_failure()
-        return result
-
-    # No working proxy — config issue, not a Sofascore block; don't trip circuit breaker
-    logger.warning("Sofascore: no working proxy configured for [%s]", path)
-    return None
+    result = _generic_proxy_get(path, sf_proxy)
+    if result is not None:
+        _cb_record_success()
+    else:
+        _cb_record_failure()
+    return result
 
 
 # ── Scheduled events ──────────────────────────────────────────────────────────
