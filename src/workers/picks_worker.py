@@ -314,6 +314,9 @@ def generate_picks():
                 opp_odds_val = (max(under_odds.values()) if direction == "Over" and under_odds
                                 else max(over_odds.values()) if direction == "Under" and over_odds
                                 else None)
+                # Heavy -odds props (-500 or worse): market is pricing near-certainty —
+                # skip EV gate (vig is irrelevant when probability is 83%+).
+                _heavy_favorite = best_odds_val <= -500
                 if best_odds_val > 0:
                     _prop_implied = 100 / (100 + best_odds_val)
                     if conf < 0.42 or (conf - _prop_implied) < 0.05:
@@ -323,15 +326,15 @@ def generate_picks():
                         continue
                 prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
                                    opponent_odds=opp_odds_val)
-                # Require positive EV — skip no-vig check when opposite side unknown
-                if prop_ev.ev_pct < EV_FLOOR:
+                # Heavy favorites skip EV floor — near-certainty is the edge
+                if not _heavy_favorite and prop_ev.ev_pct < EV_FLOOR:
                     continue
                 if opp_odds_val is not None and conf <= prop_ev.no_vig_prob:
                     continue
                 is_team = prop.get("is_team_prop", False)
                 prop_pool.append({
                     "type":         "prop",
-                    "score":        conf * (1 + prop_ev.ev_pct),
+                    "score":        conf * (1 + prop_ev.ev_pct) * (1.15 if _heavy_favorite else 1.0),
                     "game_key":     event_id,
                     "player":       player,
                     "stat":         stat,
