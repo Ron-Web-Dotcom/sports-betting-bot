@@ -909,14 +909,18 @@ def scan_all_sports() -> dict[str, list[dict]]:
     except Exception as _e:
         logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
 
-    # Use every sport key the Odds API says is active today — this is the source of truth
-    # for what has live events right now. Sofascore teams are used only for game-level
-    # filtering below, not to restrict which sport categories we query.
+    # Restrict to sports Sofascore confirms have games today — avoids scanning 50+ sports
+    # when only 3-5 are actually playing. Fall back to full Odds API list if Sofascore cache empty.
     active_keys = get_live_active_sport_keys()
-    sport_keys  = active_keys  # all categories live today per Odds API /sports endpoint
+    if sf_sport_keys:
+        sport_keys = active_keys & sf_sport_keys  # intersection: active AND playing today
+        if not sport_keys:
+            sport_keys = active_keys  # fallback if no overlap (sport key mismatch)
+    else:
+        sport_keys = active_keys  # cold start — no Sofascore cache yet
 
-    logger.info("OddsAPI scanning %d active sport keys today (Sofascore confirmed %d teams across %d sports)",
-                len(sport_keys), len(sf_teams), len(sf_sport_keys))
+    logger.info("OddsAPI scanning %d sport keys today (Sofascore confirmed %d teams across %d sports, Odds API active: %d)",
+                len(sport_keys), len(sf_teams), len(sf_sport_keys), len(active_keys))
 
     result: dict[str, list[dict]] = {}
     raw_events: dict[str, list[dict]] = {}  # unfiltered, kept as fallback
