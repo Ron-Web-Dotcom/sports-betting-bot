@@ -196,16 +196,49 @@ def scan_odds_only() -> dict:
 
 
 def scan_props_only() -> dict:
-    """Scan Odds API player props only (requires scan_odds_only data or cache). Returns prop counts."""
+    """
+    Scan Odds API player props only. Uses odds:events_grouped cache from the last
+    scan_odds_only() run so we don't double-hit the Odds API for game lines.
+    Falls back to a fresh scan_all_sports() call if cache is empty.
+    """
     from src.engines.odds_engine import scan_all_sports, fetch_all_player_props
+    from src.core.config import REDIS_URL
+    import redis as _redis
+    import json
     import time
     t0 = time.time()
-    all_events = scan_all_sports()
+
+    # Try to reuse events from the last odds scan (avoids double Odds API call)
+    all_events: dict = {}
+    try:
+        _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _cached = _r.get("odds:events_grouped")
+        if _cached:
+            _grouped = json.loads(_cached)
+            # Rebuild all_events dict in the format fetch_all_player_props expects
+            for sk, evs in _grouped.items():
+                all_events[sk] = evs
+            logger.info("scan_props_only: using cached odds:events_grouped (%d sports)", len(all_events))
+    except Exception:
+        pass
+
+    if not all_events:
+        logger.info("scan_props_only: no cache — calling scan_all_sports()")
+        all_events = scan_all_sports()
+
     odds_props = fetch_all_player_props(all_events)
     elapsed = round(time.time() - t0, 1)
+
+    # Cache the props
+    try:
+        _r.setex("props:odds_api", 2400, json.dumps(odds_props))
+    except Exception:
+        pass
+
     by_sport: dict[str, int] = {}
     for p in odds_props:
-        by_sport[p.get("sport_key", "unknown")] = by_sport.get(p.get("sport_key", "unknown"), 0) + 1
+        sk = p.get("sport_key", "unknown")
+        by_sport[sk] = by_sport.get(sk, 0) + 1
     result = {sk: cnt for sk, cnt in sorted(by_sport.items())}
     result["_total_props"] = len(odds_props)
     result["_elapsed_s"] = elapsed
