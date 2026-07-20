@@ -566,6 +566,13 @@ def scan_todays_games():
     import zoneinfo
     import redis as _redis
 
+    # Prevent concurrent rescans — if another process already has the lock, skip
+    _r_lock = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    _lock_key = "lock:scan_todays_games"
+    if not _r_lock.set(_lock_key, "1", nx=True, ex=120):
+        logger.info("scan_todays_games: another scan in progress — skipping duplicate")
+        return {"day": 0, "night": 0, "total": 0}
+
     ET = zoneinfo.ZoneInfo("America/New_York")
     today = et_naive().strftime("%Y-%m-%d")
 
