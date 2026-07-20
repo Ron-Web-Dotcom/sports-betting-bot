@@ -851,12 +851,35 @@ def find_event_by_teams(home_team: str, away_team: str, date_str: str | None = N
 
     # Search cached events first (fast path)
     found = _search(events) if events else None
+    if found:
+        return found
 
-    # If not found in cache, do a live Sofascore scan — cache may not include
-    # all leagues (e.g. Swedish Allsvenskan, lower-division games)
-    if not found:
+    # Not in cache — do ONE live scan per game per 30 min (rate-limit guard).
+    # get_all_scheduled_events makes 200+ requests; never call it every 30s per pick.
+    try:
+        from src.core.config import REDIS_URL as _ru_fet
+        import redis as _r_fet
+        import json as _j_fet
+        _rc_fet = _r_fet.from_url(_ru_fet, decode_responses=True, socket_connect_timeout=2)
+        _miss_key = f"sofascore:miss:{home_n}:{away_n}:{date_str or 'today'}"
+        if _rc_fet.get(_miss_key):
+            return None  # scanned recently, still not found — skip until TTL expires
         live_events = get_all_scheduled_events(date_str)
         found = _search(live_events)
+        if not found:
+            _rc_fet.setex(_miss_key, 1800, "1")  # don't rescan for 30 min
+        else:
+            # Update the today_events cache so future lookups hit the fast path
+            if _searching_today:
+                try:
+                    _cached_raw = _rc_fet.get("sofascore:today_events")
+                    _existing = _j_fet.loads(_cached_raw) if _cached_raw else []
+                    _existing.extend(live_events)
+                    _rc_fet.setex("sofascore:today_events", 86400, _j_fet.dumps(_existing))
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     return found
 
