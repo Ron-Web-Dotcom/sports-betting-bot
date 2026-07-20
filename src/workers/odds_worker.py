@@ -246,8 +246,8 @@ def scan_player_props():
                     _ev_props = _props_idx.get((_sk, _eid), [])
                     # Extract best game-line odds from normalised markets dict
                     _mkts = _ev.get("markets", {})
-                    def _best(mkt, sel):
-                        entries = _mkts.get(mkt, {}).get(sel, [])
+                    def _best(mkt, sel, _m=_mkts):
+                        entries = _m.get(mkt, {}).get(sel, [])
                         return entries[0]["american_odds"] if entries else None
                     _grouped[_sk].append({
                         "event_id":     _eid,
