@@ -253,6 +253,8 @@ def generate_picks():
                 # Least positive wins — penalise only the higher +odds side
                 _is_higher_plus = best_odds_val > opponent_odds
                 _fav_bonus = -0.06 if _is_higher_plus else 0.0
+            elif best_odds_val <= -500:
+                _fav_bonus = 0.15  # heavy favorite — market near-certainty
             elif best_odds_val < -120:
                 _fav_bonus = 0.04
             elif best_odds_val < 0:
@@ -1317,7 +1319,8 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
 
         # Gate on numbers, not recommendation label.
         # -odds props: heavy favorites auto-qualify via market implied prob.
-        # +odds props: need 42%+ conf AND 5%+ edge over implied AND positive EV.
+        # +odds props: need 70%+ conf AND 5%+ edge over implied AND positive EV.
+        _prop_heavy = best_odds <= -500
         if best_odds < 0:
             _prop_market_implied = abs(best_odds) / (abs(best_odds) + 100)
             _po = abs(best_odds)
@@ -1330,17 +1333,22 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             elif _po >=  150: _prop_market_implied = max(_prop_market_implied, 0.65)
             elif _po >=  110: _prop_market_implied = max(_prop_market_implied, 0.58)
             _prop_eff_conf = max(conf, _prop_market_implied)
-            if _prop_eff_conf < 0.60 or ev <= 0:
-                continue
+            # Heavy favorites (-500+): skip EV gate — vig kills EV but outcome is near-certain
+            if _prop_heavy:
+                if _prop_eff_conf < 0.80:
+                    continue
+            else:
+                if _prop_eff_conf < 0.80 or ev <= 0:
+                    continue
         else:
             implied = 100 / (100 + best_odds)
-            if conf < 0.42 or (conf - implied) < 0.05 or ev <= 0:
+            if conf < 0.70 or (conf - implied) < 0.05 or ev <= 0:
                 continue
 
         candidates.append({
             "type":         "prop",
             "prop_type":    prop_type,
-            "score":        conf * (1 + ev),
+            "score":        conf * (1 + ev) * (1.15 if _prop_heavy else 1.0),
             "player":       player,
             "stat":         stat,
             "line":         line,
