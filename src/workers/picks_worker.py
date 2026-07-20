@@ -226,9 +226,12 @@ def generate_picks():
             # -odds = market confirmed favorite — skip conf + EV gates entirely.
             # +odds = underdog — require CONF_FLOOR and EV_FLOOR.
             if best_odds_val > 0:
-                if _effective_conf < 0.75:
+                # Lower +odds side (more likely) needs 75%; higher +odds side needs 70%
+                _is_lower_plus = opponent_odds is None or best_odds_val <= opponent_odds
+                _plus_gate = 0.75 if _is_lower_plus else 0.70
+                if _effective_conf < _plus_gate:
                     logger.info("SKIP conf [%s @ %s] %s: eff=%.1f%% < %.1f%%",
-                                away_team, home_team, market, _effective_conf*100, CONF_FLOOR*100)
+                                away_team, home_team, market, _effective_conf*100, _plus_gate*100)
                     continue
                 ev_result = evaluate(american_odds=best_odds_val,
                                      projected_prob=_effective_conf,
@@ -323,7 +326,9 @@ def generate_picks():
                 _heavy_favorite = best_odds_val <= -500
                 if best_odds_val > 0:
                     _prop_implied = 100 / (100 + best_odds_val)
-                    if conf < 0.75 or (conf - _prop_implied) < 0.05:
+                    _is_lower_plus_p = opp_odds_val is None or best_odds_val <= opp_odds_val
+                    _plus_gate_p = 0.75 if _is_lower_plus_p else 0.70
+                    if conf < _plus_gate_p or (conf - _prop_implied) < 0.05:
                         continue
                 else:
                     if conf < 0.90:
@@ -1344,7 +1349,10 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
                     continue
         else:
             implied = 100 / (100 + best_odds)
-            if conf < 0.75 or (conf - implied) < 0.05 or ev <= 0:
+            _opp_odds_b = prop.get("opponent_odds")
+            _is_lower_plus_b = _opp_odds_b is None or best_odds <= _opp_odds_b
+            _plus_gate_b = 0.75 if _is_lower_plus_b else 0.70
+            if conf < _plus_gate_b or (conf - implied) < 0.05 or ev <= 0:
                 continue
 
         candidates.append({
