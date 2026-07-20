@@ -51,7 +51,7 @@ except Exception as _e:
 def _import_tasks():
     from src.workers.odds_worker             import scan_and_save_odds, scan_player_props, refresh_active_sports
     from src.workers.news_worker             import fetch_and_save_news
-    from src.workers.picks_worker            import scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry
+    from src.workers.picks_worker            import scan_todays_games, generate_hardrock_day_entry, generate_hardrock_night_entry, pre_research_day_entry, pre_research_night_entry
     from src.workers.prediction_market_worker import (
         generate_prediction_market_day_entry,
         generate_prediction_market_night_entry,
@@ -73,6 +73,8 @@ def _import_tasks():
         "scan_todays_games":                        scan_todays_games,
         "generate_hardrock_day_entry":              generate_hardrock_day_entry,
         "generate_hardrock_night_entry":            generate_hardrock_night_entry,
+        "pre_research_day_entry":                   pre_research_day_entry,
+        "pre_research_night_entry":                 pre_research_night_entry,
         "generate_prediction_market_day_entry":     generate_prediction_market_day_entry,
         "generate_prediction_market_night_entry":   generate_prediction_market_night_entry,
         "settle_completed_picks":                   settle_completed_picks,
@@ -131,11 +133,13 @@ CRON_TASKS = [
     (8,  0,  "scan_and_save_odds",                       None, None),  # 8 AM HardRock odds pull
     (8,  0,  "scan_player_props",                        None, None),  # 8 AM Kalshi pricing pull
     (9,  0,  "scan_player_props",                        None, None),  # 9 AM Kalshi API pull — fresh markets before day slip
+    (10, 0,  "pre_research_day_entry",                    None, None),  # 10:00 AM — AI research all day games
     (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
     (10, 35, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry
     (15, 0,  "scan_todays_games",                         None, None),  # 3 PM rescan — update night games not yet started
     (15, 0,  "scan_and_save_odds",                        None, None),  # 3 PM HardRock odds pull
     (15, 0,  "scan_player_props",                         None, None),  # 3 PM Kalshi pricing pull
+    (16, 0,  "pre_research_night_entry",                  None, None),  # 4:00 PM — AI research all night games
     (16, 30, "generate_hardrock_night_entry",             None, None),  # HardRock night entry  4:30 PM ET
     (16, 35, "generate_prediction_market_night_entry",    None, None),  # Kalshi night entry    4:35 PM ET
 ]
@@ -202,11 +206,13 @@ CATCHUP_TASKS = [
     (8,  0,  120, "scan_and_save_odds"),
     (8,  0,  120, "scan_player_props"),
     (9,  0,   90, "scan_player_props"),
+    (10, 0,   30, "pre_research_day_entry"),
     (10, 30, 180, "generate_hardrock_day_entry"),
     (10, 35, 180, "generate_prediction_market_day_entry"),
     (15, 0,   90, "scan_todays_games"),
     (15, 0,   90, "scan_and_save_odds"),
     (15, 0,   90, "scan_player_props"),
+    (16, 0,   30, "pre_research_night_entry"),
     (16, 30, 360, "generate_hardrock_night_entry"),
     (16, 35, 360, "generate_prediction_market_night_entry"),
 ]

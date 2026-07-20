@@ -851,11 +851,33 @@ def _build_hardrock_candidates(
             by_mkt.setdefault(s.get("market", "h2h"), []).append(s)
 
         game_injuries = [i for i in injuries if i.get("team") in (home_team, away_team)]
+
+        # ── Load pre-research cache if available (built at 10 AM / 4 PM) ─────
+        _pre_cache = None
         try:
-            ctx = build_game_context(sport_key=sport_key, home_team=home_team,
-                                     away_team=away_team, game_time=commence)
+            import redis as _rc_pre
+            import json as _jc_pre
+            from src.core.config import REDIS_URL as _ru_pre
+            _r_pre = _rc_pre.from_url(_ru_pre, decode_responses=True, socket_connect_timeout=2)
+            _pre_key = f"pre_research:{period}:{game_id}:{_today_et.isoformat()}"
+            _pre_raw = _r_pre.get(_pre_key)
+            if _pre_raw:
+                _pre_cache = _jc_pre.loads(_pre_raw)
+                logger.info("HardRock [%s]: using pre-research cache for %s @ %s", period, away_team, home_team)
         except Exception:
-            ctx = {}
+            pass
+
+        if _pre_cache:
+            ctx      = _pre_cache.get("ctx") or {}
+            _cached_ai = _pre_cache.get("ai")
+        else:
+            try:
+                ctx = build_game_context(sport_key=sport_key, home_team=home_team,
+                                         away_team=away_team, game_time=commence)
+            except Exception:
+                ctx = {}
+            _cached_ai = None
+
         all_injuries = ctx.get("injuries_espn_home", []) + ctx.get("rotowire_injuries", []) or game_injuries
         hub_news     = ctx.get("news_espn", [])
 
@@ -893,11 +915,15 @@ def _build_hardrock_candidates(
             if not odds_map:
                 continue
 
-            ai = analyse_pick(
-                {**{"sport_key": sport_key, "home_team": home_team,
-                    "away_team": away_team, "commence_time": commence}, "market": mkt},
-                all_injuries, hub_news, odds_map, ctx,
-            )
+            # Use cached AI result for h2h (primary market) — re-run for spreads/totals
+            if mkt == "h2h" and _cached_ai:
+                ai = _cached_ai
+            else:
+                ai = analyse_pick(
+                    {**{"sport_key": sport_key, "home_team": home_team,
+                        "away_team": away_team, "commence_time": commence}, "market": mkt},
+                    all_injuries, hub_news, odds_map, ctx,
+                )
             if not ai:
                 continue
 
@@ -2058,5 +2084,113 @@ def generate_parlays():
     except Exception as exc:
         logger.error("Parlay generation failed: %s", exc)
         return {"error": str(exc)}
+
+
+def _pre_research(period: str) -> dict:
+    """
+    Run AI research (standings, form, H2H, injuries, odds, Kalshi) for all candidate
+    games and cache results in Redis so the entry generator posts instantly at slip time.
+
+    Day:   runs at 10:00 AM → entry posts at 10:30 AM
+    Night: runs at 4:00 PM  → entry posts at 4:30 PM
+    """
+    import json
+    import redis as _redis
+    from src.core.config import REDIS_URL
+    from src.core.timezone import et_naive as _et_naive
+
+    if _is_sleep_time():
+        return {"skipped": "sleep_mode"}
+
+    try:
+        r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    except Exception as e:
+        return {"error": f"redis: {e}"}
+
+    sofascore_events = _load_todays_games(period)
+    from src.engines.odds_engine import get_latest_snapshots_by_game as _snaps
+    snapshots = _snaps() or {}
+
+    from src.apis.data_hub import build_game_context
+    from src.engines.ai_engine import analyse_pick
+
+    today_str = _et_naive().strftime("%Y-%m-%d")
+    cached = 0
+    skipped = 0
+
+    import zoneinfo as _zi
+    import datetime as _dt
+    _ET_zone = _zi.ZoneInfo("America/New_York")
+    _now_et = _dt.datetime.now(_ET_zone)
+
+    for game_id, snap_list in snapshots.items():
+        if not snap_list:
+            continue
+        s0 = snap_list[0]
+        home_team  = s0.get("home_team", "")
+        away_team  = s0.get("away_team", "")
+        sport_key  = s0.get("sport_key", "")
+        commence   = s0.get("commence_time", "")
+        if not home_team or not away_team:
+            continue
+
+        # Filter to the right period
+        try:
+            from dateutil.parser import parse as _dp
+            _ct = _dp(commence)
+            if _ct.tzinfo is None:
+                _ct = _ct.replace(tzinfo=_ET_zone)
+            _ct_et = _ct.astimezone(_ET_zone)
+            if _ct_et.date().isoformat() != today_str:
+                continue
+            _is_night = _ct_et.hour >= 16
+            if period == "day"   and _is_night:     continue
+            if period == "night" and not _is_night: continue
+            # Skip games starting within 15 min or already started
+            if (_now_et - _ct_et).total_seconds() / 60 > -15:
+                continue
+        except Exception:
+            continue
+
+        cache_key = f"pre_research:{period}:{game_id}:{today_str}"
+        if r.get(cache_key):
+            skipped += 1
+            continue  # already researched this session
+
+        try:
+            ctx = build_game_context(
+                sport_key=sport_key, home_team=home_team,
+                away_team=away_team, game_time=commence,
+            )
+            odds_map = {s["book"]: s["best_odds"] for s in snap_list if s.get("book")}
+            ai = analyse_pick(
+                {"sport_key": sport_key, "home_team": home_team,
+                 "away_team": away_team, "commence_time": commence, "market": "h2h"},
+                ctx.get("injuries_espn_home", []),
+                ctx.get("news_espn", []),
+                odds_map,
+                ctx,
+            )
+            payload = {"ctx": ctx, "ai": ai, "odds_map": odds_map}
+            r.setex(cache_key, 7200, json.dumps(payload, default=str))  # 2h TTL
+            cached += 1
+            logger.info("Pre-research [%s] %s @ %s → conf=%.0f%%",
+                        period, away_team, home_team,
+                        float(ai.get("win_probability", 0.5) * 100) if ai else 0)
+        except Exception as e:
+            logger.warning("Pre-research failed [%s @ %s]: %s", away_team, home_team, e)
+
+    logger.info("Pre-research %s complete: %d cached, %d already done", period, cached, skipped)
+    return {"period": period, "cached": cached, "skipped": skipped}
+
+
+def pre_research_day_entry() -> dict:
+    """10:00 AM — research all day games so the 10:30 AM slip posts instantly."""
+    return _pre_research("day")
+
+
+def pre_research_night_entry() -> dict:
+    """4:00 PM — research all night games so the 4:30 PM slip posts instantly."""
+    return _pre_research("night")
 
 
