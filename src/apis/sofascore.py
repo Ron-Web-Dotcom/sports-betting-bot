@@ -534,9 +534,19 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
                 try:
                     return r.json()
                 except Exception:
-                    # Response came back but isn't valid JSON (binary/compressed leak)
-                    # Treat as no-data — don't penalise CB
-                    logger.debug("Sofascore ZenRows [%s]: non-JSON 200 response — skipping", path)
+                    # ZenRows stripped Content-Encoding — response may be gzip-compressed.
+                    # Try manual decompression before giving up.
+                    import gzip as _gzip, json as _json_mod
+                    try:
+                        return _json_mod.loads(_gzip.decompress(r.content))
+                    except Exception:
+                        pass
+                    try:
+                        import zlib as _zlib
+                        return _json_mod.loads(_zlib.decompress(r.content, 47))
+                    except Exception:
+                        pass
+                    logger.debug("Sofascore ZenRows [%s]: non-JSON/compressed 200 — skipping", path)
                     return _NO_DATA
             if r.status_code in (404, 422):
                 logger.debug("Sofascore %s via ZenRows [%s] (no data — skipping)", r.status_code, path)
