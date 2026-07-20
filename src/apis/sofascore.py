@@ -593,6 +593,30 @@ def _scraperapi_get(path: str, api_key: str) -> dict | list | None:
         return None
 
 
+def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
+    """Make a Sofascore request via any standard HTTP/HTTPS proxy (e.g. ZenRows)."""
+    import httpx
+    target_url = f"{_BASE}{path}"
+    try:
+        r = httpx.get(
+            target_url,
+            headers=_HEADERS,
+            proxies={"http://": proxy_url, "https://": proxy_url},
+            timeout=httpx.Timeout(connect=10.0, read=30.0, write=5.0, pool=5.0),
+            verify=False,
+        )
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code == 404:
+            logger.debug("Sofascore 404 via proxy [%s] (no games)", path)
+        else:
+            logger.warning("Sofascore %s via proxy [%s]", r.status_code, path)
+        return None
+    except Exception as e:
+        logger.warning("Sofascore proxy request failed [%s]: %s", path, e)
+        return None
+
+
 def _get(path: str) -> dict | list | None:
     """
     Sofascore request with auto-routing:
@@ -644,6 +668,15 @@ def _get(path: str) -> dict | list | None:
     # ── ScraperAPI fallback ───────────────────────────────────────────────────
     if scraper_key:
         result = _scraperapi_get(path, scraper_key)
+        if result is not None:
+            _cb_record_success()
+        else:
+            _cb_record_failure()
+        return result
+
+    # ── Generic proxy fallback (ZenRows or any http/https proxy) ─────────────
+    if sf_proxy and "scraperapi.com" not in sf_proxy:
+        result = _generic_proxy_get(path, sf_proxy)
         if result is not None:
             _cb_record_success()
         else:
