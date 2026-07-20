@@ -691,16 +691,34 @@ def _get(path: str) -> dict | list | None:
 # ── Scheduled events ──────────────────────────────────────────────────────────
 
 def get_scheduled_events(sport_key: str, date: str | None = None) -> list[dict]:
-    """Return matches for a single sport_key on a given date."""
+    """Return matches for a single sport_key on a given date (cached 1 hour)."""
     slug = _slug(sport_key)
     if not slug:
         return []
     date = date or et_naive().strftime("%Y-%m-%d")
+    try:
+        import redis as _r_gs, json as _j_gs
+        from src.core.config import REDIS_URL as _ru_gs
+        _rc_gs = _r_gs.from_url(_ru_gs, decode_responses=True, socket_connect_timeout=2)
+        _ck_gs = f"sofascore:sport:{slug}:{date}"
+        _hit = _rc_gs.get(_ck_gs)
+        if _hit:
+            return _j_gs.loads(_hit)
+    except Exception:
+        _rc_gs = None
+
     data = _get(f"/sport/{slug}/scheduled-events/{date}")
     if not data:
         return []
     events = data if isinstance(data, list) else data.get("events", [])
-    return [_normalise_event(e, sport_key) for e in events]
+    result = [_normalise_event(e, sport_key) for e in events]
+
+    try:
+        if _rc_gs:
+            _rc_gs.setex(_ck_gs, 3600, _j_gs.dumps(result))
+    except Exception:
+        pass
+    return result
 
 
 def get_all_scheduled_events(date: str | None = None) -> list[dict]:
@@ -773,6 +791,17 @@ def get_all_scheduled_events(date: str | None = None) -> list[dict]:
     live      = len(all_events) - scheduled
     logger.info("Sofascore batch scan: %d scheduled + %d live = %d total across %d sport slugs",
                 scheduled, live, len(all_events), len(all_slugs))
+
+    # Cache the full result for the rest of the day so this 200+ request scan is never repeated
+    try:
+        import redis as _r_all, json as _j_all
+        from src.core.config import REDIS_URL as _ru_all
+        _rc_all = _r_all.from_url(_ru_all, decode_responses=True, socket_connect_timeout=2)
+        _rc_all.setex("sofascore:today_events", 86400, _j_all.dumps(all_events))
+        logger.info("Sofascore batch scan cached (%d events) for 24h", len(all_events))
+    except Exception:
+        pass
+
     return all_events
 
 
