@@ -891,44 +891,36 @@ def scan_all_sports() -> dict[str, list[dict]]:
     import json as _json
     from src.core.config import REDIS_URL
 
-    # Load Sofascore confirmed today games — source of truth
+    # Load Sofascore confirmed today games — source of truth.
+    # sofascore:today_events is set by scan_todays_games (8 AM) and already has
+    # sport_key (exact Odds API key) on every event via get_all_scheduled_events.
     sf_teams: set[str] = set()
-    sf_exact_sport_keys: set[str] = set()  # exact Odds API sport keys from enriched cache
+    sf_exact_sport_keys: set[str] = set()
     try:
         _r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-
-        # Primary: games:enriched already has the exact Odds API sport_key matched per game
-        _enriched_raw = _r.get("games:enriched")
-        if _enriched_raw:
-            for ev in _json.loads(_enriched_raw):
-                if ev.get("home_team"):
-                    sf_teams.add(ev["home_team"].lower())
-                if ev.get("away_team"):
-                    sf_teams.add(ev["away_team"].lower())
-                if ev.get("sport_key"):
-                    sf_exact_sport_keys.add(ev["sport_key"])
-
-        # Fallback: sofascore day/night games (team names only, no exact sport key)
-        if not sf_teams:
-            for _sfkey in ("sofascore:day_games", "sofascore:night_games"):
-                _raw = _r.get(_sfkey)
-                if _raw:
-                    for ev in _json.loads(_raw):
-                        if ev.get("home_team"):
-                            sf_teams.add(ev["home_team"].lower())
-                        if ev.get("away_team"):
-                            sf_teams.add(ev["away_team"].lower())
+        for _cache_key in ("sofascore:today_events", "games:enriched"):
+            _raw = _r.get(_cache_key)
+            if _raw:
+                for ev in _json.loads(_raw):
+                    if ev.get("home_team"):
+                        sf_teams.add(ev["home_team"].lower())
+                    if ev.get("away_team"):
+                        sf_teams.add(ev["away_team"].lower())
+                    sk = ev.get("sport_key") or ev.get("sport", "")
+                    if sk and "_" in sk:  # only accept Odds API format (has underscore)
+                        sf_exact_sport_keys.add(sk)
+                if sf_exact_sport_keys:
+                    break  # got exact keys from first cache — no need to check second
     except Exception as _e:
         logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
 
     active_keys = get_live_active_sport_keys()
     if sf_exact_sport_keys:
-        # Best case: we have exact sport keys from enriched cache — only scan those
         sport_keys = active_keys & sf_exact_sport_keys
         if not sport_keys:
-            sport_keys = active_keys  # fallback: enriched keys not in Odds API active list yet
+            sport_keys = active_keys
     else:
-        sport_keys = active_keys  # cold start — enriched cache empty, scan everything
+        sport_keys = active_keys  # cold start
 
     logger.info("OddsAPI scanning %d sport keys today (Sofascore confirmed %d teams, enriched sport keys=%s, Odds API active: %d)",
                 len(sport_keys), len(sf_teams), sorted(sf_exact_sport_keys) or "cold-start", len(active_keys))
