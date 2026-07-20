@@ -226,7 +226,7 @@ def generate_picks():
             # -odds = market confirmed favorite — skip conf + EV gates entirely.
             # +odds = underdog — require CONF_FLOOR and EV_FLOOR.
             if best_odds_val > 0:
-                if _effective_conf < CONF_FLOOR:
+                if _effective_conf < 0.75:
                     logger.info("SKIP conf [%s @ %s] %s: eff=%.1f%% < %.1f%%",
                                 away_team, home_team, market, _effective_conf*100, CONF_FLOOR*100)
                     continue
@@ -250,9 +250,11 @@ def generate_picks():
             # +odds one side only   → no adjustment, EV gate handles it
             _both_plus = best_odds_val > 0 and (opponent_odds is not None and opponent_odds > 0)
             if _both_plus:
-                # Least positive wins — penalise only the higher +odds side
+                # Least positive wins — 1% boost for the lower +odds side, penalise the higher
                 _is_higher_plus = best_odds_val > opponent_odds
-                _fav_bonus = -0.06 if _is_higher_plus else 0.0
+                _fav_bonus = -0.06 if _is_higher_plus else 0.01
+            elif best_odds_val > 0:
+                _fav_bonus = 0.01  # single +odds side — slight boost
             elif best_odds_val <= -500:
                 _fav_bonus = 0.15  # heavy favorite — market near-certainty
             elif best_odds_val < -120:
@@ -321,7 +323,7 @@ def generate_picks():
                 _heavy_favorite = best_odds_val <= -500
                 if best_odds_val > 0:
                     _prop_implied = 100 / (100 + best_odds_val)
-                    if conf < 0.70 or (conf - _prop_implied) < 0.05:
+                    if conf < 0.75 or (conf - _prop_implied) < 0.05:
                         continue
                 else:
                     if conf < 0.80:
@@ -336,7 +338,7 @@ def generate_picks():
                 is_team = prop.get("is_team_prop", False)
                 prop_pool.append({
                     "type":         "prop",
-                    "score":        conf * (1 + prop_ev.ev_pct) * (1.15 if _heavy_favorite else 1.0),
+                    "score":        conf * (1 + prop_ev.ev_pct) * (1.15 if _heavy_favorite else 1.01 if best_odds_val > 0 else 1.0),
                     "game_key":     event_id,
                     "player":       player,
                     "stat":         stat,
@@ -1342,13 +1344,13 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
                     continue
         else:
             implied = 100 / (100 + best_odds)
-            if conf < 0.70 or (conf - implied) < 0.05 or ev <= 0:
+            if conf < 0.75 or (conf - implied) < 0.05 or ev <= 0:
                 continue
 
         candidates.append({
             "type":         "prop",
             "prop_type":    prop_type,
-            "score":        conf * (1 + ev) * (1.15 if _prop_heavy else 1.0),
+            "score":        conf * (1 + ev) * (1.15 if _prop_heavy else 1.01 if best_odds > 0 else 1.0),
             "player":       player,
             "stat":         stat,
             "line":         line,
