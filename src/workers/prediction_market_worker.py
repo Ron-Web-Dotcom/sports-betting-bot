@@ -1072,10 +1072,23 @@ Only pick if confidence >= 0.77 and ev_pct >= 0.005. Return {"index": null} if n
                 logger.warning("Kalshi Perplexity last resort failed: %s", _pe)
     # ── End last resort ────────────────────────────────────────────────────────
 
-    if idx < 0 or idx >= len(candidates) or confidence < _CONF_FLOOR or ev_pct < _EV_FLOOR:
+    # Tiered confidence gate — mirrors picks_worker gates:
+    # +odds lower side=75%, +odds higher side=70%, -odds=80%
+    _k_pick = candidates[idx] if 0 <= idx < len(candidates) else {}
+    _k_yes_a = int(_k_pick.get("yes_american") or 0)
+    _k_no_a  = int(_k_pick.get("no_american")  or 0)
+    _k_pick_american = _k_yes_a if (_k_pick.get("pick_side") or "yes") == "yes" else _k_no_a
+    if _k_pick_american > 0:
+        _opp_american = _k_no_a if (_k_pick.get("pick_side") or "yes") == "yes" else _k_yes_a
+        _is_lower_plus = _opp_american is None or _opp_american == 0 or _k_pick_american <= _opp_american
+        _eff_conf_floor = 0.75 if _is_lower_plus else 0.70
+    else:
+        _eff_conf_floor = _CONF_FLOOR  # -odds: use standard 80% floor
+
+    if idx < 0 or idx >= len(candidates) or confidence < _eff_conf_floor or ev_pct < _EV_FLOOR:
         logger.warning(
             "Kalshi bail-out J [%s]: idx=%d candidates=%d conf=%.1f%% (floor %.1f%%) ev=%.2f%% (floor %.2f%%) — no pick",
-            period, idx, len(candidates), confidence * 100, _CONF_FLOOR * 100, ev_pct * 100, _EV_FLOOR * 100,
+            period, idx, len(candidates), confidence * 100, _eff_conf_floor * 100, ev_pct * 100, _EV_FLOOR * 100,
         )
         return []
 
