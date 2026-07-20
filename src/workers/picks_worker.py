@@ -256,7 +256,7 @@ def generate_picks():
             elif best_odds_val > 0:
                 _fav_bonus = 0.01  # single +odds side — slight boost
             elif best_odds_val <= -500:
-                _fav_bonus = 0.15  # heavy favorite — market near-certainty
+                _fav_bonus = 0.20  # heavy favorite — market near-certainty
             elif best_odds_val < -120:
                 _fav_bonus = 0.04
             elif best_odds_val < 0:
@@ -326,7 +326,7 @@ def generate_picks():
                     if conf < 0.75 or (conf - _prop_implied) < 0.05:
                         continue
                 else:
-                    if conf < 0.80:
+                    if conf < 0.90:
                         continue
                 prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
                                    opponent_odds=opp_odds_val)
@@ -338,7 +338,7 @@ def generate_picks():
                 is_team = prop.get("is_team_prop", False)
                 prop_pool.append({
                     "type":         "prop",
-                    "score":        conf * (1 + prop_ev.ev_pct) * (1.15 if _heavy_favorite else 1.01 if best_odds_val > 0 else 1.0),
+                    "score":        conf * (1 + prop_ev.ev_pct) * (1.20 if _heavy_favorite else 1.01 if best_odds_val > 0 else 1.0),
                     "game_key":     event_id,
                     "player":       player,
                     "stat":         stat,
@@ -1337,7 +1337,7 @@ def _build_prop_candidates(sofascore_events: list[dict]) -> list[dict]:
             _prop_eff_conf = max(conf, _prop_market_implied)
             # Heavy favorites (-500+): skip EV gate — vig kills EV but outcome is near-certain
             if _prop_heavy:
-                if _prop_eff_conf < 0.80:
+                if _prop_eff_conf < 0.90:
                     continue
             else:
                 if _prop_eff_conf < 0.80 or ev <= 0:
