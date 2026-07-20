@@ -381,6 +381,31 @@ def _get(path: str, params: dict) -> dict | list | None:
         return None
 
 
+def _get_status(path: str, params: dict) -> tuple[dict | list | None, int]:
+    """Like _get but returns (data, status_code). status_code=0 on network error."""
+    params["apiKey"] = ODDS_API_KEY
+    try:
+        r = httpx.get(f"{ODDS_API_BASE}{path}", params=params, timeout=20)
+        if r.status_code == 429:
+            _set_credits_exhausted()
+            return None, 429
+        if r.status_code in (401, 403):
+            logger.warning("OddsAPI %s → %s (auth/forbidden)", path, r.status_code)
+            return None, r.status_code
+        r.raise_for_status()
+        remaining = r.headers.get("x-requests-remaining", "?")
+        logger.info("OddsAPI %s → OK (credits remaining: %s)", path, remaining)
+        _clear_credits_exhausted()
+        return r.json(), r.status_code
+    except httpx.HTTPStatusError as e:
+        sc = e.response.status_code
+        if sc == 429:
+            _set_credits_exhausted()
+        return None, sc
+    except httpx.HTTPError:
+        return None, 0
+
+
 def fetch_events(sport_key: str) -> list[dict]:
     if _credits_exhausted():
         return []
@@ -593,14 +618,57 @@ def fetch_player_props(sport_key: str, event_id: str) -> list[dict]:
     if not markets:
         return []
 
-    data = _get(f"/sports/{sport_key}/events/{event_id}/odds", {
-        "regions":    "us",
-        "markets":    ",".join(markets),
-        "oddsFormat": "american",
-        "bookmakers": ",".join(SPORTSBOOKS),
-    })
-    if not data:
+    path = f"/sports/{sport_key}/events/{event_id}/odds"
+    base_params = {"regions": "us", "oddsFormat": "american", "bookmakers": ",".join(SPORTSBOOKS)}
+
+    # Batch markets into chunks of 8 to stay within Odds API query string limits.
+    # Merge all batch results into a single unified data dict.
+    _BATCH = 8
+    batches = [markets[i:i + _BATCH] for i in range(0, len(markets), _BATCH)]
+    merged_bookmakers: dict[str, dict] = {}
+
+    any_ok = False
+    all_422 = True
+    for batch in batches:
+        if _credits_exhausted():
+            break
+        data, sc = _get_status(path, {**base_params, "markets": ",".join(batch)})
+        if sc == 429:
+            break
+        if sc in (404, 422):
+            continue  # market not available — try next batch
+        if data:
+            all_422 = False
+            any_ok = True
+            for bk in data.get("bookmakers", []):
+                bk_key = bk.get("key")
+                if not bk_key:
+                    continue
+                if bk_key not in merged_bookmakers:
+                    merged_bookmakers[bk_key] = {"key": bk_key, "markets": []}
+                merged_bookmakers[bk_key]["markets"].extend(bk.get("markets", []))
+        elif sc == 200:
+            any_ok = True
+            all_422 = False
+
+    # If every batch returned 422, fall back to base game markets (h2h/spreads/totals)
+    if not any_ok and all_422 and not _credits_exhausted():
+        logger.info("OddsAPI props 422 for all batches [%s/%s] — retrying with base markets", sport_key, event_id)
+        data, sc = _get_status(path, {**base_params, "markets": "h2h,spreads,totals"})
+        if data:
+            for bk in data.get("bookmakers", []):
+                bk_key = bk.get("key")
+                if not bk_key:
+                    continue
+                if bk_key not in merged_bookmakers:
+                    merged_bookmakers[bk_key] = {"key": bk_key, "markets": []}
+                merged_bookmakers[bk_key]["markets"].extend(bk.get("markets", []))
+
+    if not merged_bookmakers:
         return []
+
+    # Re-wrap into same structure fetch_player_props expects
+    data = {"bookmakers": list(merged_bookmakers.values())}
 
     _TEAM_MARKET_PREFIXES = ("team_",)
 
