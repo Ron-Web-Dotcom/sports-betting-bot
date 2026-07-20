@@ -499,9 +499,41 @@ def _slug(sport_key: str) -> str | None:
 
 
 def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
-    """Make a Sofascore request via any standard HTTP/HTTPS proxy (e.g. ZenRows)."""
+    """
+    Make a Sofascore request via ZenRows API mode or standard HTTP proxy.
+
+    ZenRows API mode (preferred — more reliable than proxy mode):
+      SOFASCORE_PROXY_URL=https://api.zenrows.com/v1/?apikey=KEY
+      → appends &url=TARGET to each request
+
+    Standard proxy mode (fallback):
+      SOFASCORE_PROXY_URL=http://user:pass@proxy.host:port
+      → routes request through HTTP proxy
+    """
     import httpx
     target_url = f"{_BASE}{path}"
+
+    # ZenRows API mode — detected by api.zenrows.com in the URL
+    if "api.zenrows.com" in proxy_url:
+        try:
+            api_url = proxy_url.rstrip("&") + f"&url={target_url}"
+            r = httpx.get(
+                api_url,
+                headers=_HEADERS,
+                timeout=httpx.Timeout(connect=15.0, read=45.0, write=5.0, pool=5.0),
+            )
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 404:
+                logger.debug("Sofascore 404 via ZenRows [%s] (no games)", path)
+            else:
+                logger.warning("Sofascore %s via ZenRows [%s]", r.status_code, path)
+            return None
+        except Exception as e:
+            logger.warning("Sofascore ZenRows request failed [%s]: %s", path, e)
+            return None
+
+    # Standard proxy mode
     try:
         r = httpx.get(
             target_url,
