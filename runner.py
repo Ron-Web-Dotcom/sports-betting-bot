@@ -131,9 +131,6 @@ CRON_TASKS = [
     (8,  0,  "scan_and_save_odds",                       None, None),  # 8 AM HardRock odds pull
     (8,  0,  "scan_player_props",                        None, None),  # 8 AM Kalshi pricing pull
     (9,  0,  "scan_player_props",                        None, None),  # 9 AM Kalshi API pull — fresh markets before day slip
-    (9,  30, "scan_todays_games",                        None, None),  # 9:30 AM rescan — late additions / lineup updates
-    (10, 0,  "scan_and_save_odds",                       None, None),  # 10 AM HardRock odds pull
-    (10, 0,  "scan_player_props",                        None, None),  # 10 AM Kalshi pricing pull
     (10, 30, "generate_hardrock_day_entry",               None, None),  # HardRock day entry
     (10, 35, "generate_prediction_market_day_entry",      None, None),  # Kalshi day entry
     (15, 0,  "scan_todays_games",                         None, None),  # 3 PM rescan — update night games not yet started
@@ -205,9 +202,6 @@ CATCHUP_TASKS = [
     (8,  0,  120, "scan_and_save_odds"),
     (8,  0,  120, "scan_player_props"),
     (9,  0,   90, "scan_player_props"),
-    (9,  30,  90, "scan_todays_games"),
-    (10, 0,   90, "scan_and_save_odds"),
-    (10, 0,   90, "scan_player_props"),
     (10, 30, 180, "generate_hardrock_day_entry"),
     (10, 35, 180, "generate_prediction_market_day_entry"),
     (15, 0,   90, "scan_todays_games"),
