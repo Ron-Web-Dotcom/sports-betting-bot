@@ -184,17 +184,64 @@ def _props_window() -> bool:
     return 8 <= et.hour < 23
 
 
+def scan_odds_only() -> dict:
+    """Scan Odds API game lines only (no props, no Kalshi). Returns event counts by sport."""
+    from src.engines.odds_engine import scan_all_sports
+    import time
+    t0 = time.time()
+    all_events = scan_all_sports()
+    elapsed = round(time.time() - t0, 1)
+    total = sum(len(v) for v in all_events.items())
+    result = {sk: len(evs) for sk, evs in all_events.items()}
+    result["_total_events"] = sum(len(v) for v in all_events.values())
+    result["_elapsed_s"] = elapsed
+    logger.info("Odds scan: %d events across %d sports in %.1fs", result["_total_events"], len(all_events), elapsed)
+    return result
+
+
+def scan_props_only() -> dict:
+    """Scan Odds API player props only (requires scan_odds_only data or cache). Returns prop counts."""
+    from src.engines.odds_engine import scan_all_sports, fetch_all_player_props
+    import time
+    t0 = time.time()
+    all_events = scan_all_sports()
+    t1 = time.time()
+    odds_props = fetch_all_player_props(all_events)
+    elapsed = round(time.time() - t0, 1)
+    by_sport: dict[str, int] = {}
+    for p in odds_props:
+        by_sport[p.get("sport_key", "unknown")] = by_sport.get(p.get("sport_key", "unknown"), 0) + 1
+    result = {sk: cnt for sk, cnt in sorted(by_sport.items())}
+    result["_total_props"] = len(odds_props)
+    result["_elapsed_s"] = elapsed
+    logger.info("Props scan: %d props across %d sports in %.1fs", len(odds_props), len(by_sport), elapsed)
+    return result
+
+
+def scan_kalshi_only() -> dict:
+    """Scan Kalshi markets only. Returns event and sub-market counts."""
+    from src.apis.kalshi import get_sports_events
+    from src.core.config import REDIS_URL
+    import redis as _redis
+    import json, time
+    t0 = time.time()
+    kalshi_markets = get_sports_events(limit=500)
+    elapsed = round(time.time() - t0, 1)
+    r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    r.setex("kalshi:live_markets", 2400, json.dumps(kalshi_markets))
+    event_count = len({m.get("event_ticker", m.get("market_id", "")) for m in kalshi_markets})
+    logger.info("Kalshi scan: %d events, %d sub-markets in %.1fs", event_count, len(kalshi_markets), elapsed)
+    return {
+        "kalshi_events":     event_count,
+        "kalshi_submarkets": len(kalshi_markets),
+        "_elapsed_s":        elapsed,
+    }
+
+
 def scan_player_props():
     """
-    Scan all prop and market sources.
-
-    Sources:
-      Odds API   — ML, spreads, totals, player props (primary — all sports)
-      Kalshi     — prediction market contracts
-      PrizePicks — DISABLED
-      Underdog   — DISABLED
-
-    Results cached in Redis for picks_worker.
+    Full Odds + Kalshi scan. Runs all sources, caches results, detects changes.
+    Use scan_odds_only() / scan_props_only() / scan_kalshi_only() to run each separately.
     """
     if not _props_window():
         logger.debug("scan_player_props: outside props window (8 AM–11 PM ET), skipping")
@@ -207,40 +254,49 @@ def scan_player_props():
         from src.core.config import REDIS_URL
         import redis as _redis
         import json
+        import time
 
         r = _redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
 
-        # Fetch Odds API player props (team + individual)
-        odds_props = []
+        # ── Odds API game lines + props ───────────────────────────────────────
+        all_events: dict = {}
+        odds_props: list = []
+        _t_odds = time.time()
         try:
             all_events = scan_all_sports()
+            _t_props = time.time()
             odds_props = fetch_all_player_props(all_events)
+            _t_props_end = time.time()
         except Exception as e:
-            logger.warning("Odds API player props failed: %s", e)
+            logger.warning("Odds API scan failed: %s", e)
+            _t_props = _t_props_end = time.time()
 
-        # Fetch Kalshi live sports events (player props, game props, totals, BTTS, spreads)
-        kalshi_markets = []
+        _odds_elapsed  = round(_t_props - _t_odds, 1)
+        _props_elapsed = round(_t_props_end - _t_props, 1)
+
+        # ── Kalshi ────────────────────────────────────────────────────────────
+        kalshi_markets: list = []
+        _t_kalshi = time.time()
         try:
             from src.apis.kalshi import get_sports_events
             kalshi_markets = get_sports_events(limit=500)
             r.setex("kalshi:live_markets", 2400, json.dumps(kalshi_markets))
-            logger.info("Kalshi live markets cached: %d sub-markets", len(kalshi_markets))
         except Exception as e:
             logger.warning("Kalshi live scan failed: %s", e)
+        _kalshi_elapsed = round(time.time() - _t_kalshi, 1)
 
-        # Detect changes
+        # ── Detect changes ────────────────────────────────────────────────────
         prev_raw = r.get("props:odds_api")
         prev_props: list[dict] = json.loads(prev_raw) if prev_raw else []
         all_changes = _detect_prop_changes(prev_props, odds_props, "odds_api")
 
-        # Cache flat lists
+        # ── Cache flat lists ──────────────────────────────────────────────────
         r.setex("props:odds_api", 2400, json.dumps(odds_props))
         r.setex("props:all",      2400, json.dumps(odds_props + kalshi_markets))
 
-        # Build odds:events_grouped — sport → event → { game info, markets, props[] }
+        # ── Build odds:events_grouped ─────────────────────────────────────────
         try:
             _grouped: dict[str, list[dict]] = {}
-            # Index props by (sport_key, event_id) for fast lookup
             _props_idx: dict[tuple, list] = {}
             for _p in odds_props:
                 _key = (_p.get("sport_key", ""), _p.get("event_id", ""))
@@ -257,65 +313,56 @@ def scan_player_props():
                 for _ev in _events:
                     _eid = _ev.get("id", "")
                     _ev_props = _props_idx.get((_sk, _eid), [])
-                    # Extract best game-line odds from normalised markets dict
                     _mkts = _ev.get("markets", {})
                     def _best(mkt, sel, _m=_mkts):
                         entries = _m.get(mkt, {}).get(sel, [])
                         return entries[0]["american_odds"] if entries else None
                     _grouped[_sk].append({
-                        "event_id":     _eid,
-                        "sport_key":    _sk,
-                        "home_team":    _ev.get("home_team", ""),
-                        "away_team":    _ev.get("away_team", ""),
+                        "event_id":      _eid,
+                        "sport_key":     _sk,
+                        "home_team":     _ev.get("home_team", ""),
+                        "away_team":     _ev.get("away_team", ""),
                         "commence_time": _ev.get("commence_time", ""),
                         "markets": {
-                            "h2h": {
-                                "home": _best("h2h", _ev.get("home_team", "")),
-                                "away": _best("h2h", _ev.get("away_team", "")),
-                            },
-                            "spreads": {
-                                "home": _best("spreads", _ev.get("home_team", "")),
-                                "away": _best("spreads", _ev.get("away_team", "")),
-                            },
-                            "totals": {
-                                "over":  _best("totals", "Over"),
-                                "under": _best("totals", "Under"),
-                            },
+                            "h2h":     {"home": _best("h2h", _ev.get("home_team", "")),
+                                        "away": _best("h2h", _ev.get("away_team", ""))},
+                            "spreads": {"home": _best("spreads", _ev.get("home_team", "")),
+                                        "away": _best("spreads", _ev.get("away_team", ""))},
+                            "totals":  {"over":  _best("totals", "Over"),
+                                        "under": _best("totals", "Under")},
                         },
                         "props": _ev_props,
                     })
             r.setex("odds:events_grouped", 2400, json.dumps(_grouped))
-            _total_events = sum(len(v) for v in _grouped.values())
-            _total_props  = sum(len(e["props"]) for evs in _grouped.values() for e in evs)
-            logger.info("odds:events_grouped cached: %d sports, %d events, %d props",
-                        len(_grouped), _total_events, _total_props)
         except Exception as _ge:
             logger.warning("odds:events_grouped build failed: %s", _ge)
 
         if all_changes:
-            logger.info("Props changed: %d updates (checking against active picks)", len(all_changes))
             _alert_active_pick_changes(r, all_changes)
 
-        # Count kalshi events (grouped by event_ticker)
         _kalshi_event_count = len({m.get("event_ticker", m.get("market_id", "")) for m in kalshi_markets})
 
         logger.info(
-            "Props scan complete: odds_api=%d odds_props=%d | kalshi_events=%d kalshi_submarkets=%d | changes=%d",
-            len(all_events), len(odds_props), _kalshi_event_count, len(kalshi_markets), len(all_changes),
+            "Odds + Kalshi scan complete: "
+            "odds_api=%d (%.1fs)  odds_props=%d (%.1fs)  "
+            "kalshi_events=%d  kalshi_submarkets=%d (%.1fs)  changes=%d",
+            len(all_events), _odds_elapsed,
+            len(odds_props),  _props_elapsed,
+            _kalshi_event_count, len(kalshi_markets), _kalshi_elapsed,
+            len(all_changes),
         )
 
-        # Build enriched game cache for picks_worker + prediction_market_worker
         try:
             build_enriched_games_cache()
         except Exception as e:
             logger.warning("build_enriched_games_cache failed: %s", e)
 
         return {
-            "odds_api":           len(all_events),
-            "odds_props":         len(odds_props),
-            "kalshi_events":      _kalshi_event_count,
-            "kalshi_submarkets":  len(kalshi_markets),
-            "changes":            len(all_changes),
+            "odds_api":          {"events": len(all_events),    "elapsed_s": _odds_elapsed},
+            "odds_props":        {"props":  len(odds_props),    "elapsed_s": _props_elapsed},
+            "kalshi_events":     {"events": _kalshi_event_count,"elapsed_s": _kalshi_elapsed},
+            "kalshi_submarkets": {"markets":len(kalshi_markets),"elapsed_s": _kalshi_elapsed},
+            "changes":           len(all_changes),
         }
 
     except Exception as exc:
