@@ -48,30 +48,43 @@ def _prop_key(prop: dict) -> str:
 
 def _alert_active_pick_changes(r, all_changes: list[dict]):
     """
-    Check if any of our recommended picks moved or went off-board.
-    Reads active picks from the same Redis key that picks_worker writes.
+    Alert only when a prop that is part of an ACTIVE SLIP moves line or goes off-board.
+    Cross-references slips:active (the real posted slips) — not the full props cache.
+    This prevents spamming every prop refresh as an alert.
     """
     import json
-    active_raw = r.get("props:odds_api")
-    if not active_raw:
-        return
+    from src.core.timezone import et_naive
+
+    # Load all active slip picks keyed by player|stat
+    slip_pick_keys: dict[str, dict] = {}
     try:
-        active_picks = json.loads(active_raw)
-    except Exception:
+        today = et_naive().strftime("%Y-%m-%d")
+        for slip_key in r.hkeys("slips:active"):
+            raw = r.hget("slips:active", slip_key)
+            if not raw:
+                continue
+            slip = json.loads(raw)
+            for pick in slip.get("picks", []):
+                player = (pick.get("player") or pick.get("subject") or "").strip()
+                stat   = (pick.get("stat") or "").strip()
+                sport  = (pick.get("sport_key") or "").strip()
+                if player and stat:
+                    slip_pick_keys[f"{player}|{stat}|{sport}"] = pick
+    except Exception as e:
+        logger.debug("_alert_active_pick_changes: could not load slips:active — %s", e)
         return
 
-    active_keys = {
-        f"{p.get('player', p.get('subject', ''))}|{p.get('stat', '')}|{p.get('sport_key', '')}": p
-        for p in active_picks
-    }
-    if not active_keys:
-        return
+    if not slip_pick_keys:
+        return  # no active slip picks — nothing to alert on
 
     relevant = []
     for c in all_changes:
-        key = f"{c.get('player') or c.get('subject', '')}|{c.get('stat', '')}|{c.get('sport_key', '')}"
-        if key in active_keys:
-            pick = active_keys[key]
+        player = (c.get("player") or c.get("subject") or "").strip()
+        stat   = (c.get("stat") or "").strip()
+        sport  = (c.get("sport_key") or "").strip()
+        key = f"{player}|{stat}|{sport}"
+        if key in slip_pick_keys:
+            pick = slip_pick_keys[key]
             relevant.append({**c, "our_direction": pick.get("direction", "")})
 
     if not relevant:
