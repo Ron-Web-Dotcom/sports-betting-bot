@@ -522,20 +522,31 @@ def _generic_proxy_get(path: str, proxy_url: str) -> dict | list | None:
     if "api.zenrows.com" in proxy_url:
         try:
             api_url = proxy_url.rstrip("&") + f"&url={target_url}"
+            # Accept-Encoding: identity — tell the origin not to compress so ZenRows
+            # can forward the response as plain text without codec issues
+            _zr_headers = {**_HEADERS, "Accept-Encoding": "identity"}
             r = httpx.get(
                 api_url,
-                headers=_HEADERS,
+                headers=_zr_headers,
                 timeout=httpx.Timeout(connect=15.0, read=45.0, write=5.0, pool=5.0),
             )
             if r.status_code == 200:
-                return r.json()
+                try:
+                    return r.json()
+                except Exception:
+                    # Response came back but isn't valid JSON (binary/compressed leak)
+                    # Treat as no-data — don't penalise CB
+                    logger.debug("Sofascore ZenRows [%s]: non-JSON 200 response — skipping", path)
+                    return _NO_DATA
             if r.status_code in (404, 422):
-                # 404 = no games for this sport/date; 422 = ZenRows can't parse this URL
-                # Neither means the proxy is down — don't penalise the circuit breaker
                 logger.debug("Sofascore %s via ZenRows [%s] (no data — skipping)", r.status_code, path)
                 return _NO_DATA  # sentinel: request worked, content just absent
             logger.warning("Sofascore %s via ZenRows [%s]", r.status_code, path)
             return None
+        except UnicodeDecodeError:
+            # Binary response leaked through ZenRows — no data, not a proxy failure
+            logger.debug("Sofascore ZenRows [%s]: encoding error — skipping", path)
+            return _NO_DATA
         except Exception as e:
             logger.warning("Sofascore ZenRows request failed [%s]: %s", path, e)
             return None
