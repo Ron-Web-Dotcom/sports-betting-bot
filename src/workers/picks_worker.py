@@ -319,10 +319,10 @@ def generate_picks():
                 _heavy_favorite = best_odds_val <= -500
                 if best_odds_val > 0:
                     _prop_implied = 100 / (100 + best_odds_val)
-                    if conf < 0.42 or (conf - _prop_implied) < 0.05:
+                    if conf < 0.70 or (conf - _prop_implied) < 0.05:
                         continue
                 else:
-                    if conf < 0.60:
+                    if conf < 0.80:
                         continue
                 prop_ev = evaluate(american_odds=best_odds_val, projected_prob=conf,
                                    opponent_odds=opp_odds_val)
