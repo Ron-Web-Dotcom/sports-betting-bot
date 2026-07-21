@@ -90,7 +90,9 @@ def _h2h_from_markets(markets: dict, away_team: str, home_team: str) -> tuple:
     for team_name, entries in h2h.items():
         if not entries:
             continue
-        best = entries[0].get("american_odds")  # already sorted best-first
+        # entries can be list[dict] ({"american_odds": -110, ...}) or list[int]
+        first = entries[0]
+        best = first.get("american_odds") if isinstance(first, dict) else (first if isinstance(first, int) else None)
         tn = team_name.lower()
         if away_n in tn or tn in away_n:
             away_o = best
