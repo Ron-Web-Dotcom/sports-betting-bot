@@ -179,14 +179,51 @@ print(f"  In both        : {_sf_sports  & _odds_sports or 'set()'}")
 _props_raw = _rc.get("props:odds_api")
 _props     = json.loads(_props_raw) if _props_raw else []
 print(f"\n\n=== PROPS ({len(_props)} total) ===")
-if _props:
+if not _props:
+    print("  (empty — run: python3 check_scan.py --odds)")
+else:
     _p_by_sport: dict[str, list] = {}
     for p in _props:
         sk = p.get("sport_key","?")
         _p_by_sport.setdefault(sk, []).append(p)
-    for sk, ps in sorted(_p_by_sport.items()):
-        print(f"  [{sk}]  {len(ps)} props")
-else:
-    print("  (empty — props scan runs at 8 AM and every 20 min after)")
+
+    for sk in sorted(_p_by_sport.keys()):
+        ps = _p_by_sport[sk]
+        # group by game (event_id or home+away)
+        _by_game: dict[str, list] = {}
+        for p in ps:
+            gkey = p.get("event_id") or f"{p.get('away_team','')}@{p.get('home_team','')}"
+            _by_game.setdefault(gkey, []).append(p)
+
+        print(f"\n  [{sk}]  {len(ps)} props across {len(_by_game)} games")
+        # column widths
+        W = [26, 22, 6, 8, 8]
+        hdr = f"    {'PLAYER/SUBJECT':<{W[0]}}  {'STAT':<{W[1]}}  {'LINE':>{W[2]}}  {'OVER':>{W[3]}}  {'UNDER':>{W[4]}}"
+        sep = "    " + "-" * (sum(W) + 2 * len(W))
+        print(hdr)
+        print(sep)
+        for gkey, gprops in _by_game.items():
+            # print game header
+            sample = gprops[0]
+            away_g = sample.get("away_team","")
+            home_g = sample.get("home_team","")
+            t_g    = _time_et(sample.get("commence_time",""))
+            if away_g and home_g:
+                print(f"    ── {t_g}  {away_g} @ {home_g}  ({len(gprops)} props)")
+            for p in sorted(gprops, key=lambda x: (x.get("stat",""), x.get("player","") or x.get("subject",""))):
+                subj  = (p.get("player") or p.get("subject") or "")[:W[0]]
+                stat  = (p.get("stat") or "")[:W[1]]
+                line  = str(p.get("line") or "—")
+                # over/under odds can be a dict {"book": odds} or a plain int
+                def _fmt_side(v):
+                    if v is None:
+                        return "  N/A"
+                    if isinstance(v, dict):
+                        best = max(v.values()) if v else None
+                        return _odds_str(best) if best is not None else "  N/A"
+                    return _odds_str(int(v))
+                over_o  = _fmt_side(p.get("over_odds")  or p.get("over"))
+                under_o = _fmt_side(p.get("under_odds") or p.get("under"))
+                print(f"    {subj:<{W[0]}}  {stat:<{W[1]}}  {line:>{W[2]}}  {over_o:>{W[3]}}  {under_o:>{W[4]}}")
 
 print(f"\n{'='*80}\n")
