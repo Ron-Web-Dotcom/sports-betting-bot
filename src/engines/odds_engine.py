@@ -1133,6 +1133,25 @@ def run_full_odds_scan() -> list[dict]:
     except Exception as _lme:
         logger.warning("Line movement detection failed: %s", _lme)
 
+    # Keep odds:events_grouped fresh so check_scan.py and scan_props_only() always have current data
+    try:
+        import json as _json_ef
+        import redis as _redis_ef
+        from src.core.config import REDIS_URL as _ru_ef
+        _rc_ef = _redis_ef.from_url(_ru_ef, decode_responses=True, socket_connect_timeout=2)
+        _grouped_ef = {
+            sk: [
+                {"id": ev.get("id",""), "event_id": ev.get("id",""), "sport_key": sk,
+                 "home_team": ev.get("home_team",""), "away_team": ev.get("away_team",""),
+                 "commence_time": ev.get("commence_time",""), "markets": ev.get("markets",{})}
+                for ev in evs
+            ]
+            for sk, evs in all_events.items()
+        }
+        _rc_ef.setex("odds:events_grouped", 7200, _json_ef.dumps(_grouped_ef))
+    except Exception as _ef_e:
+        logger.warning("run_full_odds_scan: could not write odds:events_grouped: %s", _ef_e)
+
     flat = []
     for sport_key, events in all_events.items():
         for ev in events:
