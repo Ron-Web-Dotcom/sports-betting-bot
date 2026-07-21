@@ -142,6 +142,8 @@ CRON_TASKS = [
     (16, 0,  "pre_research_night_entry",                  None, None),  # 4:00 PM — AI research all night games
     (16, 30, "generate_hardrock_night_entry",             None, None),  # HardRock night entry  4:30 PM ET
     (16, 35, "generate_prediction_market_night_entry",    None, None),  # Kalshi night entry    4:35 PM ET
+    (18,  0, "scan_and_save_odds",                        None, None),  # 6 PM refresh — night game lines
+    (18,  0, "scan_player_props",                         None, None),  # 6 PM props refresh for night games
 ]
 
 

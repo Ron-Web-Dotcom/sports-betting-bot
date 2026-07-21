@@ -350,8 +350,8 @@ def scan_player_props():
         all_changes = _detect_prop_changes(prev_props, odds_props, "odds_api")
 
         # ── Cache flat lists ──────────────────────────────────────────────────
-        r.setex("props:odds_api", 2400, json.dumps(odds_props))
-        r.setex("props:all",      2400, json.dumps(odds_props + kalshi_markets))
+        r.setex("props:odds_api", 21600, json.dumps(odds_props))   # 6h — survives until midnight
+        r.setex("props:all",      21600, json.dumps(odds_props + kalshi_markets))
 
         # ── Build odds:events_grouped ─────────────────────────────────────────
         try:
