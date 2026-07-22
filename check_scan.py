@@ -40,6 +40,18 @@ if _SCAN or _SF_ONLY:
         print(f"  Sofascore error: {e}")
 
 if _SCAN or _ODDS_ONLY:
+    # Ensure Sofascore is populated first so the sport-key filter works
+    _sf_cached = _rc.get("sofascore:today_events")
+    if not _sf_cached or _sf_cached == "[]":
+        print("  [scan] Sofascore cache empty — fetching first so Odds API filter works...")
+        try:
+            import src.apis.sofascore as _sf_mod
+            _sf_mod._cb_failures = 0; _sf_mod._cb_tripped_at = 0.0
+            from src.workers.picks_worker import scan_todays_games
+            _sfr = scan_todays_games() or {}
+            print(f"  Sofascore: {_sfr.get('total',0)} events loaded")
+        except Exception as _sfe:
+            print(f"  Sofascore warning: {_sfe}")
     print("  [scan] Fetching Odds API...")
     try:
         from src.workers.odds_worker import scan_odds_only
@@ -207,35 +219,56 @@ else:
             gkey = p.get("event_id") or f"{p.get('away_team','')}@{p.get('home_team','')}"
             _by_game.setdefault(gkey, []).append(p)
 
-        print(f"\n  [{sk}]  {len(ps)} props across {len(_by_game)} games")
-        # column widths
-        W = [26, 22, 6, 8, 8]
+        # Count unique player+stat combos for cleaner summary
+        _uniq = len({(p.get("player") or p.get("subject",""), p.get("stat","")) for p in ps})
+        print(f"\n  [{sk}]  {_uniq} unique player props across {len(_by_game)} games")
+
+        W = [26, 24, 6, 8, 8]
         hdr = f"    {'PLAYER/SUBJECT':<{W[0]}}  {'STAT':<{W[1]}}  {'LINE':>{W[2]}}  {'OVER':>{W[3]}}  {'UNDER':>{W[4]}}"
         sep = "    " + "-" * (sum(W) + 2 * len(W))
-        print(hdr)
-        print(sep)
+
+        def _fmt_side(v):
+            if v is None: return "  N/A"
+            if isinstance(v, dict):
+                best = max(v.values()) if v else None
+                return _odds_str(best) if best is not None else "  N/A"
+            return _odds_str(int(v))
+
         for gkey, gprops in _by_game.items():
-            # print game header
             sample = gprops[0]
             away_g = sample.get("away_team","")
             home_g = sample.get("home_team","")
             t_g    = _time_et(sample.get("commence_time",""))
             if away_g and home_g:
-                print(f"    ── {t_g}  {away_g} @ {home_g}  ({len(gprops)} props)")
-            for p in sorted(gprops, key=lambda x: (x.get("stat",""), x.get("player","") or x.get("subject",""))):
-                subj  = (p.get("player") or p.get("subject") or "")[:W[0]]
-                stat  = (p.get("stat") or "")[:W[1]]
-                line  = str(p.get("line") or "—")
-                # over/under odds can be a dict {"book": odds} or a plain int
-                def _fmt_side(v):
-                    if v is None:
-                        return "  N/A"
-                    if isinstance(v, dict):
-                        best = max(v.values()) if v else None
-                        return _odds_str(best) if best is not None else "  N/A"
-                    return _odds_str(int(v))
-                over_o  = _fmt_side(p.get("over_odds")  or p.get("over"))
-                under_o = _fmt_side(p.get("under_odds") or p.get("under"))
-                print(f"    {subj:<{W[0]}}  {stat:<{W[1]}}  {line:>{W[2]}}  {over_o:>{W[3]}}  {under_o:>{W[4]}}")
+                print(f"\n    ── {t_g}  {away_g} @ {home_g}")
+            print(hdr)
+            print(sep)
+
+            # Group by player+stat, collect all lines — one block per player
+            _grouped_ps: dict[tuple, list] = {}
+            for p in gprops:
+                pkey = (p.get("player") or p.get("subject",""), p.get("stat",""))
+                _grouped_ps.setdefault(pkey, []).append(p)
+
+            last_stat = None
+            for (player, stat), lines in sorted(_grouped_ps.items()):
+                # Print blank line between stat groups for readability
+                if stat != last_stat:
+                    if last_stat is not None:
+                        print()
+                    last_stat = stat
+                subj = player[:W[0]]
+                stat_s = stat[:W[1]]
+                # Sort lines numerically; print first line inline, rest indented
+                lines_sorted = sorted(lines, key=lambda x: float(x.get("line") or 0))
+                for i, p in enumerate(lines_sorted):
+                    line_v  = str(p.get("line") or "—")
+                    over_o  = _fmt_side(p.get("over_odds") or p.get("over"))
+                    under_o = _fmt_side(p.get("under_odds") or p.get("under"))
+                    if i == 0:
+                        print(f"    {subj:<{W[0]}}  {stat_s:<{W[1]}}  {line_v:>{W[2]}}  {over_o:>{W[3]}}  {under_o:>{W[4]}}")
+                    else:
+                        # continuation line — blank name/stat, just show extra line
+                        print(f"    {'':>{W[0]}}  {'':>{W[1]}}  {line_v:>{W[2]}}  {over_o:>{W[3]}}  {under_o:>{W[4]}}")
 
 print(f"\n{'='*80}\n")
