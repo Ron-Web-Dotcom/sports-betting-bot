@@ -984,7 +984,24 @@ def scan_all_sports() -> dict[str, list[dict]]:
 
     active_keys = get_live_active_sport_keys()
     if sf_exact_sport_keys:
-        sport_keys = active_keys & sf_exact_sport_keys
+        # Expand sport keys by slug family: if Sofascore has ANY soccer event (tagged
+        # as soccer_epl because it's the first key in the map), include ALL active
+        # soccer_* keys — not just soccer_epl which may be off-season.
+        try:
+            from src.apis.sofascore import SPORT_MAP as _SF_SPORT_MAP
+            # Build slug → set of all Odds API keys for that slug
+            _slug_to_all_keys: dict[str, set] = {}
+            for _k, _slug in _SF_SPORT_MAP.items():
+                _slug_to_all_keys.setdefault(_slug, set()).add(_k)
+            # Find slugs Sofascore confirmed today
+            _confirmed_slugs = {_SF_SPORT_MAP.get(k) for k in sf_exact_sport_keys if _SF_SPORT_MAP.get(k)}
+            # Expand to all Odds API keys for those slugs
+            _expanded: set[str] = set()
+            for _slug in _confirmed_slugs:
+                _expanded |= _slug_to_all_keys.get(_slug, set())
+            sport_keys = active_keys & (_expanded or sf_exact_sport_keys)
+        except Exception:
+            sport_keys = active_keys & sf_exact_sport_keys
         if not sport_keys:
             sport_keys = active_keys
     else:
