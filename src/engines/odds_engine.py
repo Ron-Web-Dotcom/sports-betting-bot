@@ -982,30 +982,12 @@ def scan_all_sports() -> dict[str, list[dict]]:
     except Exception as _e:
         logger.warning("scan_all_sports: Sofascore cache read failed: %s", _e)
 
+    # Use Odds API active keys directly — it already checks what sports have events today.
+    # The Sofascore filter was too restrictive: Sofascore misses some sports (e.g. MLB)
+    # so intersecting with sf_exact_sport_keys drops valid sports from the scan.
+    # sf_teams is still used below to filter individual games within each sport.
     active_keys = get_live_active_sport_keys()
-    if sf_exact_sport_keys:
-        # Expand sport keys by slug family: if Sofascore has ANY soccer event (tagged
-        # as soccer_epl because it's the first key in the map), include ALL active
-        # soccer_* keys — not just soccer_epl which may be off-season.
-        try:
-            from src.apis.sofascore import SPORT_MAP as _SF_SPORT_MAP
-            # Build slug → set of all Odds API keys for that slug
-            _slug_to_all_keys: dict[str, set] = {}
-            for _k, _slug in _SF_SPORT_MAP.items():
-                _slug_to_all_keys.setdefault(_slug, set()).add(_k)
-            # Find slugs Sofascore confirmed today
-            _confirmed_slugs = {_SF_SPORT_MAP.get(k) for k in sf_exact_sport_keys if _SF_SPORT_MAP.get(k)}
-            # Expand to all Odds API keys for those slugs
-            _expanded: set[str] = set()
-            for _slug in _confirmed_slugs:
-                _expanded |= _slug_to_all_keys.get(_slug, set())
-            sport_keys = active_keys & (_expanded or sf_exact_sport_keys)
-        except Exception:
-            sport_keys = active_keys & sf_exact_sport_keys
-        if not sport_keys:
-            sport_keys = active_keys
-    else:
-        sport_keys = active_keys  # cold start
+    sport_keys  = active_keys
 
     logger.info("OddsAPI scanning %d sport keys today (Sofascore confirmed %d teams, enriched sport keys=%s, Odds API active: %d)",
                 len(sport_keys), len(sf_teams), sorted(sf_exact_sport_keys) or "cold-start", len(active_keys))

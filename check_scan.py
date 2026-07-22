@@ -158,24 +158,50 @@ print(f"\n{'='*80}")
 print(f"  CHECK SCAN  —  {now.strftime('%b %d, %Y  %I:%M %p ET')}")
 print(f"{'='*80}")
 
-print(f"\n=== SOFASCORE TODAY ({len(_sf_evs)} games  /  {len(_sf_live)} live) ===")
+def _real_status(ev: dict) -> str:
+    """Derive actual status from commence_time since cached status goes stale."""
+    ct = _parse_et(ev.get("commence_time",""))
+    if not ct:
+        return "unknown"
+    diff_min = (now - ct.replace(tzinfo=None)).total_seconds() / 60
+    cached_st = (ev.get("status_type") or ev.get("status") or "").lower()
+    if diff_min < -5:
+        return "upcoming"
+    # Sport-aware live window: soccer/basketball ~105 min, baseball ~200 min
+    sk = (ev.get("sport") or ev.get("sport_key") or "").lower()
+    live_window = 200 if "baseball" in sk else 130
+    if 0 <= diff_min <= live_window:
+        return "live"
+    # Clearly finished (past live window) — don't trust cached "inprogress"
+    if diff_min > live_window:
+        return "finished"
+    return cached_st or "unknown"
+
+# Filter to upcoming + live only (hide finished games from earlier today)
+_sf_upcoming = [e for e in _sf_evs if _real_status(e) in ("upcoming", "live")]
+_sf_live_now = [e for e in _sf_evs if _real_status(e) == "live"]
+
+print(f"\n=== SOFASCORE TODAY ({len(_sf_evs)} total  /  {len(_sf_live_now)} live  /  {len(_sf_upcoming)} upcoming+live) ===")
 if not _sf_evs:
     print("  (empty — bot runs Sofascore scan at 8 AM ET;  use --sofascore to refresh now)")
 else:
-    # group by sport
-    _sf_by_sport: dict[str, list] = {}
-    for ev in _sf_evs:
-        sk = ev.get("sport") or ev.get("sport_key") or "unknown"
-        _sf_by_sport.setdefault(sk, []).append(ev)
-    for sk, evs in sorted(_sf_by_sport.items()):
-        print(f"\n  [{sk}]")
+    # Group by tournament name (not the wrong sport_key)
+    _sf_by_tour: dict[str, list] = {}
+    for ev in _sf_upcoming:
+        tour = ev.get("tournament") or ev.get("sport") or ev.get("sport_key") or "Other"
+        _sf_by_tour.setdefault(tour, []).append(ev)
+
+    if not _sf_by_tour:
+        print("  (all today's games already finished)")
+    for tour, evs in sorted(_sf_by_tour.items()):
+        print(f"\n  [{tour}]")
         for ev in sorted(evs, key=lambda e: _parse_et(e.get("commence_time","")) or datetime.max.replace(tzinfo=ET)):
             t    = _time_et(ev.get("commence_time",""))
             home = ev.get("home_team","?")
             away = ev.get("away_team","?")
-            st   = ev.get("status_type","") or ev.get("status","")
-            live_tag = " 🔴" if "inprogress" in st.lower() or "live" in st.lower() else ""
-            print(f"    {t:>8}  {away:<28} @ {home}{live_tag}")
+            st   = _real_status(ev)
+            tag  = " 🔴 LIVE" if st == "live" else ""
+            print(f"    {t:>8}  {away:<28} @ {home}{tag}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — ODDS API TODAY (from odds:events_grouped cache)
@@ -226,14 +252,33 @@ def _fmt_o(v):
     if v is None: return "N/A"
     return f"+{int(v)}" if int(v) > 0 else str(int(v))
 
-if not _props:
-    print("  (empty — run: python3 check_scan.py --odds)")
+_GAME_MARKETS = {"h2h", "spreads", "totals", "draw_no_bet", "btts"}
+
+def _is_player_prop(p: dict) -> bool:
+    """True for real player/team props — excludes h2h, spreads, totals game markets."""
+    stat = (p.get("stat") or "").lower().strip()
+    if not stat or stat in _GAME_MARKETS:
+        return False
+    if any(stat.startswith(m) for m in _GAME_MARKETS):
+        return False
+    return True
+
+_player_props = [p for p in _props if _is_player_prop(p)]
+_game_markets = len(_props) - len(_player_props)
+
+if not _player_props:
+    if _props:
+        print(f"  (only game markets found — {_game_markets} h2h/spreads/totals, no player props yet)")
+        print("  Player props are posted closer to game time. Run --odds again later.")
+    else:
+        print("  (empty — run: python3 check_scan.py --odds)")
 else:
+    print(f"  ({_game_markets} game markets excluded — showing player/team props only)")
     # ── column widths ──────────────────────────────────────────────────────
     PW, SW, LW, OW, UW = 24, 22, 6, 7, 7
 
     _p_by_sport: dict[str, list] = {}
-    for p in _props:
+    for p in _player_props:
         _p_by_sport.setdefault(p.get("sport_key","?"), []).append(p)
 
     for sk in sorted(_p_by_sport.keys()):
