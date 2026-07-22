@@ -213,77 +213,72 @@ print(f"  Odds API only  : {_odds_sports - _sf_sports  or 'set()'}")
 print(f"  In both        : {_sf_sports  & _odds_sports or 'set()'}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 — PROPS SUMMARY
+# SECTION 4 — PROPS
 # ─────────────────────────────────────────────────────────────────────────────
 _props_raw = _rc.get("props:odds_api")
 _props     = json.loads(_props_raw) if _props_raw else []
 print(f"\n\n=== PROPS ({len(_props)} total) ===")
+
+def _fmt_o(v):
+    """Format over/under value (dict of book→odds, or plain int) to best odds string."""
+    if v is None: return "N/A"
+    if isinstance(v, dict): v = max(v.values()) if v else None
+    if v is None: return "N/A"
+    return f"+{int(v)}" if int(v) > 0 else str(int(v))
+
 if not _props:
     print("  (empty — run: python3 check_scan.py --odds)")
 else:
+    # ── column widths ──────────────────────────────────────────────────────
+    PW, SW, LW, OW, UW = 24, 22, 6, 7, 7
+
     _p_by_sport: dict[str, list] = {}
     for p in _props:
-        sk = p.get("sport_key","?")
-        _p_by_sport.setdefault(sk, []).append(p)
+        _p_by_sport.setdefault(p.get("sport_key","?"), []).append(p)
 
     for sk in sorted(_p_by_sport.keys()):
         ps = _p_by_sport[sk]
-        # group by game (event_id or home+away)
+
+        # group by game
         _by_game: dict[str, list] = {}
         for p in ps:
-            gkey = p.get("event_id") or f"{p.get('away_team','')}@{p.get('home_team','')}"
-            _by_game.setdefault(gkey, []).append(p)
+            gk = p.get("event_id") or f"{p.get('away_team','')}@{p.get('home_team','')}"
+            _by_game.setdefault(gk, []).append(p)
 
-        # Count unique player+stat combos for cleaner summary
-        _uniq = len({(p.get("player") or p.get("subject",""), p.get("stat","")) for p in ps})
-        print(f"\n  [{sk}]  {_uniq} unique player props across {len(_by_game)} games")
+        n_players = len({(p.get("player") or p.get("subject","")) for p in ps})
+        print(f"\n  [{sk}]  {n_players} players  /  {len(ps)} prop lines  /  {len(_by_game)} games")
 
-        W = [26, 24, 6, 8, 8]
-        hdr = f"    {'PLAYER/SUBJECT':<{W[0]}}  {'STAT':<{W[1]}}  {'LINE':>{W[2]}}  {'OVER':>{W[3]}}  {'UNDER':>{W[4]}}"
-        sep = "    " + "-" * (sum(W) + 2 * len(W))
+        for gprops in _by_game.values():
+            s = gprops[0]
+            away_g, home_g = s.get("away_team",""), s.get("home_team","")
+            t_g = _time_et(s.get("commence_time",""))
+            print(f"\n    {t_g}  {away_g} @ {home_g}")
+            print(f"    {'PLAYER':<{PW}}  {'STAT':<{SW}}  {'LINE':>{LW}}  {'OVER':>{OW}}  {'UNDER':>{UW}}")
+            print(f"    {'-'*PW}  {'-'*SW}  {'-'*LW}  {'-'*OW}  {'-'*UW}")
 
-        def _fmt_side(v):
-            if v is None: return "  N/A"
-            if isinstance(v, dict):
-                best = max(v.values()) if v else None
-                return _odds_str(best) if best is not None else "  N/A"
-            return _odds_str(int(v))
-
-        for gkey, gprops in _by_game.items():
-            sample = gprops[0]
-            away_g = sample.get("away_team","")
-            home_g = sample.get("home_team","")
-            t_g    = _time_et(sample.get("commence_time",""))
-            if away_g and home_g:
-                print(f"\n    ── {t_g}  {away_g} @ {home_g}")
-            print(hdr)
-            print(sep)
-
-            # Group by player+stat, collect all lines — one block per player
-            _grouped_ps: dict[tuple, list] = {}
+            # group: player → stat → [lines]
+            _by_player: dict[str, dict] = {}
             for p in gprops:
-                pkey = (p.get("player") or p.get("subject",""), p.get("stat",""))
-                _grouped_ps.setdefault(pkey, []).append(p)
+                pl   = (p.get("player") or p.get("subject") or "").strip()
+                stat = (p.get("stat") or "").strip()
+                _by_player.setdefault(pl, {}).setdefault(stat, []).append(p)
 
-            last_stat = None
-            for (player, stat), lines in sorted(_grouped_ps.items()):
-                # Print blank line between stat groups for readability
-                if stat != last_stat:
-                    if last_stat is not None:
-                        print()
-                    last_stat = stat
-                subj = player[:W[0]]
-                stat_s = stat[:W[1]]
-                # Sort lines numerically; print first line inline, rest indented
-                lines_sorted = sorted(lines, key=lambda x: float(x.get("line") or 0))
-                for i, p in enumerate(lines_sorted):
-                    line_v  = str(p.get("line") or "—")
-                    over_o  = _fmt_side(p.get("over_odds") or p.get("over"))
-                    under_o = _fmt_side(p.get("under_odds") or p.get("under"))
-                    if i == 0:
-                        print(f"    {subj:<{W[0]}}  {stat_s:<{W[1]}}  {line_v:>{W[2]}}  {over_o:>{W[3]}}  {under_o:>{W[4]}}")
-                    else:
-                        # continuation line — blank name/stat, just show extra line
-                        print(f"    {'':>{W[0]}}  {'':>{W[1]}}  {line_v:>{W[2]}}  {over_o:>{W[3]}}  {under_o:>{W[4]}}")
+            for player in sorted(_by_player.keys()):
+                stats = _by_player[player]
+                first_player = True
+                for stat in sorted(stats.keys()):
+                    lines = sorted(stats[stat], key=lambda x: float(x.get("line") or 0))
+                    first_stat = True
+                    for p in lines:
+                        lv  = str(p.get("line") or "—")
+                        ov  = _fmt_o(p.get("over_odds")  or p.get("over"))
+                        un  = _fmt_o(p.get("under_odds") or p.get("under"))
+                        # player name: only on first row of this player
+                        p_col  = player[:PW] if first_player and first_stat else ""
+                        st_col = stat[:SW]   if first_stat else ""
+                        print(f"    {p_col:<{PW}}  {st_col:<{SW}}  {lv:>{LW}}  {ov:>{OW}}  {un:>{UW}}")
+                        first_stat = False
+                    first_player = False
+                print()  # blank line between players
 
 print(f"\n{'='*80}\n")
