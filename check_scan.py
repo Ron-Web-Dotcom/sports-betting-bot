@@ -88,13 +88,25 @@ def _h2h_from_markets(markets: dict, away_team: str, home_team: str) -> tuple:
     home_n = home_team.lower()
     away_o = home_o = None
     for team_name, entries in h2h.items():
-        if not entries:
+        if entries is None:
             continue
-        # entries can be list[dict] ({"american_odds": -110, ...}) or list[int]
-        first = entries[0]
-        best = first.get("american_odds") if isinstance(first, dict) else (first if isinstance(first, int) else None)
+        # Structure 1: {"home": -150, "away": +130}  (plain int from scan_player_props)
+        if isinstance(entries, int):
+            best = entries
+        # Structure 2: {"TeamName": [{"american_odds": -110, ...}]}  (list from normalise_event)
+        elif isinstance(entries, list) and entries:
+            first = entries[0]
+            best = first.get("american_odds") if isinstance(first, dict) else (int(first) if first else None)
+        else:
+            continue
         tn = team_name.lower()
-        if away_n in tn or tn in away_n:
+        # "home"/"away" keys from scan_player_props structure
+        if tn == "away":
+            away_o = best
+        elif tn == "home":
+            home_o = best
+        # team-name keys from normalise_event structure
+        elif away_n in tn or tn in away_n:
             away_o = best
         elif home_n in tn or tn in home_n:
             home_o = best
