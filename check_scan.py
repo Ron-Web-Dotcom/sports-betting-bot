@@ -12,6 +12,21 @@ import os, sys, json, logging
 sys.path.insert(0, os.path.dirname(__file__))
 logging.disable(logging.CRITICAL)
 
+# Load .env so API keys and REDIS_URL are available when running manually
+_env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(_env_path):
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path, override=False)
+    except ImportError:
+        # fallback: parse manually
+        with open(_env_path) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _, _v = _line.partition("=")
+                    os.environ.setdefault(_k.strip(), _v.strip())
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
